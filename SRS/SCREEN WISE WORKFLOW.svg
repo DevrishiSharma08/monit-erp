@@ -1,0 +1,446 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 2400" width="1300" height="2400" style="background: #fbffe5; font-family: 'Segoe UI', Arial, sans-serif;">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#555" />
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb" />
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#16a34a" />
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ea580c" />
+    </marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#9333ea" />
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#dc2626" />
+    </marker>
+    <marker id="arrow-teal" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#0d9488" />
+    </marker>
+    <filter id="shadow" x="-5%" y="-5%" width="115%" height="115%">
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.15"/>
+    </filter>
+    <!-- Gradients -->
+    <linearGradient id="grad-blue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#eff6ff"/><stop offset="100%" stop-color="#dbeafe"/>
+    </linearGradient>
+    <linearGradient id="grad-green" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0fdf4"/><stop offset="100%" stop-color="#dcfce7"/>
+    </linearGradient>
+    <linearGradient id="grad-orange" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff7ed"/><stop offset="100%" stop-color="#ffedd5"/>
+    </linearGradient>
+    <linearGradient id="grad-purple" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#faf5ff"/><stop offset="100%" stop-color="#f3e8ff"/>
+    </linearGradient>
+    <linearGradient id="grad-red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fef2f2"/><stop offset="100%" stop-color="#fee2e2"/>
+    </linearGradient>
+    <linearGradient id="grad-amber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fffbeb"/><stop offset="100%" stop-color="#fef3c7"/>
+    </linearGradient>
+    <linearGradient id="grad-teal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0fdfa"/><stop offset="100%" stop-color="#ccfbf1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ============================================================ -->
+  <!-- TITLE -->
+  <!-- ============================================================ -->
+  <text x="650" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1e293b">MONIT — Screen-wise Business Workflow</text>
+  <text x="650" y="62" text-anchor="middle" font-size="13" fill="#64748b">Each box maps to a frontend screen route  |  No Tally/Payment steps</text>
+
+  <!-- ============================================================ -->
+  <!-- LEGEND -->
+  <!-- ============================================================ -->
+  <g transform="translate(30, 80)">
+    <rect x="0" y="0" width="1240" height="32" rx="6" fill="#f8fafc" stroke="#e2e8f0" stroke-width="1"/>
+    <rect x="15" y="8" width="16" height="16" rx="3" fill="url(#grad-blue)" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="38" y="21" font-size="11" fill="#334155">Sales / Order</text>
+    <rect x="145" y="8" width="16" height="16" rx="3" fill="url(#grad-green)" stroke="#16a34a" stroke-width="1.5"/>
+    <text x="168" y="21" font-size="11" fill="#334155">Inventory / Stock</text>
+    <rect x="295" y="8" width="16" height="16" rx="3" fill="url(#grad-orange)" stroke="#ea580c" stroke-width="1.5"/>
+    <text x="318" y="21" font-size="11" fill="#334155">Purchase / Mill</text>
+    <rect x="435" y="8" width="16" height="16" rx="3" fill="url(#grad-purple)" stroke="#9333ea" stroke-width="1.5"/>
+    <text x="458" y="21" font-size="11" fill="#334155">Dispatch / Logistics</text>
+    <rect x="600" y="8" width="16" height="16" rx="3" fill="url(#grad-red)" stroke="#dc2626" stroke-width="1.5"/>
+    <text x="623" y="21" font-size="11" fill="#334155">Finance</text>
+    <polygon points="735,8 751,16 735,24" fill="url(#grad-amber)" stroke="#d97706" stroke-width="1.5"/>
+    <text x="758" y="21" font-size="11" fill="#334155">Decision</text>
+    <rect x="835" y="8" width="16" height="16" rx="8" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+    <text x="858" y="21" font-size="11" fill="#334155">Process Step (no screen)</text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- PHASE 1: SALES ORDER CREATION (CENTER) -->
+  <!-- ============================================================ -->
+  <text x="650" y="145" text-anchor="middle" font-size="14" font-weight="bold" fill="#475569">── PHASE 1: Sales Order Creation ──</text>
+
+  <!-- A: Customer Inquiry → /inquiry -->
+  <rect x="500" y="165" width="300" height="50" rx="8" fill="url(#grad-blue)" stroke="#2563eb" stroke-width="2" filter="url(#shadow)"/>
+  <text x="650" y="186" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e40af">Customer Inquiry</text>
+  <text x="650" y="203" text-anchor="middle" font-size="11" fill="#3b82f6">/inquiry</text>
+
+  <!-- Arrow A→B -->
+  <line x1="650" y1="215" x2="650" y2="235" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+
+  <!-- B: Team Takes Mill Confirmation (process step) -->
+  <rect x="500" y="240" width="300" height="40" rx="20" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="650" y="265" text-anchor="middle" font-size="12" fill="#0f766e">Team Takes Mill Confirmation</text>
+
+  <!-- Arrow B→C -->
+  <line x1="650" y1="280" x2="650" y2="300" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- C: Create Sales Order → /orders -->
+  <rect x="500" y="305" width="300" height="50" rx="8" fill="url(#grad-blue)" stroke="#2563eb" stroke-width="2" filter="url(#shadow)"/>
+  <text x="650" y="326" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e40af">Create Sales Order</text>
+  <text x="650" y="343" text-anchor="middle" font-size="11" fill="#3b82f6">/orders → New Order</text>
+
+  <!-- Arrow C→D -->
+  <line x1="650" y1="355" x2="650" y2="375" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+
+  <!-- D: Customer PO Upload — AI Populate -->
+  <rect x="500" y="380" width="300" height="40" rx="20" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="650" y="405" text-anchor="middle" font-size="12" fill="#0f766e">Customer PO Upload — AI Populate</text>
+
+  <!-- Arrow D→E -->
+  <line x1="650" y1="420" x2="650" y2="440" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- E: Internal Checkpoints Validation -->
+  <rect x="500" y="445" width="300" height="40" rx="20" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="650" y="470" text-anchor="middle" font-size="12" fill="#0f766e">Internal Checkpoints Validation</text>
+
+  <!-- Arrow E→F -->
+  <line x1="650" y1="485" x2="650" y2="505" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- F: Save Sales Order → /orders -->
+  <rect x="500" y="510" width="300" height="50" rx="8" fill="url(#grad-blue)" stroke="#2563eb" stroke-width="2" filter="url(#shadow)"/>
+  <text x="650" y="531" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e40af">Save Sales Order</text>
+  <text x="650" y="548" text-anchor="middle" font-size="11" fill="#3b82f6">/orders → Save &amp; Confirm</text>
+
+  <!-- Arrow F→G -->
+  <line x1="650" y1="560" x2="650" y2="580" stroke="#2563eb" stroke-width="2" marker-end="url(#arrow-blue)"/>
+
+  <!-- G: Customer Confirmation Sent -->
+  <rect x="500" y="585" width="300" height="40" rx="20" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="650" y="610" text-anchor="middle" font-size="12" fill="#0f766e">Customer Confirmation Sent</text>
+
+  <!-- Arrow G→H -->
+  <line x1="650" y1="625" x2="650" y2="650" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ============================================================ -->
+  <!-- PHASE 2: COVERAGE CHECK (DECISION) -->
+  <!-- ============================================================ -->
+  <text x="650" y="670" text-anchor="middle" font-size="14" font-weight="bold" fill="#475569">── PHASE 2: Coverage Check ──</text>
+
+  <!-- H: Stock Available? → /coverage -->
+  <polygon points="650,690 810,740 650,790 490,740" fill="url(#grad-amber)" stroke="#d97706" stroke-width="2" filter="url(#shadow)"/>
+  <text x="650" y="735" text-anchor="middle" font-size="13" font-weight="bold" fill="#92400e">Stock Available?</text>
+  <text x="650" y="753" text-anchor="middle" font-size="11" fill="#b45309">/coverage</text>
+
+  <!-- ============================================================ -->
+  <!-- LEFT BRANCH: YES — IN HOUSE STOCK -->
+  <!-- ============================================================ -->
+
+  <!-- Arrow H→I (left — Yes In House) -->
+  <line x1="490" y1="740" x2="280" y2="740" stroke="#16a34a" stroke-width="2"/>
+  <line x1="280" y1="740" x2="280" y2="805" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <rect x="340" y="725" width="120" height="20" rx="4" fill="#dcfce7" stroke="#16a34a" stroke-width="1"/>
+  <text x="400" y="739" text-anchor="middle" font-size="11" font-weight="bold" fill="#16a34a">Yes — In House</text>
+
+  <text x="280" y="800" text-anchor="middle" font-size="14" font-weight="bold" fill="#16a34a">── IN-HOUSE STOCK FLOW ──</text>
+
+  <!-- I: Dispatch Planner Queue → /dispatch-queue -->
+  <rect x="130" y="810" width="300" height="50" rx="8" fill="url(#grad-purple)" stroke="#9333ea" stroke-width="2" filter="url(#shadow)"/>
+  <text x="280" y="831" text-anchor="middle" font-size="13" font-weight="bold" fill="#6b21a8">Dispatch Planner Queue</text>
+  <text x="280" y="848" text-anchor="middle" font-size="11" fill="#9333ea">/dispatch-queue</text>
+
+  <!-- Arrow I→K -->
+  <line x1="280" y1="860" x2="280" y2="885" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+
+  <!-- K: Bin-wise FIFO Planning → /pick-plan -->
+  <rect x="130" y="890" width="300" height="50" rx="8" fill="url(#grad-green)" stroke="#16a34a" stroke-width="2" filter="url(#shadow)"/>
+  <text x="280" y="911" text-anchor="middle" font-size="13" font-weight="bold" fill="#166534">Bin-wise FIFO Planning</text>
+  <text x="280" y="928" text-anchor="middle" font-size="11" fill="#16a34a">/pick-plan</text>
+
+  <!-- Arrow K→L -->
+  <line x1="280" y1="940" x2="280" y2="965" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+
+  <!-- L: Generate Challan → /challan -->
+  <rect x="130" y="970" width="300" height="50" rx="8" fill="url(#grad-purple)" stroke="#9333ea" stroke-width="2" filter="url(#shadow)"/>
+  <text x="280" y="991" text-anchor="middle" font-size="13" font-weight="bold" fill="#6b21a8">Generate Challan</text>
+  <text x="280" y="1008" text-anchor="middle" font-size="11" fill="#9333ea">/challan</text>
+
+  <!-- Arrow L→M -->
+  <line x1="280" y1="1020" x2="280" y2="1045" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+
+  <!-- M: Store Pick & Loading → /truck-load-plan -->
+  <rect x="130" y="1050" width="300" height="50" rx="8" fill="url(#grad-purple)" stroke="#9333ea" stroke-width="2" filter="url(#shadow)"/>
+  <text x="280" y="1071" text-anchor="middle" font-size="13" font-weight="bold" fill="#6b21a8">Store Pick &amp; Loading</text>
+  <text x="280" y="1088" text-anchor="middle" font-size="11" fill="#9333ea">/truck-load-plan</text>
+
+  <!-- Arrow M→N -->
+  <line x1="280" y1="1100" x2="280" y2="1125" stroke="#dc2626" stroke-width="2" marker-end="url(#arrow-red)"/>
+
+  <!-- N: Sales Invoice Generated → /sales-invoices -->
+  <rect x="130" y="1130" width="300" height="50" rx="8" fill="url(#grad-red)" stroke="#dc2626" stroke-width="2" filter="url(#shadow)"/>
+  <text x="280" y="1151" text-anchor="middle" font-size="13" font-weight="bold" fill="#991b1b">Sales Invoice Generated</text>
+  <text x="280" y="1168" text-anchor="middle" font-size="11" fill="#dc2626">/sales-invoices</text>
+
+  <!-- Arrow N→O -->
+  <line x1="280" y1="1180" x2="280" y2="1205" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+
+  <!-- O: Truck Dispatch with Invoice → /in-transit -->
+  <rect x="130" y="1210" width="300" height="50" rx="8" fill="url(#grad-purple)" stroke="#9333ea" stroke-width="2" filter="url(#shadow)"/>
+  <text x="280" y="1231" text-anchor="middle" font-size="13" font-weight="bold" fill="#6b21a8">Truck Dispatch with Invoice</text>
+  <text x="280" y="1248" text-anchor="middle" font-size="11" fill="#9333ea">/in-transit</text>
+
+  <!-- Arrow O→P -->
+  <line x1="280" y1="1260" x2="280" y2="1285" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+
+  <!-- P: Delivery Confirmation + LR Update → /in-transit -->
+  <rect x="130" y="1290" width="300" height="50" rx="8" fill="url(#grad-purple)" stroke="#9333ea" stroke-width="2" filter="url(#shadow)"/>
+  <text x="280" y="1311" text-anchor="middle" font-size="13" font-weight="bold" fill="#6b21a8">Delivery Confirmation + LR</text>
+  <text x="280" y="1328" text-anchor="middle" font-size="11" fill="#9333ea">/in-transit → Update Status</text>
+
+  <!-- End marker for left branch -->
+  <rect x="220" y="1360" width="120" height="35" rx="17" fill="#16a34a" stroke="#166534" stroke-width="2"/>
+  <text x="280" y="1383" text-anchor="middle" font-size="12" font-weight="bold" fill="#fff">DELIVERED</text>
+
+  <line x1="280" y1="1340" x2="280" y2="1360" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+
+  <!-- ============================================================ -->
+  <!-- RIGHT BRANCH: NO / PARTIAL — MILL PURCHASE FLOW -->
+  <!-- ============================================================ -->
+
+  <!-- Arrow H→J (right — No or Partial) -->
+  <line x1="810" y1="740" x2="1020" y2="740" stroke="#ea580c" stroke-width="2"/>
+  <line x1="1020" y1="740" x2="1020" y2="805" stroke="#ea580c" stroke-width="2" marker-end="url(#arrow-orange)"/>
+  <rect x="830" y="725" width="130" height="20" rx="4" fill="#ffedd5" stroke="#ea580c" stroke-width="1"/>
+  <text x="895" y="739" text-anchor="middle" font-size="11" font-weight="bold" fill="#ea580c">No or Partial</text>
+
+  <text x="1020" y="800" text-anchor="middle" font-size="14" font-weight="bold" fill="#ea580c">── MILL PURCHASE FLOW ──</text>
+
+  <!-- J: Raise Purchase Order → /purchase-orders -->
+  <rect x="870" y="810" width="300" height="50" rx="8" fill="url(#grad-orange)" stroke="#ea580c" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1020" y="831" text-anchor="middle" font-size="13" font-weight="bold" fill="#9a3412">Raise Purchase Order to Mill</text>
+  <text x="1020" y="848" text-anchor="middle" font-size="11" fill="#ea580c">/purchase-orders → Create PO</text>
+
+  <!-- Arrow J→Q -->
+  <line x1="1020" y1="860" x2="1020" y2="885" stroke="#ea580c" stroke-width="2" marker-end="url(#arrow-orange)"/>
+
+  <!-- Q: Mill PO Created → /purchase-orders -->
+  <rect x="870" y="890" width="300" height="40" rx="20" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="1020" y="915" text-anchor="middle" font-size="12" fill="#0f766e">Mill PO with Qty, Dates, Location</text>
+
+  <!-- Arrow Q→R -->
+  <line x1="1020" y1="930" x2="1020" y2="955" stroke="#ea580c" stroke-width="2" marker-end="url(#arrow-orange)"/>
+
+  <!-- R: Mill Tracker Window → /mill-tracker -->
+  <rect x="870" y="960" width="300" height="50" rx="8" fill="url(#grad-orange)" stroke="#ea580c" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1020" y="981" text-anchor="middle" font-size="13" font-weight="bold" fill="#9a3412">Mill Tracker Window</text>
+  <text x="1020" y="998" text-anchor="middle" font-size="11" fill="#ea580c">/mill-tracker</text>
+
+  <!-- Arrow R→S -->
+  <line x1="1020" y1="1010" x2="1020" y2="1035" stroke="#ea580c" stroke-width="2" marker-end="url(#arrow-orange)"/>
+
+  <!-- S: Mill Readiness Excel Upload → /mill-tracker -->
+  <rect x="870" y="1040" width="300" height="40" rx="20" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="1020" y="1065" text-anchor="middle" font-size="12" fill="#0f766e">Mill Readiness Excel Upload</text>
+
+  <!-- Arrow S→T -->
+  <line x1="1020" y1="1080" x2="1020" y2="1105" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- T: Ready Qty Updated → /mill-tracker -->
+  <rect x="870" y="1110" width="300" height="40" rx="20" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="1020" y="1135" text-anchor="middle" font-size="12" fill="#0f766e">Ready Qty Updated Per Line</text>
+
+  <!-- Arrow T→U -->
+  <line x1="1020" y1="1150" x2="1020" y2="1175" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- U: Salesman Notified -->
+  <rect x="870" y="1180" width="300" height="40" rx="20" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="1020" y="1205" text-anchor="middle" font-size="12" fill="#0f766e">Salesman Notified per Customer</text>
+
+  <!-- Arrow U→V -->
+  <line x1="1020" y1="1220" x2="1020" y2="1245" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+
+  <!-- V: Planner Creates Truck Load Plan → /truck-load-plan -->
+  <rect x="870" y="1250" width="300" height="50" rx="8" fill="url(#grad-purple)" stroke="#9333ea" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1020" y="1271" text-anchor="middle" font-size="13" font-weight="bold" fill="#6b21a8">Planner Creates TLP</text>
+  <text x="1020" y="1288" text-anchor="middle" font-size="11" fill="#9333ea">/truck-load-plan</text>
+
+  <!-- Arrow V→W -->
+  <line x1="1020" y1="1300" x2="1020" y2="1325" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+
+  <!-- W: Select Transporter + Locations -->
+  <rect x="870" y="1330" width="300" height="40" rx="20" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="1020" y="1355" text-anchor="middle" font-size="12" fill="#0f766e">Select Transporter + Locations</text>
+
+  <!-- W splits to X and Y (parallel) -->
+  <!-- Arrow W→X (left fork) -->
+  <line x1="970" y1="1370" x2="870" y2="1395" stroke="#ea580c" stroke-width="1.5" marker-end="url(#arrow-orange)"/>
+  <!-- Arrow W→Y (right fork) -->
+  <line x1="1070" y1="1370" x2="1170" y2="1395" stroke="#9333ea" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+
+  <!-- X: Send Loading Instruction to Mill -->
+  <rect x="720" y="1400" width="260" height="36" rx="18" fill="url(#grad-orange)" stroke="#ea580c" stroke-width="1.5"/>
+  <text x="850" y="1423" text-anchor="middle" font-size="11" fill="#9a3412">Send Loading Instruction to Mill</text>
+
+  <!-- Y: Send Delivery Instruction to Transporter -->
+  <rect x="1020" y="1400" width="260" height="36" rx="18" fill="url(#grad-purple)" stroke="#9333ea" stroke-width="1.5"/>
+  <text x="1150" y="1423" text-anchor="middle" font-size="11" fill="#6b21a8">Send Delivery Instruction to Transporter</text>
+
+  <!-- Merge X,Y → Z -->
+  <line x1="850" y1="1436" x2="850" y2="1455" stroke="#ea580c" stroke-width="1.5"/>
+  <line x1="1150" y1="1436" x2="1150" y2="1455" stroke="#9333ea" stroke-width="1.5"/>
+  <line x1="850" y1="1455" x2="1150" y2="1455" stroke="#555" stroke-width="1.5"/>
+  <line x1="1020" y1="1455" x2="1020" y2="1475" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Z: Mill Loads Truck & Raises Purchase Invoice -->
+  <rect x="870" y="1480" width="300" height="40" rx="20" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="1020" y="1505" text-anchor="middle" font-size="12" fill="#0f766e">Mill Loads Truck &amp; Raises Invoice</text>
+
+  <!-- Arrow Z→AA -->
+  <line x1="1020" y1="1520" x2="1020" y2="1545" stroke="#dc2626" stroke-width="2" marker-end="url(#arrow-red)"/>
+
+  <!-- AA: Purchase Invoice Punch → /purchase-invoices -->
+  <rect x="870" y="1550" width="300" height="50" rx="8" fill="url(#grad-red)" stroke="#dc2626" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1020" y="1571" text-anchor="middle" font-size="13" font-weight="bold" fill="#991b1b">Purchase Invoice Punch</text>
+  <text x="1020" y="1588" text-anchor="middle" font-size="11" fill="#dc2626">/purchase-invoices</text>
+
+  <!-- Arrow AA→AB -->
+  <line x1="1020" y1="1600" x2="1020" y2="1625" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+
+  <!-- AB: Stock Marked as In Transit → /in-transit -->
+  <rect x="870" y="1630" width="300" height="50" rx="8" fill="url(#grad-purple)" stroke="#9333ea" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1020" y="1651" text-anchor="middle" font-size="13" font-weight="bold" fill="#6b21a8">Stock Marked as In Transit</text>
+  <text x="1020" y="1668" text-anchor="middle" font-size="11" fill="#9333ea">/in-transit</text>
+
+  <!-- Arrow AB→AC -->
+  <line x1="1020" y1="1680" x2="1020" y2="1710" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ============================================================ -->
+  <!-- DELIVERY TYPE DECISION -->
+  <!-- ============================================================ -->
+
+  <!-- AC: Delivery Type? (Diamond) -->
+  <polygon points="1020,1720 1160,1770 1020,1820 880,1770" fill="url(#grad-amber)" stroke="#d97706" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1020" y="1765" text-anchor="middle" font-size="13" font-weight="bold" fill="#92400e">Delivery Type?</text>
+  <text x="1020" y="1783" text-anchor="middle" font-size="10" fill="#b45309">Mill Delivery Mode</text>
+
+  <!-- ============================================================ -->
+  <!-- AC → Direct to Customer (LEFT from diamond) -->
+  <!-- ============================================================ -->
+  <line x1="880" y1="1770" x2="670" y2="1770" stroke="#dc2626" stroke-width="2"/>
+  <line x1="670" y1="1770" x2="670" y2="1825" stroke="#dc2626" stroke-width="2" marker-end="url(#arrow-red)"/>
+  <rect x="700" y="1755" width="150" height="20" rx="4" fill="#fee2e2" stroke="#dc2626" stroke-width="1"/>
+  <text x="775" y="1769" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">Direct to Customer</text>
+
+  <!-- AD: Sales Invoice Raised → /sales-invoices -->
+  <rect x="520" y="1830" width="300" height="50" rx="8" fill="url(#grad-red)" stroke="#dc2626" stroke-width="2" filter="url(#shadow)"/>
+  <text x="670" y="1851" text-anchor="middle" font-size="13" font-weight="bold" fill="#991b1b">Sales Invoice Raised</text>
+  <text x="670" y="1868" text-anchor="middle" font-size="11" fill="#dc2626">/sales-invoices</text>
+
+  <!-- Arrow AD→AE -->
+  <line x1="670" y1="1880" x2="670" y2="1905" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+
+  <!-- AE: Truck Carries Invoice Copies → /in-transit -->
+  <rect x="520" y="1910" width="300" height="50" rx="8" fill="url(#grad-purple)" stroke="#9333ea" stroke-width="2" filter="url(#shadow)"/>
+  <text x="670" y="1931" text-anchor="middle" font-size="13" font-weight="bold" fill="#6b21a8">Truck Carries Invoice Copies</text>
+  <text x="670" y="1948" text-anchor="middle" font-size="11" fill="#9333ea">/in-transit</text>
+
+  <!-- Arrow AE→AF -->
+  <line x1="670" y1="1960" x2="670" y2="1985" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-purple)"/>
+
+  <!-- AF: Delivery + POD Capture → /in-transit -->
+  <rect x="520" y="1990" width="300" height="50" rx="8" fill="url(#grad-purple)" stroke="#9333ea" stroke-width="2" filter="url(#shadow)"/>
+  <text x="670" y="2011" text-anchor="middle" font-size="13" font-weight="bold" fill="#6b21a8">Delivery + POD Capture</text>
+  <text x="670" y="2028" text-anchor="middle" font-size="11" fill="#9333ea">/in-transit → POD Update</text>
+
+  <!-- End marker for direct branch -->
+  <rect x="610" y="2060" width="120" height="35" rx="17" fill="#dc2626" stroke="#991b1b" stroke-width="2"/>
+  <text x="670" y="2083" text-anchor="middle" font-size="12" font-weight="bold" fill="#fff">DELIVERED</text>
+  <line x1="670" y1="2040" x2="670" y2="2060" stroke="#dc2626" stroke-width="2" marker-end="url(#arrow-red)"/>
+
+  <!-- ============================================================ -->
+  <!-- AC → To Godown (RIGHT from diamond) -->
+  <!-- ============================================================ -->
+  <line x1="1160" y1="1770" x2="1220" y2="1770" stroke="#16a34a" stroke-width="2"/>
+  <line x1="1220" y1="1770" x2="1220" y2="1825" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <rect x="1145" y="1790" width="100" height="20" rx="4" fill="#dcfce7" stroke="#16a34a" stroke-width="1"/>
+  <text x="1195" y="1804" text-anchor="middle" font-size="11" font-weight="bold" fill="#16a34a">To Godown</text>
+
+  <!-- AG: Material Arrives at Godown → /in-transit -->
+  <rect x="1070" y="1830" width="300" height="50" rx="8" fill="url(#grad-purple)" stroke="#9333ea" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1220" y="1851" text-anchor="middle" font-size="13" font-weight="bold" fill="#6b21a8">Material Arrives at Godown</text>
+  <text x="1220" y="1868" text-anchor="middle" font-size="11" fill="#9333ea">/in-transit → Receive</text>
+
+  <!-- Arrow AG→AH -->
+  <line x1="1220" y1="1880" x2="1220" y2="1905" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+
+  <!-- AH: GRN Entry → /grn -->
+  <rect x="1070" y="1910" width="300" height="50" rx="8" fill="url(#grad-green)" stroke="#16a34a" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1220" y="1931" text-anchor="middle" font-size="13" font-weight="bold" fill="#166534">GRN Entry</text>
+  <text x="1220" y="1948" text-anchor="middle" font-size="11" fill="#16a34a">/grn</text>
+
+  <!-- Arrow AH→AI -->
+  <line x1="1220" y1="1960" x2="1220" y2="1985" stroke="#16a34a" stroke-width="2" marker-end="url(#arrow-green)"/>
+
+  <!-- AI: In Transit → Physical Stock → /stock-lots, /bin-locations -->
+  <rect x="1070" y="1990" width="300" height="50" rx="8" fill="url(#grad-green)" stroke="#16a34a" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1220" y="2011" text-anchor="middle" font-size="13" font-weight="bold" fill="#166534">In Transit → Physical Stock</text>
+  <text x="1220" y="2028" text-anchor="middle" font-size="11" fill="#16a34a">/stock-lots  /bin-locations</text>
+
+  <!-- Arrow AI loops back to I (Dispatch Planner Queue) -->
+  <!-- Draw a curved arrow going left and up -->
+  <line x1="1220" y1="2040" x2="1220" y2="2070" stroke="#16a34a" stroke-width="2"/>
+  <text x="1220" y="2090" text-anchor="middle" font-size="11" font-weight="bold" fill="#16a34a">Stock now available — loops back to Coverage</text>
+
+  <!-- Curved return arrow: AI → back to H (Coverage/Dispatch) -->
+  <path d="M 1220,2070 L 1220,2110 L 60,2110 L 60,740 L 490,740"
+        fill="none" stroke="#16a34a" stroke-width="2" stroke-dasharray="8,4" marker-end="url(#arrow-green)"/>
+  <rect x="30" y="1400" width="30" height="160" rx="4" fill="#dcfce7" stroke="#16a34a" stroke-width="1" opacity="0.5"/>
+  <text x="45" y="1490" text-anchor="middle" font-size="11" font-weight="bold" fill="#16a34a" transform="rotate(-90, 45, 1490)">STOCK REPLENISHED → RE-ENTER FLOW</text>
+
+  <!-- ============================================================ -->
+  <!-- SUPPORTING SCREENS (bottom) -->
+  <!-- ============================================================ -->
+  <text x="650" y="2175" text-anchor="middle" font-size="14" font-weight="bold" fill="#475569">── Supporting Screens (Always Available) ──</text>
+
+  <rect x="50" y="2195" width="170" height="45" rx="8" fill="url(#grad-blue)" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="135" y="2214" text-anchor="middle" font-size="12" font-weight="bold" fill="#1e40af">Dashboard</text>
+  <text x="135" y="2230" text-anchor="middle" font-size="10" fill="#3b82f6">/ (home)</text>
+
+  <rect x="240" y="2195" width="170" height="45" rx="8" fill="url(#grad-blue)" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="325" y="2214" text-anchor="middle" font-size="12" font-weight="bold" fill="#1e40af">Customers</text>
+  <text x="325" y="2230" text-anchor="middle" font-size="10" fill="#3b82f6">/customers</text>
+
+  <rect x="430" y="2195" width="170" height="45" rx="8" fill="url(#grad-green)" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="515" y="2214" text-anchor="middle" font-size="12" font-weight="bold" fill="#166534">Inventory</text>
+  <text x="515" y="2230" text-anchor="middle" font-size="10" fill="#16a34a">/inventory</text>
+
+  <rect x="620" y="2195" width="170" height="45" rx="8" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="705" y="2214" text-anchor="middle" font-size="12" font-weight="bold" fill="#0f766e">Masters</text>
+  <text x="705" y="2230" text-anchor="middle" font-size="10" fill="#0d9488">/masters/*</text>
+
+  <rect x="810" y="2195" width="170" height="45" rx="8" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="895" y="2214" text-anchor="middle" font-size="12" font-weight="bold" fill="#0f766e">Reports</text>
+  <text x="895" y="2230" text-anchor="middle" font-size="10" fill="#0d9488">/reports/*</text>
+
+  <rect x="1000" y="2195" width="170" height="45" rx="8" fill="url(#grad-teal)" stroke="#0d9488" stroke-width="1.5"/>
+  <text x="1085" y="2214" text-anchor="middle" font-size="12" font-weight="bold" fill="#0f766e">Settings</text>
+  <text x="1085" y="2230" text-anchor="middle" font-size="10" fill="#0d9488">/settings</text>
+
+  <!-- ============================================================ -->
+  <!-- FOOTER -->
+  <!-- ============================================================ -->
+  <text x="650" y="2280" text-anchor="middle" font-size="11" fill="#94a3b8">Monit Paper Agency ERP — Screen-wise Workflow v3.0</text>
+  <text x="650" y="2298" text-anchor="middle" font-size="10" fill="#cbd5e1">Rounded boxes = Screen routes  |  Pill shapes = Process steps (no dedicated screen)  |  Diamonds = Decisions</text>
+  <text x="650" y="2315" text-anchor="middle" font-size="10" fill="#cbd5e1">Dashed line = Stock replenishment loop back  |  Parallel lines = Simultaneous instructions</text>
+
+</svg>
