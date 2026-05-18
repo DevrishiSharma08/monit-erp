@@ -11,13 +11,15 @@ public class MillContactDto
     public string? Designation   { get; set; }
     public string? Phone         { get; set; }
     public string? Email         { get; set; }
+    public bool    IsDefault     { get; set; }
 }
 
 public class MillUnitDto
 {
-    public int?    Id       { get; set; }
-    public string  UnitName { get; set; } = string.Empty;
-    public string? Address  { get; set; }
+    public int?    Id        { get; set; }
+    public string  UnitName  { get; set; } = string.Empty;
+    public string? Address   { get; set; }
+    public bool    IsDefault { get; set; }
     public List<MillContactDto> Contacts { get; set; } = new();
 }
 

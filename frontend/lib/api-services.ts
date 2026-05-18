@@ -120,9 +120,10 @@ export const paperSizeApi = {
 
 export interface MillContactDto {
   id?: number; contactPerson: string; designation?: string; phone?: string; email?: string;
+  isDefault?: boolean;
 }
 export interface MillUnitDto {
-  id?: number; unitName: string; address?: string; contacts: MillContactDto[];
+  id?: number; unitName: string; address?: string; isDefault?: boolean; contacts: MillContactDto[];
 }
 export interface MillRow {
   id: number; code: string; name: string;
@@ -230,7 +231,7 @@ export const customerApi = {
   forSO:    () => apiFetch<CustomerSODropdown[]>(`${CU_BASE}/for-so`),
 };
 
-export interface CustomerContactSODto          { id: number; name: string; designation?: string; phone?: string; email?: string; }
+export interface CustomerContactSODto          { id: number; name: string; designation?: string; phone?: string; email?: string; isDefault?: boolean; }
 export interface CustomerDeliveryAddressSODto  { id: number; label?: string; address: string; isDefault: boolean; }
 export interface CustomerSODropdown {
   id: number; company: string; gstNo?: string;
@@ -618,4 +619,281 @@ export const poApi = {
   update:  (id: number, dto: UpdatePODto) => apiFetch<PORow>(`${PO_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
   approve: (id: number) => apiFetch<void>(`${PO_BASE}/${id}/approve`, { method: "PATCH" }),
   remove:  (id: number) => apiFetch<void>(`${PO_BASE}/${id}`, { method: "DELETE" }),
+};
+
+// ── Mill Tracker ──────────────────────────────────────────────────────────────
+
+export interface MillTrackerBatchRow {
+  id: number; trackerId: number; batchNo: number;
+  deliveryDate?: string; quantity: number;
+  lrNumber?: string; truckNumber?: string; vehicleNumber?: string;
+  millInvoiceNo?: string; remarks?: string;
+  createdAt: string; createdBy: string;
+}
+
+export interface MillTrackerHistoryRow {
+  id: number; trackerId: number;
+  action?: string; oldStatus?: string; newStatus: string;
+  oldQty?: number; newQty?: number;
+  readyQty?: number; dispatchedQty?: number;
+  remarks?: string; updatedBy: string; updatedAt: string;
+}
+
+export interface MillTrackerRow {
+  id: number; poId: number; poItemId?: number;
+  poNumber: string; poDate?: string;
+  millId: number; mill: string;
+  materialId?: number; paper?: string; gsm?: number; size?: string;
+  orderedQty: number; readyQty: number; dispatchedQty: number; balanceQty: number;
+  rate: number; totalAmount: number;
+  productionStatus: string; productionProgress: number;
+  expectedDelivery?: string; actualDispatchDate?: string;
+  lastUpdate?: string; lastUpdatedBy?: string; delayDays?: number;
+  linkedSOId?: number; deliveryMode?: string; millInvoiceNo?: string;
+  customerName?: string; customerId?: number;
+  soNumber?: string; soDeliveryDate?: string; soCustomerId?: number; soCustomerName?: string;
+  remarks?: string; millSONumber?: string; directDeliveryAddress?: string; createdAt: string;
+  batches: MillTrackerBatchRow[];
+  history: MillTrackerHistoryRow[];
+}
+
+export interface UpdateTrackerStatusDto {
+  status: string; progress?: number; readyQty?: number; note?: string; expectedDelivery?: string;
+}
+
+export interface AddTrackerBatchDto {
+  deliveryDate: string; quantity: number;
+  lrNumber?: string; truckNumber?: string; vehicleNumber?: string;
+  millInvoiceNo?: string; remarks?: string;
+}
+
+export interface BulkImportRowInput {
+  poNumber: string; readyQty?: number; status?: string; expectedDelivery?: string; remarks?: string;
+}
+
+export interface BulkImportResultDto {
+  updated: number; skipped: number; errors: string[];
+}
+
+// ── Truck Load Plans ───────────────────────────────────────────────────────────
+
+export interface TruckLoadPlanItemApiDto {
+  id: number; planId: number; trackerId?: number;
+  poNumber?: string; soNumber?: string;
+  paper?: string; gsm?: number; size?: string;
+  customerName?: string; mill?: string;
+  quantity: number; weightKg?: number;
+  loadOrder: number;
+  deliveryLocation?: string; deliveryAddress?: string;
+  millInvoiceNo?: string; deliveryBillNo?: string;
+}
+
+export interface TruckLoadPlanApiDto {
+  id: number; planNumber: string; planDate: string;
+  truckNumber?: string; truckType?: string; transporterName?: string;
+  driverName?: string; driverPhone?: string;
+  truckCapacityKg?: number; freightAmount?: number; origin?: string;
+  deliveryMode: string;
+  millInvoiceNo?: string; deliveryBillNo?: string;
+  plannedLoadDate?: string; plannedDeliveryDate?: string;
+  actualLoadDate?: string; actualDeliveryDate?: string;
+  status: string; remarks?: string; createdAt: string;
+  items: TruckLoadPlanItemApiDto[];
+}
+
+export interface CreateTruckLoadPlanItemApiDto {
+  trackerId?: number; poNumber?: string; soNumber?: string;
+  paper?: string; gsm?: number; size?: string;
+  customerName?: string; mill?: string;
+  quantity: number; weightKg?: number;
+  loadOrder: number;
+  deliveryLocation?: string; deliveryAddress?: string;
+  millInvoiceNo?: string; deliveryBillNo?: string;
+}
+
+export interface CreateTruckLoadPlanApiDto {
+  truckNumber?: string; truckType?: string; transporterName?: string;
+  driverName?: string; driverPhone?: string;
+  truckCapacityKg?: number; freightAmount?: number; origin?: string;
+  deliveryMode: string;
+  millInvoiceNo?: string; deliveryBillNo?: string;
+  plannedLoadDate?: string; plannedDeliveryDate?: string;
+  remarks?: string;
+  items: CreateTruckLoadPlanItemApiDto[];
+}
+
+export interface UpdateTruckLoadPlanStatusApiDto {
+  status: string;
+  actualLoadDate?: string; actualDeliveryDate?: string;
+  remarks?: string;
+}
+
+const TLP_BASE = "/api/v1/truck-load-plans";
+export const truckLoadPlanApi = {
+  list:         (p: { status?: string; truckNumber?: string; search?: string; page?: number; pageSize?: number } = {}) =>
+                  apiFetch<Paged<TruckLoadPlanApiDto>>(TLP_BASE + qs({ ...p, page: p.page ?? 1, pageSize: p.pageSize ?? 50 })),
+  getById:      (id: number) => apiFetch<TruckLoadPlanApiDto>(`${TLP_BASE}/${id}`),
+  create:       (dto: CreateTruckLoadPlanApiDto) =>
+                  apiFetch<TruckLoadPlanApiDto>(TLP_BASE, { method: "POST", body: JSON.stringify(dto) }),
+  updateStatus: (id: number, dto: UpdateTruckLoadPlanStatusApiDto) =>
+                  apiFetch<TruckLoadPlanApiDto>(`${TLP_BASE}/${id}/status`, { method: "PATCH", body: JSON.stringify(dto) }),
+  remove:       (id: number) => apiFetch<void>(`${TLP_BASE}/${id}`, { method: "DELETE" }),
+};
+
+// ── GRNs ──────────────────────────────────────────────────────────────────────
+
+export interface GrnStatusLogEntry {
+  fromStatus?: string; toStatus: string;
+  remarks?: string; changedBy: string; changedAt: string;
+}
+
+export interface GrnRow {
+  id: number; grnNumber: string; grnDate: string; status: string;
+  poId: number; poNumber: string;
+  millTrackerId?: number; sourceLoadPlanId?: number; loadPlanNumber?: string;
+  millId: number; millName: string;
+  materialId: number; paper: string; gsm?: number; size?: string;
+  orderedQty: number; previouslyReceivedQty: number; receivedQty: number;
+  shortQty: number; damagedQty: number; balanceQty: number;
+  receivedWeightMt?: number;
+  // Delivery routing
+  grnDeliveryMode: string;  // StockIn | DirectToClient | Split
+  stockQty: number;         // qty entering inventory.StockLots
+  directQty: number;        // qty going direct to client
+  directClientId?: number;
+  directClientName?: string;
+  // PO billing mode (Normal | InvoiceOverride | Blind)
+  billingMode: string;
+  blindShipment: boolean;
+  effectiveClientName?: string;
+  // Warehouse / lot
+  warehouseId?: number; warehouseName?: string; binLocation?: string;
+  lotNumber?: string; vehicleNumber?: string; lrNumber?: string;
+  condition?: string; qcResult?: string; qualityGrade?: string;
+  linkedSoId?: number; linkedSoNumber?: string; customerName?: string;
+  createdBy: string; createdAt: string;
+}
+
+export interface GrnDetailRow extends GrnRow {
+  purchaseInvoiceNumber?: string; millChallanNumber?: string;
+  expectedWeightMt?: number; suggestedBin?: string;
+  driverName?: string; receivedBy?: string;
+  freightAmount: number; unloadingCharges: number; invoiceEligible: boolean;
+  remarks?: string; qcApprovedBy?: string; qcDate?: string;
+  overrideClientName?: string;    // mill-facing name for InvoiceOverride mode
+  directDeliveryAddress?: string; // for direct-to-client print
+  // SO chain
+  soDate?: string; soCustomerName?: string; soSalesmanName?: string;
+  soOrderedQty?: number; soRate?: number;
+  // PO chain
+  poDate?: string; poSupplierName?: string; poRate?: number;
+  // TLP chain
+  tlpDate?: string; tlpTruckNumber?: string; tlpTransporter?: string;
+  statusLog: GrnStatusLogEntry[];
+}
+
+export interface CreateGrnDto {
+  millTrackerId: number;
+  sourceLoadPlanId?: number;
+  grnDate: string;
+  purchaseInvoiceNumber?: string; millChallanNumber?: string;
+  receivedQty: number; damagedQty: number; shortQty: number;
+  receivedWeightMt?: number;
+  warehouseId?: number; binLocationId?: number;
+  condition?: string; qcResult?: string; qualityGrade?: string;
+  // Delivery routing
+  grnDeliveryMode: string;  // StockIn | DirectToClient | Split
+  directQty: number;        // required for Split; auto-set for DirectToClient
+  directClientId?: number;  // optional override; server auto-resolves from PO if absent
+  lrNumber?: string; vehicleNumber?: string; driverName?: string;
+  freightAmount: number; unloadingCharges: number; invoiceEligible: boolean;
+  receivedBy?: string; remarks?: string;
+}
+
+export interface UpdateGrnDto {
+  warehouseId?: number; binLocationId?: number;
+  remarks?: string; receivedBy?: string;
+}
+
+export interface UpdateGrnStatusDto {
+  status: string; remarks?: string;
+  qcApprovedBy?: string; qcDate?: string;
+}
+
+const GRN_BASE = "/api/v1/grns";
+export const grnApi = {
+  list:         (p: { status?: string; millId?: number; grnDate?: string; poId?: number; search?: string; page?: number; pageSize?: number } = {}) =>
+                  apiFetch<Paged<GrnRow>>(GRN_BASE + qs({ ...p, page: p.page ?? 1, pageSize: p.pageSize ?? 50 })),
+  getById:      (id: number) => apiFetch<GrnDetailRow>(`${GRN_BASE}/${id}`),
+  create:       (dto: CreateGrnDto) =>
+                  apiFetch<GrnRow>(GRN_BASE, { method: "POST", body: JSON.stringify(dto) }),
+  update:       (id: number, dto: UpdateGrnDto) =>
+                  apiFetch<GrnDetailRow>(`${GRN_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
+  updateStatus: (id: number, dto: UpdateGrnStatusDto) =>
+                  apiFetch<GrnDetailRow>(`${GRN_BASE}/${id}/status`, { method: "PATCH", body: JSON.stringify(dto) }),
+  remove:       (id: number) => apiFetch<void>(`${GRN_BASE}/${id}`, { method: "DELETE" }),
+};
+
+// ── Stock Lots ────────────────────────────────────────────────────────────────
+
+export interface StockLotRow {
+  id: number; lotNumber: string;
+  grnId: number; grnNumber: string; grnDate: string;
+  materialId: number; paper: string; gsm?: number; size?: string;
+  millId: number; millName: string;
+  warehouseId?: number; warehouseName?: string; binLocation?: string;
+  openingQty: number; currentQty: number;
+  allocatedQty: number; availableQty: number;
+  costPerUnit?: number; totalCost?: number;
+  condition?: string; qualityGrade?: string;
+  status: string; fifoSequence: number;
+  poId: number; poNumber: string;
+  loadPlanId?: number; loadPlanNumber?: string;
+  linkedSoId?: number; linkedSoNumber?: string;
+  customerName?: string;
+  createdBy: string; createdAt: string;
+}
+
+export interface StockLotDetailRow extends StockLotRow {
+  grnQcResult?: string; grnVehicleNumber?: string;
+  grnLrNumber?: string; grnCondition?: string;
+  tlpTruckNumber?: string; tlpTransporter?: string;
+  tlpDate?: string; tlpOrigin?: string; tlpStatus?: string;
+  soDate?: string; soCustomerName?: string;
+  poDate?: string; poRate?: number;
+  billingMode: string; effectiveClientName?: string;
+}
+
+export interface UpdateStockLotDto {
+  currentQty?: number;
+  warehouseId?: number;
+  binLocationId?: number;
+  qualityGrade?: string;
+}
+
+const STOCK_LOT_BASE = "/api/v1/stock-lots";
+export const stockLotApi = {
+  list:    (p: { status?: string; warehouseId?: number; materialId?: number; millId?: number; noBin?: boolean; search?: string; page?: number; pageSize?: number } = {}) =>
+             apiFetch<Paged<StockLotRow>>(STOCK_LOT_BASE + qs({ ...p, page: p.page ?? 1, pageSize: p.pageSize ?? 50 })),
+  getById: (id: number) => apiFetch<StockLotDetailRow>(`${STOCK_LOT_BASE}/${id}`),
+  update:  (id: number, dto: UpdateStockLotDto) =>
+             apiFetch<StockLotDetailRow>(`${STOCK_LOT_BASE}/${id}`, { method: "PATCH", body: JSON.stringify(dto) }),
+  remove:  (id: number) => apiFetch<void>(`${STOCK_LOT_BASE}/${id}`, { method: "DELETE" }),
+};
+
+// ── Mill Tracker ──────────────────────────────────────────────────────────────
+
+const MT_BASE = "/api/v1/mill-tracker";
+export const millTrackerApi = {
+  list:         (p: { poId?: number; millId?: number; status?: string; customerId?: number; search?: string; page?: number; pageSize?: number } = {}) =>
+                  apiFetch<Paged<MillTrackerRow>>(MT_BASE + qs({ ...p, page: p.page ?? 1, pageSize: p.pageSize ?? 200 })),
+  getById:      (id: number) => apiFetch<MillTrackerRow>(`${MT_BASE}/${id}`),
+  getByPo:      (poId: number) => apiFetch<MillTrackerRow[]>(`${MT_BASE}/by-po/${poId}`),
+  updateStatus: (id: number, dto: UpdateTrackerStatusDto) =>
+                  apiFetch<MillTrackerRow>(`${MT_BASE}/${id}/status`, { method: "PATCH", body: JSON.stringify(dto) }),
+  addBatch:     (id: number, dto: AddTrackerBatchDto) =>
+                  apiFetch<MillTrackerBatchRow>(`${MT_BASE}/${id}/batches`, { method: "POST", body: JSON.stringify(dto) }),
+  bulkImport:   (rows: BulkImportRowInput[]) =>
+                  apiFetch<BulkImportResultDto>(`${MT_BASE}/bulk-import`, { method: "POST", body: JSON.stringify(rows) }),
+  remove:       (id: number) => apiFetch<void>(`${MT_BASE}/${id}`, { method: "DELETE" }),
 };

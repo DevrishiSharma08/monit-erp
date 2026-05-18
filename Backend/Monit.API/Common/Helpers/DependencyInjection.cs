@@ -6,6 +6,7 @@ using Monit.API.Repositories.Auth;
 using Monit.API.Repositories.Interfaces;
 using Monit.API.Repositories.Masters;
 using Monit.API.Repositories.Config;
+using Monit.API.Repositories.Inventory;
 using Monit.API.Repositories.Procurement;
 using Monit.API.Repositories.Sales;
 using Monit.API.Services;
@@ -14,6 +15,7 @@ using Monit.API.Services.Config;
 using Monit.API.Services.Interfaces;
 using Monit.API.Services.Masters;
 using Monit.API.Services.Procurement;
+using Monit.API.Services.Inventory;
 using Monit.API.Services.Sales;
 
 namespace Monit.API.Common.Helpers;
@@ -51,6 +53,10 @@ public static class DependencyInjection
         services.AddScoped<ICompanyConfigRepository, CompanyConfigRepository>();
         services.AddScoped<ISalesOrderRepository,    SalesOrderRepository>();
         services.AddScoped<IPurchaseOrderRepository, PurchaseOrderRepository>();
+        services.AddScoped<IMillTrackerRepository,   MillTrackerRepository>();
+        services.AddScoped<ITruckLoadPlanRepository, TruckLoadPlanRepository>();
+        services.AddScoped<IGrnRepository,           GrnRepository>();
+        services.AddScoped<IStockLotRepository,      StockLotRepository>();
 
         // ── Services ──────────────────────────────────────────────────────────
         services.AddScoped<IUnitService,             UnitService>();
@@ -77,6 +83,10 @@ public static class DependencyInjection
         services.AddScoped<ICompanyConfigService,    CompanyConfigService>();
         services.AddScoped<ISalesOrderService,       SalesOrderService>();
         services.AddScoped<IPurchaseOrderService,   PurchaseOrderService>();
+        services.AddScoped<IMillTrackerService,      MillTrackerService>();
+        services.AddScoped<ITruckLoadPlanService,    TruckLoadPlanService>();
+        services.AddScoped<IGrnService,              GrnService>();
+        services.AddScoped<IStockLotService,         StockLotService>();
 
         return services;
     }

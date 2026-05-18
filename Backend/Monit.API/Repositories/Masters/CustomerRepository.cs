@@ -33,7 +33,7 @@ public class CustomerRepository(DbConnectionFactory db) : ICustomerRepository
     public async Task<CustomerDetailDto?> GetByIdAsync(int id)
     {
         const string custSql     = "SELECT Id,Name,OwnerName,Phone,Email,GSTNo,BillingAddress,CreditLimit,CreditDays,PaymentTerms,LocalityId,IsActive,CreatedAt,UpdatedAt,UpdatedBy FROM masters.Customers WHERE Id=@Id AND IsDeleted=0";
-        const string contactsSql = "SELECT Id,Name,Designation,Phone,Email FROM masters.CustomerContacts WHERE CustomerId=@Id AND IsDeleted=0 ORDER BY Name";
+        const string contactsSql = "SELECT Id,Name,Designation,Phone,Email,IsDefault FROM masters.CustomerContacts WHERE CustomerId=@Id AND IsDeleted=0 ORDER BY IsDefault DESC, Name";
         const string locationsSql = "SELECT Id,Label,Address,IsDefault FROM masters.CustomerDeliveryLocations WHERE CustomerId=@Id AND IsDeleted=0 ORDER BY IsDefault DESC, Id";
 
         using var conn = db.Create();
@@ -59,10 +59,10 @@ public class CustomerRepository(DbConnectionFactory db) : ICustomerRepository
             WHERE  IsDeleted=0 AND IsActive=1
             ORDER BY Name";
         const string contactsSql = @"
-            SELECT Id, CustomerId, Name, Designation, Phone, Email
+            SELECT Id, CustomerId, Name, Designation, Phone, Email, IsDefault
             FROM   masters.CustomerContacts
             WHERE  IsDeleted=0
-            ORDER BY CustomerId, Name";
+            ORDER BY CustomerId, IsDefault DESC, Name";
         const string locationsSql = @"
             SELECT Id, CustomerId, Label, Address, IsDefault
             FROM   masters.CustomerDeliveryLocations
@@ -81,6 +81,7 @@ public class CustomerRepository(DbConnectionFactory db) : ICustomerRepository
                 Designation = (string?)r.Designation,
                 Phone       = (string?)r.Phone,
                 Email       = (string?)r.Email,
+                IsDefault   = (bool)r.IsDefault,
             }).ToList());
         var locationsByCustomer = locations.GroupBy(r => (int)r.CustomerId)
             .ToDictionary(g => g.Key, g => g.Select(r => new CustomerDeliveryLocationSODto
@@ -139,9 +140,9 @@ public class CustomerRepository(DbConnectionFactory db) : ICustomerRepository
 
     private static async Task InsertContacts(System.Data.IDbConnection conn, int customerId, IEnumerable<CustomerContact> contacts, string createdBy)
     {
-        const string sql = "INSERT INTO masters.CustomerContacts (CustomerId,Name,Designation,Phone,Email,CreatedAt,CreatedBy) VALUES (@CustomerId,@Name,@Designation,@Phone,@Email,GETUTCDATE(),@CreatedBy)";
+        const string sql = "INSERT INTO masters.CustomerContacts (CustomerId,Name,Designation,Phone,Email,IsDefault,CreatedAt,CreatedBy) VALUES (@CustomerId,@Name,@Designation,@Phone,@Email,@IsDefault,GETUTCDATE(),@CreatedBy)";
         foreach (var c in contacts)
-            await conn.ExecuteAsync(sql, new { CustomerId = customerId, c.Name, c.Designation, c.Phone, c.Email, CreatedBy = createdBy });
+            await conn.ExecuteAsync(sql, new { CustomerId = customerId, c.Name, c.Designation, c.Phone, c.Email, c.IsDefault, CreatedBy = createdBy });
     }
 
     private static async Task InsertLocations(System.Data.IDbConnection conn, int customerId, IEnumerable<CustomerDeliveryLocation> locations, string createdBy)

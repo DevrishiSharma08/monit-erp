@@ -1,15 +1,17 @@
 "use client";
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { GRN, TruckLoadPlan, PurchaseOrder, StockLot } from "@/data/mockData";
-import { useStock } from "@/context/StockContext";
-import { usePurchaseOrder } from "@/context/PurchaseOrderContext";
-import { useSalesOrder } from "@/context/SalesOrderContext";
+import {
+  grnApi, GrnRow, GrnDetailRow, CreateGrnDto, UpdateGrnDto,
+  truckLoadPlanApi, TruckLoadPlanApiDto,
+  warehouseApi, WarehouseDropdown,
+  millTrackerApi, MillTrackerRow,
+} from "@/lib/api-services";
 import {
   PackageCheck, Clock, AlertTriangle, CheckCircle, X, FileText,
-  Truck, User, MapPin, Hash, Calendar, ShieldCheck, ClipboardCheck,
-  Weight, Ban, Plus, Printer, Search, MoreVertical, Eye, Pencil,
-  Trash2, CheckCircle2,
+  Truck, MapPin, Plus, Printer, Search, MoreVertical, Eye,
+  Pencil, Trash2, CheckCircle2, Ban, Loader2, ArrowRight, Building2,
+  ShieldAlert, ShieldCheck, EyeOff,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
@@ -38,16 +40,21 @@ function getQcColor(qc: string) {
   return map[qc] || "bg-gray-100 text-gray-700";
 }
 
-function genGrnNumber() {
-  return `GRN-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+function getDeliveryModeColor(mode: string) {
+  if (mode === "DirectToClient") return "bg-purple-100 text-purple-700 border-purple-200";
+  if (mode === "Split") return "bg-indigo-100 text-indigo-700 border-indigo-200";
+  return "bg-teal-100 text-teal-700 border-teal-200";
 }
 
-function genLotNumber(mill: string, paper: string, gsm: number, size: string) {
-  const d = new Date().toISOString().split("T")[0].replace(/-/g, "");
-  return `${mill.replace(/\s/g, "").substring(0, 3).toUpperCase()}-${paper.replace(/\s/g, "").substring(0, 4).toUpperCase()}-${gsm}-${size}-${d}-001`;
+function getBillingModeLabel(mode: string, blind: boolean) {
+  if (blind || mode === "Blind") return { label: "Blind Shipment", color: "bg-red-100 text-red-700 border-red-200", Icon: EyeOff };
+  if (mode === "InvoiceOverride") return { label: "Invoice Override", color: "bg-orange-100 text-orange-700 border-orange-200", Icon: ShieldAlert };
+  return { label: "Normal", color: "bg-green-100 text-green-700 border-green-200", Icon: ShieldCheck };
 }
 
-function printGRN(grn: GRN) {
+function printGRN(grn: GrnDetailRow) {
+  const billing = getBillingModeLabel(grn.billingMode, grn.blindShipment);
+  const hasDirectDelivery = grn.grnDeliveryMode !== "StockIn";
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
   <title>GRN — ${grn.grnNumber}</title>
   <style>
@@ -56,7 +63,9 @@ function printGRN(grn: GRN) {
     .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1d4ed8;padding-bottom:14px;margin-bottom:20px}
     .co{font-size:20px;font-weight:700;color:#1d4ed8}.co-sub{font-size:10px;color:#6b7280;margin-top:2px}
     .gt{text-align:right}.gt h2{font-size:16px;font-weight:700}.gt .num{font-size:15px;font-weight:700;color:#1d4ed8;margin-top:3px}
-    .st{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;background:#dcfce7;color:#15803d}
+    .badge{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600}
+    .badge-green{background:#dcfce7;color:#15803d}.badge-orange{background:#ffedd5;color:#c2410c}
+    .badge-red{background:#fee2e2;color:#b91c1c}.badge-purple{background:#f3e8ff;color:#7e22ce}
     .sec{margin-bottom:16px}.sec-t{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;margin-bottom:6px;border-bottom:1px solid #e5e7eb;padding-bottom:3px}
     .g2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
     .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
@@ -74,45 +83,62 @@ function printGRN(grn: GRN) {
     <div><div class="co">MONIT PAPER AGENCY</div>
     <div class="co-sub">Paper Trading · Indore, Madhya Pradesh</div>
     <div class="co-sub">GST: 23XXXXX0000X1Z5 · Ph: +91-XXXXXXXXXX</div></div>
-    <div class="gt"><h2>GOODS RECEIPT NOTE</h2><div class="num">${grn.grnNumber}</div><span class="st">${grn.status}</span></div>
+    <div class="gt"><h2>GOODS RECEIPT NOTE</h2><div class="num">${grn.grnNumber}</div>
+      <span class="badge badge-green">${grn.status}</span>
+      ${grn.grnDeliveryMode !== "StockIn" ? `<span class="badge badge-purple" style="margin-left:4px">${grn.grnDeliveryMode === "DirectToClient" ? "Direct to Client" : "Split Delivery"}</span>` : ""}
+      ${grn.billingMode === "Blind" || grn.blindShipment ? `<span class="badge badge-red" style="margin-left:4px">Blind Shipment</span>` : ""}
+      ${grn.billingMode === "InvoiceOverride" ? `<span class="badge badge-orange" style="margin-left:4px">Invoice Override</span>` : ""}
+    </div>
   </div>
   <div class="sec"><div class="sec-t">GRN Details</div>
     <div class="g3">
       <div class="f"><div class="fl">GRN Date</div><div class="fv">${grn.grnDate}</div></div>
       <div class="f"><div class="fl">PO Reference</div><div class="fv">${grn.poNumber}</div></div>
-      <div class="f"><div class="fl">Mill / Supplier</div><div class="fv">${grn.mill}</div></div>
+      <div class="f"><div class="fl">Mill / Supplier</div><div class="fv">${grn.millName}</div></div>
       <div class="f"><div class="fl">Mill Challan #</div><div class="fv">${grn.millChallanNumber || "—"}</div></div>
       <div class="f"><div class="fl">Purchase Invoice</div><div class="fv">${grn.purchaseInvoiceNumber || "—"}</div></div>
-      <div class="f"><div class="fl">Warehouse</div><div class="fv">${grn.warehouse}</div></div>
+      <div class="f"><div class="fl">Warehouse</div><div class="fv">${grn.warehouseName || "—"}</div></div>
+      ${grn.effectiveClientName ? `<div class="f"><div class="fl">Customer (Internal)</div><div class="fv">${grn.effectiveClientName}</div></div>` : ""}
+      ${grn.billingMode === "InvoiceOverride" && grn.overrideClientName ? `<div class="f"><div class="fl">Client on PO</div><div class="fv">${grn.overrideClientName}</div></div>` : ""}
     </div>
   </div>
-  <div class="sec"><div class="sec-t">Material Details</div>
-    <table><thead><tr><th>Paper</th><th>GSM</th><th>Size</th><th>Ordered</th><th>Received</th><th>Short</th><th>Damaged</th><th>Balance</th></tr></thead>
+  <div class="sec"><div class="sec-t">Material & Quantity Split</div>
+    <table><thead><tr><th>Paper</th><th>GSM</th><th>Size</th><th>Ordered</th><th>Received</th><th>Short</th><th>Damaged</th>
+      ${hasDirectDelivery ? "<th>→ Stock</th><th>→ Client</th>" : "<th>Balance</th>"}
+    </tr></thead>
     <tbody><tr>
       <td><strong>${grn.paper}</strong></td><td>${grn.gsm} GSM</td><td>${grn.size}</td>
       <td style="text-align:right">${grn.orderedQty.toLocaleString()}</td>
       <td style="text-align:right;color:#15803d;font-weight:700">${grn.receivedQty.toLocaleString()}</td>
       <td style="text-align:right;color:${grn.shortQty > 0 ? "#d97706" : "#9ca3af"}">${grn.shortQty.toLocaleString()}</td>
       <td style="text-align:right;color:${grn.damagedQty > 0 ? "#b91c1c" : "#9ca3af"}">${grn.damagedQty.toLocaleString()}</td>
-      <td style="text-align:right;font-weight:700;color:${grn.balanceQty > 0 ? "#b91c1c" : "#15803d"}">${grn.balanceQty > 0 ? grn.balanceQty.toLocaleString() : "NIL"}</td>
+      ${hasDirectDelivery
+        ? `<td style="text-align:right;color:#0f766e;font-weight:700">${grn.stockQty.toLocaleString()}</td>
+           <td style="text-align:right;color:#7e22ce;font-weight:700">${grn.directQty.toLocaleString()}</td>`
+        : `<td style="text-align:right;font-weight:700;color:${grn.balanceQty > 0 ? "#b91c1c" : "#15803d"}">${grn.balanceQty > 0 ? grn.balanceQty.toLocaleString() : "NIL"}</td>`}
     </tr></tbody></table>
+    ${grn.grnDeliveryMode === "DirectToClient" || grn.grnDeliveryMode === "Split"
+      ? `<div style="margin-top:6px;font-size:10px;color:#7e22ce;background:#faf5ff;border:1px solid #e9d5ff;border-radius:4px;padding:6px 8px">
+          Direct to Client: <strong>${grn.directQty.toLocaleString()} sheets</strong>${grn.directClientName ? ` → ${grn.directClientName}` : ""}
+          ${grn.directDeliveryAddress ? ` · ${grn.directDeliveryAddress}` : ""}
+        </div>` : ""}
   </div>
   <div class="sec"><div class="sec-t">Transport & Logistics</div>
     <div class="g2">
       <div class="f"><div class="fl">LR Number</div><div class="fv">${grn.lrNumber || "—"}</div></div>
-      <div class="f"><div class="fl">Transporter</div><div class="fv">${grn.transporterName || "—"}</div></div>
+      <div class="f"><div class="fl">TLP #</div><div class="fv">${grn.loadPlanNumber || "—"}</div></div>
       <div class="f"><div class="fl">Vehicle Number</div><div class="fv">${grn.vehicleNumber || "—"}</div></div>
       <div class="f"><div class="fl">Received By</div><div class="fv">${grn.receivedBy || "—"}</div></div>
     </div>
   </div>
   <div class="sec"><div class="sec-t">Quality Check</div>
     <div class="g3">
-      <div class="f"><div class="fl">Condition</div><div class="fv">${grn.condition}</div></div>
-      <div class="f"><div class="fl">QC Result</div><div class="fv">${grn.qcResult}</div></div>
-      <div class="f"><div class="fl">Quality Grade</div><div class="fv">${grn.qualityGrade}</div></div>
-      <div class="f"><div class="fl">Lot Number</div><div class="fv" style="font-family:monospace">${grn.lotNumber}</div></div>
-      <div class="f"><div class="fl">Bin Location</div><div class="fv" style="font-family:monospace">${grn.binLocation || grn.suggestedBin || "—"}</div></div>
-      ${grn.verifiedBy ? `<div class="f"><div class="fl">Verified By</div><div class="fv">${grn.verifiedBy} · ${grn.verifiedDate}</div></div>` : ""}
+      <div class="f"><div class="fl">Condition</div><div class="fv">${grn.condition || "—"}</div></div>
+      <div class="f"><div class="fl">QC Result</div><div class="fv">${grn.qcResult || "—"}</div></div>
+      <div class="f"><div class="fl">Quality Grade</div><div class="fv">${grn.qualityGrade || "—"}</div></div>
+      <div class="f"><div class="fl">Lot Number</div><div class="fv" style="font-family:monospace">${grn.lotNumber || "—"}</div></div>
+      <div class="f"><div class="fl">Bin Location</div><div class="fv" style="font-family:monospace">${grn.binLocation || "—"}</div></div>
+      ${grn.qcApprovedBy ? `<div class="f"><div class="fl">QC Approved By</div><div class="fv">${grn.qcApprovedBy} · ${grn.qcDate || ""}</div></div>` : ""}
     </div>
     ${grn.remarks ? `<div style="background:#fefce8;border:1px solid #fde68a;border-radius:5px;padding:8px;margin-top:6px;font-size:11px;color:#78350f"><strong>Remarks:</strong> ${grn.remarks}</div>` : ""}
   </div>
@@ -135,103 +161,157 @@ function printGRN(grn: GRN) {
 
 // ─── Create GRN Modal ─────────────────────────────────────────────────────────
 
+type DeliveryMode = "StockIn" | "DirectToClient" | "Split";
+
 interface ItemFormState {
   receivedQty: number;
   damagedQty: number;
-  qcResult: GRN["qcResult"];
+  qcResult: string;
+  deliveryMode: DeliveryMode;
+  directQty: number;
 }
 
 interface CreateGRNModalProps {
-  tlp: TruckLoadPlan;
-  soCustomer?: string;
-  soNumber?: string;
-  soDeliveryAddress?: string;
-  soLines?: { paper: string; gsm: number; size: string; orderedQty: number; rate: number }[];
-  purchaseOrders?: PurchaseOrder[];
-  onSave: (grns: GRN[]) => void;
+  tlp: TruckLoadPlanApiDto;
+  warehouses: WarehouseDropdown[];
+  onSave: (dtos: CreateGrnDto[]) => Promise<void>;
   onClose: () => void;
 }
 
-function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchaseOrders, onSave, onClose }: CreateGRNModalProps) {
+function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProps) {
   const today = new Date().toISOString().split("T")[0];
   const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [trackerMap, setTrackerMap] = useState<Record<number, MillTrackerRow>>({});
 
-  const poData = useMemo(() =>
-    tlp.items.map((item) => {
-      const po = purchaseOrders?.find((p) => p.poNumber === item.poNumber);
-      const poItem = (po?.items as any[] | undefined)?.find((pi: any) => pi.gsm === item.gsm && pi.size === item.size);
-      return { rate: (poItem?.rate ?? 0) as number, orderedQty: (poItem?.orderedQty ?? item.quantity) as number };
-    }),
-    [tlp.items, purchaseOrders]
-  );
+  // Load tracker info for each item
+  useEffect(() => {
+    const trackerIds = tlp.items.map((i) => i.trackerId).filter(Boolean) as number[];
+    const unique = [...new Set(trackerIds)];
+    Promise.all(unique.map((id) => millTrackerApi.getById(id).catch(() => null))).then((results) => {
+      const map: Record<number, MillTrackerRow> = {};
+      results.forEach((t) => { if (t) map[t.id] = t; });
+      setTrackerMap(map);
+      // Auto-populate delivery mode from PO via tracker
+      setItemForms((forms) =>
+        forms.map((f, idx) => {
+          const t = map[tlp.items[idx]?.trackerId ?? 0];
+          if (!t) return f;
+          const mode: DeliveryMode =
+            t.deliveryMode === "Direct To Customer" ? "DirectToClient" : "StockIn";
+          return { ...f, deliveryMode: mode };
+        })
+      );
+    });
+  }, [tlp.items]);
 
   const [itemForms, setItemForms] = useState<ItemFormState[]>(() =>
-    tlp.items.map((item) => ({ receivedQty: item.quantity, damagedQty: 0, qcResult: "Accepted" as GRN["qcResult"] }))
+    tlp.items.map((item) => ({
+      receivedQty: item.quantity,
+      damagedQty: 0,
+      qcResult: "Accepted",
+      deliveryMode: "StockIn" as DeliveryMode,
+      directQty: 0,
+    }))
   );
 
+  const defaultWarehouseId = warehouses[0]?.id;
   const [form, setForm] = useState({
     lrNumber: "",
-    transporterName: tlp.transporterName || "",
     vehicleNumber: tlp.truckNumber || "",
     receivedBy: "",
     millChallanNumber: "",
     purchaseInvoiceNumber: "",
-    condition: "Good" as GRN["condition"],
-    qualityGrade: "A Grade" as GRN["qualityGrade"],
-    warehouse: "Lasudia",
+    condition: "Good",
+    qualityGrade: "A Grade",
+    warehouseId: defaultWarehouseId as number | undefined,
     remarks: "",
+    freightAmount: tlp.freightAmount ?? 0,
+    unloadingCharges: 0,
   });
 
-  const set = useCallback(<K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v })), []);
-  const setItem = useCallback((idx: number, field: keyof ItemFormState, value: number | string) =>
-    setItemForms((forms) => forms.map((f, i) => (i === idx ? { ...f, [field]: value } : f))), []);
+  const set = useCallback(
+    <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm((f) => ({ ...f, [k]: v })),
+    []
+  );
 
-  const resolvedStatus = useMemo((): GRN["status"] => {
+  const setItem = useCallback(
+    (idx: number, field: keyof ItemFormState, value: number | string) =>
+      setItemForms((forms) => forms.map((f, i) => {
+        if (i !== idx) return f;
+        const updated = { ...f, [field]: value };
+        // For DirectToClient, auto-set directQty = good qty
+        if (field === "deliveryMode" && value === "DirectToClient") {
+          updated.directQty = Math.max(0, f.receivedQty - f.damagedQty);
+        }
+        if (field === "deliveryMode" && value === "StockIn") {
+          updated.directQty = 0;
+        }
+        // If receivedQty or damagedQty changes in DirectToClient mode, keep directQty in sync
+        if ((field === "receivedQty" || field === "damagedQty") && f.deliveryMode === "DirectToClient") {
+          const recv = field === "receivedQty" ? (value as number) : f.receivedQty;
+          const dmg  = field === "damagedQty"  ? (value as number) : f.damagedQty;
+          updated.directQty = Math.max(0, recv - dmg);
+        }
+        return updated;
+      })),
+    []
+  );
+
+  const resolvedStatus = useMemo(() => {
     if (itemForms.some((f) => f.qcResult === "Rejected")) return "Discrepancy Raised";
     if (itemForms.some((f) => f.qcResult === "Hold")) return "QC Pending";
     return "Stock Updated";
   }, [itemForms]);
 
-  const buildGRNs = (): GRN[] =>
-    tlp.items.map((item, idx) => {
-      const iForm = itemForms[idx];
-      const pd = poData[idx];
-      const shortQty = Math.max(0, item.quantity - iForm.receivedQty - iForm.damagedQty);
-      const balanceQty = Math.max(0, (pd?.orderedQty ?? item.quantity) - iForm.receivedQty - iForm.damagedQty);
-      return {
-        id: `grn_${Date.now()}_${idx}`,
-        grnNumber: genGrnNumber(),
-        grnDate: today,
-        poNumber: item.poNumber || "",
-        purchaseInvoiceNumber: form.purchaseInvoiceNumber,
-        millChallanNumber: form.millChallanNumber,
-        mill: tlp.origin,
-        paper: item.paper,
-        gsm: item.gsm,
-        size: item.size,
-        orderedQty: pd?.orderedQty ?? item.quantity,
-        previouslyReceivedQty: 0,
-        receivedQty: iForm.receivedQty,
-        shortQty,
-        damagedQty: iForm.damagedQty,
-        balanceQty,
-        warehouse: form.warehouse,
-        binLocation: "",
-        suggestedBin: `${form.warehouse}-A-1-A1`,
-        condition: form.condition,
-        qcResult: iForm.qcResult,
-        qualityGrade: form.qualityGrade,
-        lotNumber: genLotNumber(tlp.origin, item.paper, item.gsm, item.size),
-        lrNumber: form.lrNumber,
-        transporterName: form.transporterName,
-        vehicleNumber: form.vehicleNumber,
-        receivedBy: form.receivedBy,
-        status: resolvedStatus,
-        remarks: form.remarks,
-        sourceLoadPlanNumber: tlp.planNumber,
-        millTrackerUpdated: true,
-      };
-    });
+  const buildDtos = (): CreateGrnDto[] =>
+    tlp.items
+      .filter((item) => item.trackerId)
+      .map((item, idx) => {
+        const iForm = itemForms[idx];
+        const goodQty = Math.max(0, iForm.receivedQty - iForm.damagedQty);
+        const shortQty = Math.max(0, item.quantity - iForm.receivedQty - iForm.damagedQty);
+        const directQty = iForm.deliveryMode === "DirectToClient" ? goodQty : iForm.directQty;
+        return {
+          millTrackerId: item.trackerId!,
+          sourceLoadPlanId: tlp.id,
+          grnDate: today,
+          purchaseInvoiceNumber: form.purchaseInvoiceNumber || undefined,
+          millChallanNumber: form.millChallanNumber || undefined,
+          receivedQty: iForm.receivedQty,
+          damagedQty: iForm.damagedQty,
+          shortQty,
+          grnDeliveryMode: iForm.deliveryMode,
+          directQty,
+          warehouseId: iForm.deliveryMode !== "DirectToClient" ? form.warehouseId : undefined,
+          condition: form.condition,
+          qcResult: iForm.qcResult,
+          qualityGrade: form.qualityGrade,
+          vehicleNumber: form.vehicleNumber || undefined,
+          lrNumber: form.lrNumber || undefined,
+          driverName: tlp.driverName || undefined,
+          freightAmount: form.freightAmount,
+          unloadingCharges: form.unloadingCharges,
+          invoiceEligible: true,
+          receivedBy: form.receivedBy || undefined,
+          remarks: form.remarks || undefined,
+        };
+      });
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave(buildDtos());
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deliveryModeOptions: { value: DeliveryMode; label: string; desc: string }[] = [
+    { value: "StockIn",        label: "To Stock",       desc: "All to godown inventory" },
+    { value: "DirectToClient", label: "Direct to Client", desc: "All direct to customer" },
+    { value: "Split",          label: "Split",          desc: "Part to stock, part direct" },
+  ];
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-6">
@@ -248,7 +328,7 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
                 {confirming ? "Confirm & Save GRN" : `Create GRN — ${tlp.planNumber}`}
               </h2>
               <p className="text-xs text-gray-500 mt-0.5">
-                {tlp.items.length} item{tlp.items.length !== 1 ? "s" : ""} · {tlp.origin}
+                {tlp.items.length} item{tlp.items.length !== 1 ? "s" : ""} · {tlp.origin || "—"}
                 {tlp.transporterName ? ` · ${tlp.transporterName}` : ""}
                 {tlp.truckNumber ? ` · ${tlp.truckNumber}` : ""}
               </p>
@@ -258,7 +338,7 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
         </div>
 
         {confirming ? (
-          /* ── Confirmation Step ── */
+          /* ─── Confirm Screen ─── */
           <div className="p-6 space-y-4">
             <div className="rounded-xl border border-green-200 bg-green-50 p-4">
               <p className="text-sm font-bold text-green-800 mb-3 flex items-center gap-2">
@@ -266,10 +346,10 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
                 <div><span className="text-green-600">Plan</span><p className="font-semibold text-green-900 mt-0.5">{tlp.planNumber}</p></div>
-                <div><span className="text-green-600">Origin</span><p className="font-semibold text-green-900 mt-0.5">{tlp.origin}</p></div>
-                <div><span className="text-green-600">Warehouse</span><p className="font-semibold text-green-900 mt-0.5">{form.warehouse}</p></div>
-                <div><span className="text-green-600">LR Number</span><p className="font-semibold text-green-900 mt-0.5">{form.lrNumber}</p></div>
-                <div><span className="text-green-600">Transporter</span><p className="font-semibold text-green-900 mt-0.5">{form.transporterName || "—"}</p></div>
+                <div><span className="text-green-600">Origin</span><p className="font-semibold text-green-900 mt-0.5">{tlp.origin || "—"}</p></div>
+                <div><span className="text-green-600">Warehouse</span><p className="font-semibold text-green-900 mt-0.5">{warehouses.find((w) => w.id === form.warehouseId)?.name || "—"}</p></div>
+                <div><span className="text-green-600">LR Number</span><p className="font-semibold text-green-900 mt-0.5">{form.lrNumber || "—"}</p></div>
+                <div><span className="text-green-600">Transporter</span><p className="font-semibold text-green-900 mt-0.5">{tlp.transporterName || "—"}</p></div>
                 <div><span className="text-green-600">Vehicle</span><p className="font-semibold text-green-900 mt-0.5 font-mono">{form.vehicleNumber || "—"}</p></div>
               </div>
             </div>
@@ -277,27 +357,47 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
               <table className="w-full text-xs">
                 <thead><tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-3 py-2 text-left font-semibold text-gray-600">Material</th>
-                  <th className="px-3 py-2 text-left font-semibold text-gray-600">PO #</th>
                   <th className="px-3 py-2 text-right font-semibold text-gray-600">Dispatched</th>
                   <th className="px-3 py-2 text-right font-semibold text-green-700">Received</th>
                   <th className="px-3 py-2 text-right font-semibold text-red-600">Damaged</th>
                   <th className="px-3 py-2 text-right font-semibold text-orange-600">Short</th>
                   <th className="px-3 py-2 text-left font-semibold text-indigo-600">QC</th>
+                  <th className="px-3 py-2 text-left font-semibold text-gray-600">Routing</th>
                 </tr></thead>
                 <tbody className="divide-y divide-gray-100">
                   {tlp.items.map((item, idx) => {
                     const iForm = itemForms[idx];
+                    const goodQty = Math.max(0, iForm.receivedQty - iForm.damagedQty);
                     const short = Math.max(0, item.quantity - iForm.receivedQty - iForm.damagedQty);
+                    const stockQty = iForm.deliveryMode === "StockIn" ? goodQty :
+                                     iForm.deliveryMode === "DirectToClient" ? 0 :
+                                     Math.max(0, goodQty - iForm.directQty);
+                    const directQty = iForm.deliveryMode === "DirectToClient" ? goodQty :
+                                      iForm.deliveryMode === "Split" ? iForm.directQty : 0;
                     return (
                       <tr key={item.id}>
                         <td className="px-3 py-2 font-medium text-gray-900">{item.paper} {item.gsm}g · {item.size}</td>
-                        <td className="px-3 py-2 text-blue-600">{item.poNumber}</td>
                         <td className="px-3 py-2 text-right text-gray-600">{item.quantity.toLocaleString()}</td>
                         <td className="px-3 py-2 text-right font-bold text-green-700">{iForm.receivedQty.toLocaleString()}</td>
                         <td className="px-3 py-2 text-right text-red-600">{iForm.damagedQty || "—"}</td>
                         <td className="px-3 py-2 text-right text-orange-600">{short > 0 ? short.toLocaleString() : "—"}</td>
                         <td className="px-3 py-2">
                           <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold border ${getQcColor(iForm.qcResult)}`}>{iForm.qcResult}</span>
+                        </td>
+                        <td className="px-3 py-2">
+                          {iForm.deliveryMode === "StockIn" && (
+                            <span className="text-[10px] text-teal-700 font-semibold">↓ {stockQty.toLocaleString()} → Stock</span>
+                          )}
+                          {iForm.deliveryMode === "DirectToClient" && (
+                            <span className="text-[10px] text-purple-700 font-semibold">→ {directQty.toLocaleString()} Direct</span>
+                          )}
+                          {iForm.deliveryMode === "Split" && (
+                            <span className="text-[10px] font-semibold">
+                              <span className="text-teal-700">{stockQty.toLocaleString()} Stock</span>
+                              <span className="text-gray-400 mx-1">+</span>
+                              <span className="text-purple-700">{directQty.toLocaleString()} Direct</span>
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -308,11 +408,11 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
             <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-xs text-blue-800">
               <strong>Status after save:</strong>{" "}
               <span className={`inline-flex rounded-full px-2 py-0.5 font-semibold border ${getStatusColor(resolvedStatus)}`}>{resolvedStatus}</span>
-              {" "}· Stock lot will be created automatically · Bin location can be set in Stock Lots
+              {" "}· Stock lot auto-created for "To Stock" portion only
             </div>
           </div>
         ) : (
-          /* ── Form ── */
+          /* ─── Form ─── */
           <div className="max-h-[calc(100vh-160px)] overflow-y-auto">
 
             {/* Section 1: Plan & Transport Reference */}
@@ -320,12 +420,12 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
               <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Plan & Transport Reference</p>
               <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs">
                 {[
-                  { label: "TLP #", value: tlp.planNumber, cls: "font-semibold text-blue-700" },
-                  { label: "Origin", value: tlp.origin },
-                  { label: "Load Date", value: tlp.actualLoadDate || tlp.plannedLoadDate },
-                  { label: "Truck #", value: tlp.truckNumber || "—", cls: "font-mono" },
-                  { label: "Transporter", value: tlp.transporterName || "—" },
-                  { label: "Driver", value: tlp.driverName || "—" },
+                  { label: "TLP #",      value: tlp.planNumber,                          cls: "font-semibold text-blue-700" },
+                  { label: "Origin",     value: tlp.origin || "—" },
+                  { label: "Load Date",  value: tlp.actualLoadDate || tlp.plannedLoadDate || "—" },
+                  { label: "Truck #",    value: tlp.truckNumber || "—",                   cls: "font-mono" },
+                  { label: "Transporter",value: tlp.transporterName || "—" },
+                  { label: "Driver",     value: tlp.driverName || "—" },
                 ].map(({ label, value, cls }) => (
                   <div key={label}>
                     <span className="text-gray-400">{label}</span>
@@ -335,45 +435,49 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
               </div>
             </div>
 
-            {/* Section 2: Customer & SO */}
-            {soCustomer && (
+            {/* Customer from first item */}
+            {tlp.items[0]?.customerName && (
               <div className="px-6 pt-4">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Customer & SO Details</p>
                 <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-xs">
-                  <div><span className="text-blue-400">Customer</span><p className="font-semibold text-blue-900 mt-0.5">{soCustomer}</p></div>
-                  {soNumber && <div><span className="text-blue-400">SO #</span><p className="font-semibold text-blue-700 mt-0.5">{soNumber}</p></div>}
-                  {soDeliveryAddress && <div><span className="text-blue-400">Delivery Address</span><p className="font-semibold text-blue-900 mt-0.5">{soDeliveryAddress}</p></div>}
+                  <div><span className="text-blue-400">Customer</span><p className="font-semibold text-blue-900 mt-0.5">{tlp.items[0].customerName}</p></div>
+                  {tlp.items[0].soNumber && <div><span className="text-blue-400">SO #</span><p className="font-semibold text-blue-700 mt-0.5">{tlp.items[0].soNumber}</p></div>}
+                  {tlp.items[0].deliveryAddress && <div><span className="text-blue-400">Delivery Address</span><p className="font-semibold text-blue-900 mt-0.5">{tlp.items[0].deliveryAddress}</p></div>}
                 </div>
               </div>
             )}
 
-            {/* Section 3: Items table */}
+            {/* Section 3: Items table with delivery routing */}
             <div className="px-6 pt-4">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Items Received — Quantity Verification</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Items Received — Quantity Verification & Delivery Routing</p>
               <div className="rounded-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200">
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Material / Location</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Material</th>
                         <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">PO #</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 whitespace-nowrap">Rate (₹/kg)</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 whitespace-nowrap">Ord. Qty</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-700 whitespace-nowrap">Disp. Qty</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-amber-700 whitespace-nowrap">Recv. Qty *</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-red-600 whitespace-nowrap">Dmg. Qty</th>
+                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 whitespace-nowrap">Rate (₹)</th>
+                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 whitespace-nowrap">Ord.</th>
+                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-700 whitespace-nowrap">Disp.</th>
+                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-amber-700 whitespace-nowrap">Recv. *</th>
+                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-red-600 whitespace-nowrap">Dmg.</th>
                         <th className="px-3 py-2.5 text-right text-xs font-semibold text-orange-600 whitespace-nowrap">Short</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-indigo-600 whitespace-nowrap">QC Result</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-indigo-600 whitespace-nowrap">QC</th>
+                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-purple-700 whitespace-nowrap">Delivery</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {tlp.items.map((item, idx) => {
                         const iForm = itemForms[idx];
-                        const pd = poData[idx];
+                        const tracker = item.trackerId ? trackerMap[item.trackerId] : undefined;
+                        const orderedQty = tracker?.orderedQty ?? item.quantity;
+                        const rate = tracker?.rate;
+                        const goodQty = Math.max(0, iForm.receivedQty - iForm.damagedQty);
                         const shortQty = Math.max(0, item.quantity - iForm.receivedQty - iForm.damagedQty);
                         return (
                           <tr key={item.id} className="hover:bg-gray-50/60">
-                            <td className="px-3 py-2.5 min-w-[160px]">
+                            <td className="px-3 py-2.5 min-w-[140px]">
                               <p className="font-semibold text-gray-900 text-xs">{item.paper}</p>
                               <p className="text-[11px] text-gray-500">{item.gsm}g · {item.size}</p>
                               {item.deliveryLocation && (
@@ -383,8 +487,8 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
                               )}
                             </td>
                             <td className="px-3 py-2.5 whitespace-nowrap"><span className="text-xs font-medium text-blue-600">{item.poNumber || "—"}</span></td>
-                            <td className="px-3 py-2.5 text-right whitespace-nowrap"><span className="text-xs font-semibold text-gray-900">{pd?.rate ? `₹${pd.rate.toLocaleString()}` : "—"}</span></td>
-                            <td className="px-3 py-2.5 text-right whitespace-nowrap"><span className="text-xs text-gray-500">{(pd?.orderedQty ?? item.quantity).toLocaleString()}</span></td>
+                            <td className="px-3 py-2.5 text-right whitespace-nowrap"><span className="text-xs font-semibold text-gray-900">{rate ? `₹${rate.toLocaleString()}` : "—"}</span></td>
+                            <td className="px-3 py-2.5 text-right whitespace-nowrap"><span className="text-xs text-gray-500">{orderedQty.toLocaleString()}</span></td>
                             <td className="px-3 py-2.5 text-right whitespace-nowrap"><span className="text-xs font-semibold text-gray-800">{item.quantity.toLocaleString()}</span></td>
                             <td className="px-3 py-2.5 text-right whitespace-nowrap">
                               <input type="number" value={iForm.receivedQty}
@@ -415,6 +519,38 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
                                 ))}
                               </select>
                             </td>
+                            <td className="px-3 py-2.5 min-w-[180px]">
+                              <div className="space-y-1.5">
+                                <select value={iForm.deliveryMode}
+                                  onChange={(e) => setItem(idx, "deliveryMode", e.target.value as DeliveryMode)}
+                                  className={`w-full rounded-md border px-2 py-1 text-xs focus:outline-none ${
+                                    iForm.deliveryMode === "DirectToClient" ? "border-purple-200 bg-purple-50 text-purple-700" :
+                                    iForm.deliveryMode === "Split" ? "border-indigo-200 bg-indigo-50 text-indigo-700" :
+                                    "border-teal-200 bg-teal-50 text-teal-700"}`}>
+                                  {deliveryModeOptions.map((o) => (
+                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                  ))}
+                                </select>
+                                {iForm.deliveryMode === "Split" && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[10px] text-purple-600 whitespace-nowrap">Direct qty:</span>
+                                    <input type="number" value={iForm.directQty || ""}
+                                      onChange={(e) => setItem(idx, "directQty", Math.max(0, +e.target.value || 0))}
+                                      max={goodQty}
+                                      className="w-full rounded-md border border-purple-300 bg-purple-50 px-2 py-1 text-right text-xs font-semibold text-purple-900 focus:border-purple-500 focus:outline-none"
+                                      placeholder="0" />
+                                  </div>
+                                )}
+                                {iForm.deliveryMode === "Split" && iForm.directQty > 0 && (
+                                  <p className="text-[10px] text-teal-600">
+                                    Stock: {Math.max(0, goodQty - iForm.directQty).toLocaleString()}
+                                  </p>
+                                )}
+                                {iForm.deliveryMode === "DirectToClient" && (
+                                  <p className="text-[10px] text-purple-600">All {goodQty.toLocaleString()} → client</p>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         );
                       })}
@@ -426,6 +562,12 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
                 <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 flex items-start gap-2 text-xs text-red-700">
                   <Ban className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
                   Rejected items will create a discrepancy — GRN will be saved with "Discrepancy Raised" status.
+                </div>
+              )}
+              {itemForms.some((f) => f.deliveryMode !== "StockIn") && (
+                <div className="mt-2 rounded-lg border border-purple-200 bg-purple-50 p-3 flex items-start gap-2 text-xs text-purple-700">
+                  <ArrowRight className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                  Direct-to-client quantities will not create a stock lot. Only the "To Stock" portion enters inventory.
                 </div>
               )}
             </div>
@@ -450,17 +592,17 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
             {/* Section 5: Quality Check */}
             <div className="px-6 pt-4">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Quality Check — Overall</p>
-              <div className="rounded-xl border border-yellow-100 bg-yellow-50/40 p-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-yellow-100 bg-yellow-50/40 p-4 grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Condition *</label>
-                  <select value={form.condition} onChange={(e) => set("condition", e.target.value as GRN["condition"])}
+                  <select value={form.condition} onChange={(e) => set("condition", e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-yellow-400 focus:outline-none">
                     {["Good", "Slight Damage", "Wet", "Torn", "Mixed GSM"].map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Quality Grade *</label>
-                  <select value={form.qualityGrade} onChange={(e) => set("qualityGrade", e.target.value as GRN["qualityGrade"])}
+                  <select value={form.qualityGrade} onChange={(e) => set("qualityGrade", e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-yellow-400 focus:outline-none">
                     {["A Grade", "B Grade", "Rejected"].map((g) => <option key={g} value={g}>{g}</option>)}
                   </select>
@@ -478,14 +620,15 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" placeholder="e.g. LR-12345" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Transporter</label>
-                  <input type="text" value={form.transporterName} onChange={(e) => set("transporterName", e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
-                </div>
-                <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Vehicle #</label>
                   <input type="text" value={form.vehicleNumber} onChange={(e) => set("vehicleNumber", e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none" placeholder="MP09AB1234" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Freight (₹)</label>
+                  <input type="number" value={form.freightAmount || ""}
+                    onChange={(e) => set("freightAmount", +e.target.value || 0)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" placeholder="0" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Received By</label>
@@ -499,10 +642,17 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
             <div className="px-6 pt-4 pb-6">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Warehouse *</label>
-                  <select value={form.warehouse} onChange={(e) => set("warehouse", e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
-                    {["Lasudia", "Sanwer", "Pithampur"].map((w) => <option key={w} value={w}>{w}</option>)}
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Warehouse *
+                    {itemForms.every((f) => f.deliveryMode === "DirectToClient") && (
+                      <span className="ml-1 text-purple-500">(not required — all direct to client)</span>
+                    )}
+                  </label>
+                  <select value={form.warehouseId ?? ""} onChange={(e) => set("warehouseId", +e.target.value || undefined)}
+                    disabled={itemForms.every((f) => f.deliveryMode === "DirectToClient")}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400">
+                    <option value="">— Select Warehouse —</option>
+                    {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
                   </select>
                 </div>
                 <div>
@@ -519,20 +669,28 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
         <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4 bg-gray-50 rounded-b-2xl">
           {confirming ? (
             <>
-              <p className="text-xs text-gray-500">{tlp.items.length} GRN {tlp.items.length !== 1 ? "entries" : "entry"} · Stock lot auto-created · Bin to be set in Stock Lots</p>
+              <p className="text-xs text-gray-500">{tlp.items.length} GRN {tlp.items.length !== 1 ? "entries" : "entry"} · Stock lot auto-created for stock portion</p>
               <div className="flex gap-3">
-                <button onClick={() => setConfirming(false)} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Back</button>
-                <button onClick={() => onSave(buildGRNs())} className="rounded-lg bg-green-600 px-5 py-2 text-sm font-semibold text-white hover:bg-green-700 transition-colors flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4" /> Confirm & Save
+                <button onClick={() => setConfirming(false)} disabled={saving} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">Back</button>
+                <button onClick={handleSave} disabled={saving}
+                  className="rounded-lg bg-green-600 px-5 py-2 text-sm font-semibold text-white hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50">
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  Confirm & Save
                 </button>
               </div>
             </>
           ) : (
             <>
-              <p className="text-xs text-gray-400">{tlp.items.length} GRN {tlp.items.length !== 1 ? "entries" : "entry"} will be created with status: <span className="font-semibold">{resolvedStatus}</span></p>
+              <p className="text-xs text-gray-400">
+                {tlp.items.length} item{tlp.items.length !== 1 ? "s" : ""} · Status: <span className="font-semibold">{resolvedStatus}</span>
+                {itemForms.some((f) => f.deliveryMode !== "StockIn") && (
+                  <span className="ml-2 text-purple-600 font-semibold">· Split/Direct routing active</span>
+                )}
+              </p>
               <div className="flex gap-3">
                 <button onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-                <button onClick={() => setConfirming(true)} disabled={!form.lrNumber.trim()}
+                <button onClick={() => setConfirming(true)}
+                  disabled={!form.lrNumber.trim() || tlp.items.some((i) => !i.trackerId)}
                   className="rounded-lg bg-amber-500 px-5 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
                   Review & Save{tlp.items.length > 1 ? ` (${tlp.items.length} items)` : ""}
                 </button>
@@ -546,12 +704,28 @@ function CreateGRNModal({ tlp, soCustomer, soNumber, soDeliveryAddress, purchase
   );
 }
 
-// ─── Edit GRN Modal (warehouse / bin update) ──────────────────────────────────
+// ─── Edit GRN Modal ────────────────────────────────────────────────────────────
 
-function EditGRNModal({ grn, onSave, onClose }: { grn: GRN; onSave: (patch: Partial<GRN>) => void; onClose: () => void }) {
-  const [warehouse, setWarehouse] = useState(grn.warehouse);
-  const [binLocation, setBinLocation] = useState(grn.binLocation || "");
-  const [remarks, setRemarks] = useState(grn.remarks || "");
+function EditGRNModal({
+  grn, warehouses, onSave, onClose,
+}: {
+  grn: GrnRow;
+  warehouses: WarehouseDropdown[];
+  onSave: (dto: UpdateGrnDto) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [warehouseId, setWarehouseId] = useState<number | undefined>(grn.warehouseId ?? undefined);
+  const [remarks, setRemarks] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave({ warehouseId, remarks: remarks || undefined });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -566,17 +740,11 @@ function EditGRNModal({ grn, onSave, onClose }: { grn: GRN; onSave: (patch: Part
         <div className="p-5 space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Warehouse</label>
-            <select value={warehouse} onChange={(e) => setWarehouse(e.target.value)}
+            <select value={warehouseId ?? ""} onChange={(e) => setWarehouseId(+e.target.value || undefined)}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
-              {["Lasudia", "Sanwer", "Pithampur"].map((w) => <option key={w} value={w}>{w}</option>)}
+              <option value="">— Select Warehouse —</option>
+              {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Bin Location</label>
-            <input type="text" value={binLocation} onChange={(e) => setBinLocation(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none"
-              placeholder="e.g. Lasudia-A-1-A1" />
-            {grn.suggestedBin && <p className="text-xs text-gray-400 mt-1">Suggested: {grn.suggestedBin}</p>}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Remarks</label>
@@ -585,9 +753,12 @@ function EditGRNModal({ grn, onSave, onClose }: { grn: GRN; onSave: (patch: Part
           </div>
         </div>
         <div className="flex justify-end gap-3 border-t border-gray-100 px-6 py-4 bg-gray-50 rounded-b-2xl">
-          <button onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-          <button onClick={() => onSave({ warehouse, binLocation, remarks })}
-            className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors">Save Changes</button>
+          <button onClick={onClose} disabled={saving} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+          <button onClick={handleSave} disabled={saving}
+            className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save Changes
+          </button>
         </div>
       </div>
     </div>,
@@ -595,53 +766,87 @@ function EditGRNModal({ grn, onSave, onClose }: { grn: GRN; onSave: (patch: Part
   );
 }
 
-// ─── View GRN Modal (full detail) ─────────────────────────────────────────────
+// ─── View GRN Modal ────────────────────────────────────────────────────────────
 
-interface ViewGRNModalProps {
-  grn: GRN;
-  tlp?: TruckLoadPlan;
-  soCustomer?: string;
-  soNumber?: string;
-  poRate?: number;
+function ViewGRNModal({
+  grn, detail, onEdit, onPrint, onDelete, onClose,
+}: {
+  grn: GrnRow;
+  detail: GrnDetailRow | null;
   onEdit: () => void;
   onPrint: () => void;
   onDelete: () => void;
   onClose: () => void;
-}
-
-function ViewGRNModal({ grn, tlp, soCustomer, soNumber, poRate, onEdit, onPrint, onDelete, onClose }: ViewGRNModalProps) {
+}) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const d = detail;
+  const billing = getBillingModeLabel(grn.billingMode, grn.blindShipment);
+  const BillingIcon = billing.Icon;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-6">
       <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100">
-              <PackageCheck className="h-4.5 w-4.5 text-blue-600" />
+              <PackageCheck className="h-4 w-4 text-blue-600" />
             </div>
             <div>
               <h2 className="text-base font-bold text-gray-900">{grn.grnNumber}</h2>
-              <p className="text-xs text-gray-500">{grn.poNumber} · {grn.mill}</p>
+              <p className="text-xs text-gray-500">{grn.poNumber} · {grn.millName}</p>
             </div>
-            <span className={`ml-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(grn.status)}`}>{grn.status}</span>
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(grn.status)}`}>{grn.status}</span>
+            {grn.grnDeliveryMode !== "StockIn" && (
+              <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getDeliveryModeColor(grn.grnDeliveryMode)}`}>
+                <ArrowRight className="h-3 w-3" />
+                {grn.grnDeliveryMode === "DirectToClient" ? "Direct to Client" : "Split Delivery"}
+              </span>
+            )}
+            <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${billing.color}`}>
+              <BillingIcon className="h-3 w-3" /> {billing.label}
+            </span>
           </div>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400"><X className="h-5 w-5" /></button>
         </div>
 
         <div className="max-h-[calc(100vh-160px)] overflow-y-auto p-5 space-y-4">
 
-          {/* Chain: SO → PO → TLP */}
-          {(soCustomer || tlp) && (
+          {/* Flow Chain */}
+          {(d?.linkedSoNumber || d?.loadPlanNumber) && (
             <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-400 mb-2">Flow Chain</p>
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                {soCustomer && (<><span className="rounded-lg bg-white border border-blue-200 px-2.5 py-1 font-medium text-blue-800">{soCustomer}</span><span className="text-blue-300">→ SO</span>{soNumber && <span className="font-mono text-blue-600">{soNumber}</span>}<span className="text-blue-300">→</span></>)}
+                {d?.soCustomerName && (
+                  <><span className="rounded-lg bg-white border border-blue-200 px-2.5 py-1 font-medium text-blue-800">{d.soCustomerName}</span>
+                  <span className="text-blue-300">→</span></>
+                )}
+                {d?.linkedSoNumber && (
+                  <><span className="rounded-lg bg-white border border-blue-200 px-2.5 py-1 font-medium text-blue-800">{d.linkedSoNumber}</span>
+                  <span className="text-blue-300">→</span></>
+                )}
                 <span className="rounded-lg bg-white border border-blue-200 px-2.5 py-1 font-medium text-blue-800">{grn.poNumber}</span>
                 <span className="text-blue-300">→</span>
-                {tlp && <span className="rounded-lg bg-white border border-blue-200 px-2.5 py-1 font-medium text-blue-800">{tlp.planNumber}</span>}
-                {tlp && <span className="text-blue-300">→</span>}
+                {d?.loadPlanNumber && (
+                  <><span className="rounded-lg bg-white border border-blue-200 px-2.5 py-1 font-medium text-blue-800">{d.loadPlanNumber}</span>
+                  <span className="text-blue-300">→</span></>
+                )}
                 <span className="rounded-lg bg-blue-600 px-2.5 py-1 font-semibold text-white">{grn.grnNumber}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Billing Mode notice for non-normal */}
+          {(grn.billingMode !== "Normal" || grn.blindShipment) && (
+            <div className={`rounded-xl border p-3 ${grn.billingMode === "Blind" || grn.blindShipment ? "border-red-200 bg-red-50" : "border-orange-200 bg-orange-50"}`}>
+              <div className="flex items-center gap-2 text-xs">
+                <BillingIcon className="h-4 w-4" />
+                <strong>{billing.label}</strong>
+                {grn.billingMode === "InvoiceOverride" && d?.overrideClientName && (
+                  <span className="text-gray-600">— Mill-facing name: <span className="font-semibold">{d.overrideClientName}</span></span>
+                )}
+                {(grn.billingMode === "Blind" || grn.blindShipment) && (
+                  <span className="text-red-700">— Mill does not know the end customer</span>
+                )}
               </div>
             </div>
           )}
@@ -651,14 +856,14 @@ function ViewGRNModal({ grn, tlp, soCustomer, soNumber, poRate, onEdit, onPrint,
             <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">GRN Details</p>
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {[
-                { label: "GRN Date", value: grn.grnDate },
-                { label: "PO #", value: grn.poNumber, blue: true },
-                { label: "Mill / Origin", value: grn.mill },
-                { label: "Warehouse", value: grn.warehouse },
-                { label: "Mill Challan #", value: grn.millChallanNumber || "—", mono: true },
-                { label: "Purchase Invoice", value: grn.purchaseInvoiceNumber || "—", mono: true },
-                { label: "Bin Location", value: grn.binLocation || grn.suggestedBin || "—", mono: true },
-                { label: "Lot #", value: grn.lotNumber, mono: true },
+                { label: "GRN Date",        value: grn.grnDate },
+                { label: "PO #",            value: grn.poNumber, blue: true },
+                { label: "Mill / Origin",   value: grn.millName },
+                { label: "Warehouse",       value: grn.warehouseName || "—" },
+                { label: "Mill Challan #",  value: d?.millChallanNumber || "—", mono: true },
+                { label: "Purchase Invoice",value: d?.purchaseInvoiceNumber || "—", mono: true },
+                { label: "Bin Location",    value: grn.binLocation || "—", mono: true },
+                { label: "Lot #",           value: grn.lotNumber || "—", mono: true },
               ].map(({ label, value, blue, mono }) => (
                 <div key={label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                   <p className="text-[10px] text-gray-400">{label}</p>
@@ -668,9 +873,9 @@ function ViewGRNModal({ grn, tlp, soCustomer, soNumber, poRate, onEdit, onPrint,
             </div>
           </div>
 
-          {/* Quantities */}
+          {/* Quantities & Delivery Split */}
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Material & Quantities</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Material & Quantity Routing</p>
             <div className="rounded-xl border border-gray-200 overflow-hidden">
               <table className="w-full text-xs">
                 <thead><tr className="bg-gray-50 border-b border-gray-200">
@@ -678,9 +883,10 @@ function ViewGRNModal({ grn, tlp, soCustomer, soNumber, poRate, onEdit, onPrint,
                   <th className="px-3 py-2 text-right font-semibold text-gray-500">Rate</th>
                   <th className="px-3 py-2 text-right font-semibold text-gray-600">Ordered</th>
                   <th className="px-3 py-2 text-right font-semibold text-green-700">Received</th>
+                  <th className="px-3 py-2 text-right font-semibold text-teal-700">→ Stock</th>
+                  <th className="px-3 py-2 text-right font-semibold text-purple-700">→ Client</th>
                   <th className="px-3 py-2 text-right font-semibold text-orange-600">Short</th>
                   <th className="px-3 py-2 text-right font-semibold text-red-600">Damaged</th>
-                  <th className="px-3 py-2 text-right font-semibold text-gray-600">Balance</th>
                 </tr></thead>
                 <tbody>
                   <tr className="border-t border-gray-100">
@@ -688,36 +894,44 @@ function ViewGRNModal({ grn, tlp, soCustomer, soNumber, poRate, onEdit, onPrint,
                       <p className="font-semibold text-gray-900">{grn.paper}</p>
                       <p className="text-gray-500 mt-0.5">{grn.gsm}g · {grn.size}</p>
                     </td>
-                    <td className="px-3 py-2.5 text-right text-gray-600">{poRate ? `₹${poRate.toLocaleString()}` : "—"}</td>
+                    <td className="px-3 py-2.5 text-right text-gray-600">{d?.poRate ? `₹${d.poRate.toLocaleString()}` : "—"}</td>
                     <td className="px-3 py-2.5 text-right text-gray-700 font-medium">{grn.orderedQty.toLocaleString()}</td>
                     <td className="px-3 py-2.5 text-right font-bold text-green-700">{grn.receivedQty.toLocaleString()}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      {grn.stockQty > 0
+                        ? <span className="font-bold text-teal-700">{grn.stockQty.toLocaleString()}</span>
+                        : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      {grn.directQty > 0
+                        ? <div>
+                            <span className="font-bold text-purple-700">{grn.directQty.toLocaleString()}</span>
+                            {grn.directClientName && <p className="text-[10px] text-purple-500">{grn.directClientName}</p>}
+                          </div>
+                        : <span className="text-gray-300">—</span>}
+                    </td>
                     <td className="px-3 py-2.5 text-right font-semibold"><span className={grn.shortQty > 0 ? "text-orange-600" : "text-gray-300"}>{grn.shortQty > 0 ? grn.shortQty.toLocaleString() : "—"}</span></td>
                     <td className="px-3 py-2.5 text-right font-semibold"><span className={grn.damagedQty > 0 ? "text-red-600" : "text-gray-300"}>{grn.damagedQty > 0 ? grn.damagedQty.toLocaleString() : "—"}</span></td>
-                    <td className="px-3 py-2.5 text-right">
-                      <span className={`rounded-lg px-2 py-0.5 font-bold ${grn.balanceQty > 0 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>
-                        {grn.balanceQty > 0 ? grn.balanceQty.toLocaleString() : "NIL"}
-                      </span>
-                    </td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* Transport + QC side by side */}
+          {/* Transport + QC */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Transport</p>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { label: "LR Number", value: grn.lrNumber || "—", mono: true },
-                  { label: "Transporter", value: grn.transporterName || "—" },
-                  { label: "Vehicle #", value: grn.vehicleNumber || "—", mono: true },
-                  { label: "Received By", value: grn.receivedBy || "—" },
-                ].map(({ label, value, mono }) => (
+                  { label: "LR Number",  value: grn.lrNumber || "—", mono: true },
+                  { label: "TLP #",      value: grn.loadPlanNumber || "—", blue: true },
+                  { label: "Vehicle #",  value: grn.vehicleNumber || "—", mono: true },
+                  { label: "Received By",value: d?.receivedBy || "—" },
+                ].map(({ label, value, mono, blue }) => (
                   <div key={label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                     <p className="text-[10px] text-gray-400">{label}</p>
-                    <p className={`text-xs font-semibold text-gray-900 mt-0.5 ${mono ? "font-mono" : ""}`}>{value}</p>
+                    <p className={`text-xs font-semibold text-gray-900 mt-0.5 ${mono ? "font-mono" : ""} ${blue ? "text-blue-700" : ""}`}>{value}</p>
                   </div>
                 ))}
               </div>
@@ -727,32 +941,59 @@ function ViewGRNModal({ grn, tlp, soCustomer, soNumber, poRate, onEdit, onPrint,
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                   <p className="text-[10px] text-gray-400">Condition</p>
-                  <p className="text-xs font-semibold text-gray-900 mt-0.5">{grn.condition}</p>
+                  <p className="text-xs font-semibold text-gray-900 mt-0.5">{grn.condition || "—"}</p>
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                   <p className="text-[10px] text-gray-400">QC Result</p>
-                  <span className={`inline-flex mt-0.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getQcColor(grn.qcResult)}`}>{grn.qcResult}</span>
+                  {grn.qcResult
+                    ? <span className={`inline-flex mt-0.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getQcColor(grn.qcResult)}`}>{grn.qcResult}</span>
+                    : <span className="text-xs text-gray-400">—</span>
+                  }
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                   <p className="text-[10px] text-gray-400">Quality Grade</p>
-                  <p className="text-xs font-semibold text-gray-900 mt-0.5">{grn.qualityGrade}</p>
+                  <p className="text-xs font-semibold text-gray-900 mt-0.5">{grn.qualityGrade || "—"}</p>
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                  <p className="text-[10px] text-gray-400">TLP #</p>
-                  <p className="text-xs font-semibold text-blue-700 mt-0.5">{grn.sourceLoadPlanNumber || "—"}</p>
+                  <p className="text-[10px] text-gray-400">Effective Client</p>
+                  <p className="text-xs font-semibold text-gray-900 mt-0.5">{grn.effectiveClientName || grn.customerName || "—"}</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {grn.remarks && (
-            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-              <p className="text-[10px] text-gray-400">Remarks</p>
-              <p className="text-xs text-gray-700 mt-0.5">{grn.remarks}</p>
+          {/* Status log */}
+          {d?.statusLog && d.statusLog.length > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Status History</p>
+              <div className="space-y-1.5">
+                {d.statusLog.map((entry, i) => (
+                  <div key={i} className="flex items-start gap-2.5 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-1.5 text-xs">
+                        {entry.fromStatus && <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${getStatusColor(entry.fromStatus)}`}>{entry.fromStatus}</span>}
+                        {entry.fromStatus && <span className="text-gray-300">→</span>}
+                        <span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${getStatusColor(entry.toStatus)}`}>{entry.toStatus}</span>
+                      </div>
+                      {entry.remarks && <p className="text-[11px] text-gray-500 mt-0.5">{entry.remarks}</p>}
+                    </div>
+                    <div className="text-right text-[10px] text-gray-400 flex-shrink-0">
+                      <p>{entry.changedBy}</p>
+                      <p>{new Date(entry.changedAt).toLocaleDateString("en-IN")}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
-          {/* Confirm delete */}
+          {d?.remarks && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-[10px] text-gray-400">Remarks</p>
+              <p className="text-xs text-gray-700 mt-0.5">{d.remarks}</p>
+            </div>
+          )}
+
           {confirmDelete && (
             <div className="rounded-xl border border-red-200 bg-red-50 p-4">
               <p className="text-sm font-bold text-red-800 mb-1">Delete this GRN?</p>
@@ -770,9 +1011,11 @@ function ViewGRNModal({ grn, tlp, soCustomer, soNumber, poRate, onEdit, onPrint,
             <Trash2 className="h-3.5 w-3.5" /> Delete
           </button>
           <div className="flex gap-2">
-            <button onClick={onPrint} className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
-              <Printer className="h-3.5 w-3.5" /> Print
-            </button>
+            {d && (
+              <button onClick={onPrint} className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                <Printer className="h-3.5 w-3.5" /> Print
+              </button>
+            )}
             <button onClick={onEdit} className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100">
               <Pencil className="h-3.5 w-3.5" /> Edit
             </button>
@@ -787,9 +1030,8 @@ function ViewGRNModal({ grn, tlp, soCustomer, soNumber, poRate, onEdit, onPrint,
 
 // ─── Row Actions Dropdown ──────────────────────────────────────────────────────
 
-function RowActions({ grn, onView, onEdit, onPrint, onDelete }: {
-  grn: GRN;
-  onView: () => void; onEdit: () => void; onPrint: () => void; onDelete: () => void;
+function RowActions({ onView, onEdit, onDelete }: {
+  onView: () => void; onEdit: () => void; onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, right: 0 });
@@ -827,9 +1069,8 @@ function RowActions({ grn, onView, onEdit, onPrint, onDelete }: {
           className="w-44 rounded-xl border border-gray-200 bg-white shadow-xl py-1">
           {[
             { label: "View Details", icon: Eye, fn: onView },
-            { label: "Edit GRN", icon: Pencil, fn: onEdit },
-            { label: "Print", icon: Printer, fn: onPrint },
-            { label: "Delete", icon: Trash2, fn: onDelete, red: true },
+            { label: "Edit GRN",    icon: Pencil, fn: onEdit },
+            { label: "Delete",      icon: Trash2, fn: onDelete, red: true },
           ].map(({ label, icon: Icon, fn, red }) => (
             <button key={label} onClick={action(fn)}
               className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-sm transition-colors hover:bg-gray-50 ${red ? "text-red-600 hover:bg-red-50" : "text-gray-700"}`}>
@@ -846,104 +1087,111 @@ function RowActions({ grn, onView, onEdit, onPrint, onDelete }: {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function GRNPage() {
-  const { grns, updateGRN, addToStock, addGRN, deleteGRN, stockLots } = useStock();
-  const { dispatchedTLPs, millTrackers, purchaseOrders } = usePurchaseOrder();
-  const { salesOrders } = useSalesOrder();
+  const [grns, setGrns] = useState<GrnRow[]>([]);
+  const [pendingTlps, setPendingTlps] = useState<TruckLoadPlanApiDto[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseDropdown[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [selectedGrn, setSelectedGrn] = useState<GRN | null>(null);
+  const [selectedGrn, setSelectedGrn] = useState<GrnRow | null>(null);
+  const [selectedGrnDetail, setSelectedGrnDetail] = useState<GrnDetailRow | null>(null);
   const [showViewModal, setShowViewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [selectedTLP, setSelectedTLP] = useState<TruckLoadPlan | null>(null);
+  const [selectedTlp, setSelectedTlp] = useState<TruckLoadPlanApiDto | null>(null);
   const [showPending, setShowPending] = useState(false);
   const [pendingSearch, setPendingSearch] = useState("");
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  // ── Derived ───────────────────────────────────────────────────────────────
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [grnRes, tlpRes, whRes] = await Promise.all([
+        grnApi.list({ pageSize: 200 }),
+        truckLoadPlanApi.list({ status: "In Transit", pageSize: 200 }),
+        warehouseApi.dropdown(),
+      ]);
+      setGrns(grnRes.items);
+      const grnTlpIds = new Set(grnRes.items.map((g) => g.sourceLoadPlanId).filter(Boolean));
+      setPendingTlps(tlpRes.items.filter((t) => !grnTlpIds.has(t.id)));
+      setWarehouses(whRes);
+    } catch {
+      // silently fail — page shows empty state
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const pendingFromTLP = useMemo(
-    () => dispatchedTLPs.filter((tlp) => !grns.some((g) => g.sourceLoadPlanNumber === tlp.planNumber)),
-    [dispatchedTLPs, grns]
-  );
+  useEffect(() => { load(); }, [load]);
+
+  const kpis = useMemo(() => ({
+    draft:         grns.filter((g) => g.status === "Draft").length,
+    qcPending:     grns.filter((g) => g.status === "QC Pending").length,
+    approved:      grns.filter((g) => g.status === "Approved").length,
+    stockUpdated:  grns.filter((g) => g.status === "Stock Updated").length,
+    discrepancy:   grns.filter((g) => g.status === "Discrepancy Raised").length,
+    totalReceived: grns.reduce((s, g) => s + g.receivedQty, 0),
+    totalStock:    grns.reduce((s, g) => s + g.stockQty, 0),
+    totalDirect:   grns.reduce((s, g) => s + g.directQty, 0),
+  }), [grns]);
 
   const filteredPending = useMemo(() => {
-    if (!pendingSearch.trim()) return pendingFromTLP;
+    if (!pendingSearch.trim()) return pendingTlps;
     const q = pendingSearch.toLowerCase();
-    return pendingFromTLP.filter((tlp) =>
+    return pendingTlps.filter((tlp) =>
       tlp.planNumber.toLowerCase().includes(q) ||
-      tlp.origin.toLowerCase().includes(q) ||
+      (tlp.origin || "").toLowerCase().includes(q) ||
       (tlp.transporterName || "").toLowerCase().includes(q) ||
       (tlp.truckNumber || "").toLowerCase().includes(q) ||
       tlp.items.some((i) => (i.poNumber || "").toLowerCase().includes(q))
     );
-  }, [pendingFromTLP, pendingSearch]);
+  }, [pendingTlps, pendingSearch]);
 
-  const kpis = useMemo(() => {
-    const draft = grns.filter((g) => g.status === "Draft").length;
-    const qcPending = grns.filter((g) => g.status === "QC Pending").length;
-    const approved = grns.filter((g) => g.status === "Approved").length;
-    const stockUpdated = grns.filter((g) => g.status === "Stock Updated").length;
-    const discrepancy = grns.filter((g) => g.status === "Discrepancy Raised").length;
-    const totalReceived = grns.reduce((s, g) => s + g.receivedQty, 0);
-    const totalShort = grns.reduce((s, g) => s + g.shortQty, 0);
-    return { draft, qcPending, approved, stockUpdated, discrepancy, totalReceived, totalShort };
-  }, [grns]);
+  const openView = async (grn: GrnRow) => {
+    setSelectedGrn(grn);
+    setSelectedGrnDetail(null);
+    setShowViewModal(true);
+    try {
+      const detail = await grnApi.getById(grn.id);
+      setSelectedGrnDetail(detail);
+    } catch {}
+  };
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
+  const openEdit = (grn: GrnRow) => {
+    setSelectedGrn(grn);
+    setShowViewModal(false);
+    setShowEditModal(true);
+  };
 
-  function getChainForGRN(grn: GRN) {
-    const tlp = dispatchedTLPs.find((t) => t.planNumber === grn.sourceLoadPlanNumber);
-    const tracker = millTrackers.find((t) => t.poNumber === grn.poNumber);
-    const so = tracker?.soNumber ? salesOrders.find((s) => s.soNumber === tracker.soNumber) : undefined;
-    const po = purchaseOrders?.find((p) => p.poNumber === grn.poNumber);
-    const poItem = (po?.items as any[] | undefined)?.find((i: any) => i.gsm === grn.gsm && i.size === grn.size);
-    return { tlp, soCustomer: so?.customer, soNumber: tracker?.soNumber, poRate: poItem?.rate as number | undefined };
-  }
-
-  function getSoDetailsForTLP(tlp: TruckLoadPlan) {
-    const tracker = millTrackers.find((t) => t.poNumber === tlp.items[0]?.poNumber);
-    if (!tracker?.soNumber) return { soCustomer: undefined, soNumber: undefined, soDeliveryAddress: undefined, soLines: undefined };
-    const so = salesOrders.find((s) => s.soNumber === tracker.soNumber);
-    if (!so) return { soCustomer: undefined, soNumber: undefined, soDeliveryAddress: undefined, soLines: undefined };
-    return {
-      soCustomer: so.customer,
-      soNumber: tracker.soNumber,
-      soDeliveryAddress: (so as any).deliveryAddress || "",
-      soLines: so.lines.map((l) => ({ paper: l.materialCode || "", gsm: l.gsm || 0, size: l.size || "", orderedQty: l.orderedQty, rate: l.rate })),
-    };
-  }
-
-  function openCreateGRN(tlp: TruckLoadPlan) { setSelectedTLP(tlp); setShowCreateModal(true); }
-  function openView(grn: GRN) { setSelectedGrn(grn); setShowViewModal(true); }
-  function openEdit(grn: GRN) { setSelectedGrn(grn); setShowViewModal(false); setShowEditModal(true); }
-
-  function handleSaveGRN(newGrns: GRN[]) {
-    newGrns.forEach((g) => {
-      addGRN(g);
-      if (g.status === "Stock Updated" || g.status === "Approved") addToStock(g);
-    });
+  const handleSaveGRN = async (dtos: CreateGrnDto[], tlpId: number) => {
+    await Promise.all(dtos.map((dto) => grnApi.create(dto)));
+    await truckLoadPlanApi.updateStatus(tlpId, { status: "Delivered" }).catch(() => {});
+    await load();
     setShowCreateModal(false);
-    setSelectedTLP(null);
-  }
+    setSelectedTlp(null);
+  };
 
-  function handleDeleteGRN(id: string) {
-    deleteGRN(id);
+  const handleUpdateGRN = async (id: number, dto: UpdateGrnDto) => {
+    await grnApi.update(id, dto);
+    await load();
+    setShowEditModal(false);
+    setSelectedGrn(null);
+  };
+
+  const handleDeleteGRN = async (id: number) => {
+    await grnApi.remove(id);
+    await load();
     setShowViewModal(false);
     setSelectedGrn(null);
-    setDeleteConfirmId(null);
-  }
+  };
 
-  const statusOptions = useMemo(() => [
-    { label: "Draft", value: "Draft" },
-    { label: "QC Pending", value: "QC Pending" },
-    { label: "Approved", value: "Approved" },
-    { label: "Stock Updated", value: "Stock Updated" },
+  const statusOptions = [
+    { label: "Draft",              value: "Draft" },
+    { label: "QC Pending",         value: "QC Pending" },
+    { label: "Approved",           value: "Approved" },
+    { label: "Stock Updated",      value: "Stock Updated" },
     { label: "Discrepancy Raised", value: "Discrepancy Raised" },
-  ], []);
+  ];
 
-  // ── Columns ───────────────────────────────────────────────────────────────
-
-  const columns: ColumnConfig<GRN>[] = useMemo(() => [
+  const columns: ColumnConfig<GrnRow>[] = useMemo(() => [
     {
       id: "grnNumber", accessorKey: "grnNumber", header: "GRN #",
       filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 130,
@@ -959,8 +1207,8 @@ export default function GRNPage() {
       cell: (info) => <span className="text-blue-600 font-medium">{info.getValue() as string}</span>,
     },
     {
-      id: "mill", accessorKey: "mill", header: "Mill",
-      filterType: "text", enableSorting: true, defaultVisible: true, size: 140,
+      id: "millName", accessorKey: "millName", header: "Mill",
+      filterType: "text", enableSorting: true, defaultVisible: true, size: 130,
     },
     {
       id: "paper", accessorKey: "paper", header: "Paper",
@@ -972,8 +1220,24 @@ export default function GRNPage() {
       cell: (info) => <span className="text-xs text-gray-700">{info.row.original.gsm}G · {info.row.original.size}</span>,
     },
     {
+      id: "routing", accessorKey: "grnDeliveryMode", header: "Routing",
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 130,
+      cell: (info) => {
+        const g = info.row.original;
+        return (
+          <div className="text-xs space-y-0.5">
+            <span className={`inline-flex rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${getDeliveryModeColor(g.grnDeliveryMode)}`}>
+              {g.grnDeliveryMode === "StockIn" ? "To Stock" : g.grnDeliveryMode === "DirectToClient" ? "Direct" : "Split"}
+            </span>
+            {g.stockQty > 0 && <p className="text-teal-700">{g.stockQty.toLocaleString()} → stock</p>}
+            {g.directQty > 0 && <p className="text-purple-700">{g.directQty.toLocaleString()} → client</p>}
+          </div>
+        );
+      },
+    },
+    {
       id: "qtyTracking", accessorKey: "orderedQty", header: "Ordered / Received",
-      filterType: "none", enableSorting: true, defaultVisible: true, size: 160,
+      filterType: "none", enableSorting: true, defaultVisible: true, size: 150,
       cell: (info) => {
         const g = info.row.original;
         return (
@@ -987,30 +1251,43 @@ export default function GRNPage() {
       },
     },
     {
-      id: "warehouse", accessorKey: "warehouse", header: "Warehouse",
-      filterType: "select",
-      filterOptions: [{ label: "Lasudia", value: "Lasudia" }, { label: "Sanwer", value: "Sanwer" }, { label: "Pithampur", value: "Pithampur" }],
-      enableSorting: true, defaultVisible: true, size: 110,
+      id: "warehouseName", accessorKey: "warehouseName", header: "Warehouse",
+      filterType: "text", enableSorting: true, defaultVisible: true, size: 120,
+      cell: (info) => <span>{(info.getValue() as string) || <span className="text-gray-300">—</span>}</span>,
     },
     {
-      id: "binLocation", accessorKey: "binLocation", header: "Bin",
-      filterType: "text", enableSorting: false, defaultVisible: true, size: 110,
+      id: "customerName", accessorKey: "customerName", header: "Customer",
+      filterType: "text", enableSorting: true, defaultVisible: false, size: 130,
       cell: (info) => {
-        const v = info.getValue() as string;
-        return v ? <span className="font-mono text-xs text-blue-600">{v}</span> : <span className="text-xs text-gray-300">—</span>;
+        const g = info.row.original;
+        return (
+          <div className="text-xs">
+            <p>{g.effectiveClientName || g.customerName || <span className="text-gray-300">—</span>}</p>
+            {g.billingMode !== "Normal" && (
+              <span className={`text-[10px] ${g.billingMode === "Blind" || g.blindShipment ? "text-red-500" : "text-orange-500"}`}>
+                {g.billingMode === "Blind" || g.blindShipment ? "Blind" : "Override"}
+              </span>
+            )}
+          </div>
+        );
       },
     },
     {
       id: "qcResult", accessorKey: "qcResult", header: "QC",
       filterType: "select",
       filterOptions: [
-        { label: "Accepted", value: "Accepted" },
+        { label: "Accepted",             value: "Accepted" },
         { label: "Accepted with Remark", value: "Accepted with Remark" },
-        { label: "Rejected", value: "Rejected" },
-        { label: "Hold", value: "Hold" },
+        { label: "Rejected",             value: "Rejected" },
+        { label: "Hold",                 value: "Hold" },
       ],
       enableSorting: true, defaultVisible: true, size: 130,
-      cell: (info) => <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${getQcColor(info.getValue() as string)}`}>{info.getValue() as string}</span>,
+      cell: (info) => {
+        const v = info.getValue() as string;
+        return v
+          ? <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${getQcColor(v)}`}>{v}</span>
+          : <span className="text-xs text-gray-300">—</span>;
+      },
     },
     {
       id: "status", accessorKey: "status", header: "Status",
@@ -1025,18 +1302,23 @@ export default function GRNPage() {
         const grn = info.row.original;
         return (
           <RowActions
-            grn={grn}
             onView={() => openView(grn)}
             onEdit={() => openEdit(grn)}
-            onPrint={() => printGRN(grn)}
-            onDelete={() => setDeleteConfirmId(grn.id)}
+            onDelete={() => handleDeleteGRN(grn.id)}
           />
         );
       },
     },
-  ], [statusOptions]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], []);
 
-  // ─────────────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-24">
@@ -1044,13 +1326,12 @@ export default function GRNPage() {
       {/* KPI Row */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-8">
 
-        {/* Pending GRN (TLP awaiting) */}
         <button onClick={() => { setShowPending((v) => !v); setPendingSearch(""); }}
-          className={`rounded-xl border-2 p-4 text-left transition-all ${showPending ? "border-amber-400 bg-amber-500 shadow-md" : pendingFromTLP.length > 0 ? "border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 hover:border-amber-300" : "border-gray-100 bg-white hover:border-gray-200"}`}>
+          className={`rounded-xl border-2 p-4 text-left transition-all ${showPending ? "border-amber-400 bg-amber-500 shadow-md" : pendingTlps.length > 0 ? "border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 hover:border-amber-300" : "border-gray-100 bg-white hover:border-gray-200"}`}>
           <div className="flex items-center justify-between">
             <div>
               <p className={`text-xs font-medium uppercase tracking-wide ${showPending ? "text-amber-100" : "text-gray-400"}`}>Pending GRN</p>
-              <p className={`mt-1.5 text-2xl font-bold ${showPending ? "text-white" : pendingFromTLP.length > 0 ? "text-amber-600" : "text-gray-900"}`}>{pendingFromTLP.length}</p>
+              <p className={`mt-1.5 text-2xl font-bold ${showPending ? "text-white" : pendingTlps.length > 0 ? "text-amber-600" : "text-gray-900"}`}>{pendingTlps.length}</p>
               <p className={`mt-0.5 text-xs ${showPending ? "text-amber-100" : "text-amber-500"}`}>{showPending ? "Click to hide" : "Shipments waiting"}</p>
             </div>
             <div className={`flex h-10 w-10 items-center justify-center rounded-full ${showPending ? "bg-amber-400" : "bg-amber-100"}`}>
@@ -1059,7 +1340,6 @@ export default function GRNPage() {
           </div>
         </button>
 
-        {/* Stock Updated */}
         <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Stock Updated</p>
@@ -1069,7 +1349,6 @@ export default function GRNPage() {
           </div>
         </div>
 
-        {/* Discrepancy */}
         <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Discrepancy</p>
@@ -1079,7 +1358,6 @@ export default function GRNPage() {
           </div>
         </div>
 
-        {/* Draft */}
         <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Draft</p>
@@ -1089,17 +1367,15 @@ export default function GRNPage() {
           </div>
         </div>
 
-        {/* QC Pending */}
         <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">QC Pending</p>
               <p className="mt-1.5 text-2xl font-bold text-yellow-700">{kpis.qcPending}</p>
-              <p className="mt-0.5 text-xs text-yellow-600">Held / On Hold</p></div>
+              <p className="mt-0.5 text-xs text-yellow-600">On hold</p></div>
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-50"><Clock className="h-5 w-5 text-yellow-500" /></div>
           </div>
         </div>
 
-        {/* Approved */}
         <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Approved</p>
@@ -1109,18 +1385,20 @@ export default function GRNPage() {
           </div>
         </div>
 
-        {/* Total Received */}
         <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Total Received</p>
-            <p className="mt-1.5 text-2xl font-bold text-gray-900">{(kpis.totalReceived / 1000).toFixed(0)}K</p>
-            <p className="mt-0.5 text-xs text-gray-500">kg received</p></div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">→ Stock</p>
+            <p className="mt-1.5 text-2xl font-bold text-teal-700">{(kpis.totalStock / 1000).toFixed(1)}K</p>
+            <p className="mt-0.5 text-xs text-teal-600">sheets to inventory</p>
+          </div>
         </div>
 
-        {/* Short Supply */}
         <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Short Supply</p>
-            <p className="mt-1.5 text-2xl font-bold text-red-600">{kpis.totalShort.toLocaleString()}</p>
-            <p className="mt-0.5 text-xs text-red-500">kg short</p></div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">→ Client Direct</p>
+            <p className="mt-1.5 text-2xl font-bold text-purple-700">{(kpis.totalDirect / 1000).toFixed(1)}K</p>
+            <p className="mt-0.5 text-xs text-purple-600">sheets bypassed stock</p>
+          </div>
         </div>
       </div>
 
@@ -1131,7 +1409,7 @@ export default function GRNPage() {
             <div className="flex items-center gap-2">
               <Truck className="h-4 w-4 text-amber-600" />
               <h2 className="text-sm font-bold text-amber-900">Shipments Awaiting GRN</h2>
-              <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white">{pendingFromTLP.length}</span>
+              <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white">{pendingTlps.length}</span>
             </div>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -1157,7 +1435,7 @@ export default function GRNPage() {
                     return (
                       <tr key={tlp.id} className="hover:bg-amber-50/30 transition-colors">
                         <td className="px-4 py-3"><span className="font-semibold text-blue-700">{tlp.planNumber}</span></td>
-                        <td className="px-4 py-3 text-gray-700">{tlp.origin}</td>
+                        <td className="px-4 py-3 text-gray-700">{tlp.origin || "—"}</td>
                         <td className="px-4 py-3 font-mono text-xs text-gray-700">{tlp.truckNumber || "—"}</td>
                         <td className="px-4 py-3 text-gray-700">{tlp.transporterName || "—"}</td>
                         <td className="px-4 py-3">
@@ -1165,10 +1443,12 @@ export default function GRNPage() {
                           {tlp.items[0] && <p className="text-xs text-gray-500 mt-0.5">{tlp.items[0].paper} {tlp.items[0].gsm}g{tlp.items.length > 1 ? ` +${tlp.items.length - 1}` : ""}</p>}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-gray-900">{totalQty.toLocaleString()}<span className="ml-1 text-xs font-normal text-gray-400">sht</span></td>
-                        <td className="px-4 py-3 text-gray-600 text-sm">{tlp.plannedDeliveryDate}</td>
+                        <td className="px-4 py-3 text-gray-600 text-sm">{tlp.plannedDeliveryDate || "—"}</td>
                         <td className="px-4 py-3 text-right">
-                          <button onClick={() => openCreateGRN(tlp)}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition-colors">
+                          <button
+                            disabled={tlp.items.some((i) => !i.trackerId)}
+                            onClick={() => { setSelectedTlp(tlp); setShowCreateModal(true); }}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                             <Plus className="h-3 w-3" /> Create GRN
                           </button>
                         </td>
@@ -1195,69 +1475,39 @@ export default function GRNPage() {
             enableColumnVisibility={true}
             initialPageSize={10}
             onRowClick={(grn) => openView(grn)}
-            emptyMessage="No GRNs yet. Create GRNs from shipments in transit."
+            emptyMessage="No GRNs yet. Create GRNs from dispatched shipments above."
           />
         </div>
       )}
 
-      {/* Delete confirmation */}
-      {deleteConfirmId && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-6">
-            <h3 className="text-base font-bold text-gray-900 mb-1">Delete GRN?</h3>
-            <p className="text-sm text-gray-500 mb-5">This GRN will be permanently removed. This action cannot be undone.</p>
-            <div className="flex gap-3 justify-end">
-              <button onClick={() => setDeleteConfirmId(null)} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-              <button onClick={() => handleDeleteGRN(deleteConfirmId)} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">Delete</button>
-            </div>
-          </div>
-        </div>,
-        document.body
+      {showViewModal && selectedGrn && (
+        <ViewGRNModal
+          grn={selectedGrn}
+          detail={selectedGrnDetail}
+          onEdit={() => openEdit(selectedGrn)}
+          onPrint={() => selectedGrnDetail && printGRN(selectedGrnDetail)}
+          onDelete={() => handleDeleteGRN(selectedGrn.id)}
+          onClose={() => { setShowViewModal(false); setSelectedGrn(null); setSelectedGrnDetail(null); }}
+        />
       )}
 
-      {/* View Modal */}
-      {showViewModal && selectedGrn && (() => {
-        const { tlp, soCustomer, soNumber, poRate } = getChainForGRN(selectedGrn);
-        return (
-          <ViewGRNModal
-            grn={selectedGrn}
-            tlp={tlp}
-            soCustomer={soCustomer}
-            soNumber={soNumber}
-            poRate={poRate}
-            onEdit={() => openEdit(selectedGrn)}
-            onPrint={() => printGRN(selectedGrn)}
-            onDelete={() => { setShowViewModal(false); setDeleteConfirmId(selectedGrn.id); }}
-            onClose={() => { setShowViewModal(false); setSelectedGrn(null); }}
-          />
-        );
-      })()}
-
-      {/* Edit Modal */}
       {showEditModal && selectedGrn && (
         <EditGRNModal
           grn={selectedGrn}
-          onSave={(patch) => { updateGRN(selectedGrn.id, patch); setShowEditModal(false); setSelectedGrn(null); }}
+          warehouses={warehouses}
+          onSave={(dto) => handleUpdateGRN(selectedGrn.id, dto)}
           onClose={() => { setShowEditModal(false); setSelectedGrn(null); }}
         />
       )}
 
-      {/* Create GRN Modal */}
-      {showCreateModal && selectedTLP && (() => {
-        const { soCustomer, soNumber, soDeliveryAddress, soLines } = getSoDetailsForTLP(selectedTLP);
-        return (
-          <CreateGRNModal
-            tlp={selectedTLP}
-            soCustomer={soCustomer}
-            soNumber={soNumber}
-            soDeliveryAddress={soDeliveryAddress}
-            soLines={soLines}
-            purchaseOrders={purchaseOrders}
-            onSave={handleSaveGRN}
-            onClose={() => { setShowCreateModal(false); setSelectedTLP(null); }}
-          />
-        );
-      })()}
+      {showCreateModal && selectedTlp && (
+        <CreateGRNModal
+          tlp={selectedTlp}
+          warehouses={warehouses}
+          onSave={(dtos) => handleSaveGRN(dtos, selectedTlp.id)}
+          onClose={() => { setShowCreateModal(false); setSelectedTlp(null); }}
+        />
+      )}
     </div>
   );
 }

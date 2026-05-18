@@ -97,7 +97,8 @@ public class CustomerService(
         Name        = d.Name.Trim(),
         Designation = d.Designation?.Trim(),
         Phone       = d.Phone?.Trim(),
-        Email       = d.Email?.Trim().ToLower()
+        Email       = d.Email?.Trim().ToLower(),
+        IsDefault   = d.IsDefault
     };
 
     private static CustomerDeliveryLocation MapLocation(UpsertCustomerDeliveryLocationDto d) => new()

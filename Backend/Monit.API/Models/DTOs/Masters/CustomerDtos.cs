@@ -62,6 +62,7 @@ public class CustomerContactDto
     public string? Designation { get; set; }
     public string? Phone       { get; set; }
     public string? Email       { get; set; }
+    public bool    IsDefault   { get; set; }
 }
 
 public class UpsertCustomerContactDto
@@ -71,6 +72,7 @@ public class UpsertCustomerContactDto
     public string? Designation { get; set; }
     public string? Phone       { get; set; }
     public string? Email       { get; set; }
+    public bool    IsDefault   { get; set; }
 }
 
 // ─── Delivery Location sub-entity ────────────────────────────────────────────
@@ -125,6 +127,7 @@ public class CustomerContactSODto
     public string? Designation { get; set; }
     public string? Phone       { get; set; }
     public string? Email       { get; set; }
+    public bool    IsDefault   { get; set; }
 }
 
 public class CustomerDeliveryLocationSODto

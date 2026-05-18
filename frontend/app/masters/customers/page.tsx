@@ -409,10 +409,12 @@ export default function CustomerMasterPage() {
                       onClick={() => setContactDefault(i)}
                       className={cn(
                         "rounded p-1 transition-colors flex-shrink-0",
-                        i === 0 ? "mt-5" : "",
-                        c.isDefault ? "text-amber-400 hover:text-amber-500" : "text-gray-300 hover:text-amber-300"
+                        i === 0 ? "mt-5" : ""
                       )}>
-                      <Star className={cn("h-4 w-4", c.isDefault && "fill-amber-400")} />
+                      <Star className={cn(
+                        "h-4 w-4 transition-colors",
+                        c.isDefault ? "fill-amber-400 text-amber-400" : "fill-none text-gray-300 hover:text-amber-300"
+                      )} />
                     </button>
                     <button type="button" onClick={() => removeContact(i)}
                       className={cn("text-gray-400 hover:text-red-500 transition-colors rounded p-1", i === 0 ? "mt-5" : "")}>

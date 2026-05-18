@@ -2,8 +2,8 @@
 
 import { useState, useMemo, useEffect, useCallback } from "react";
 import {
-  Plus, Save, AlertTriangle, Trash2, Loader2,
-  ShoppingCart, Factory, IndianRupee, History, Check, Search,
+  Plus, Save, AlertTriangle, Trash2, Loader2, Pencil,
+  ShoppingCart, Factory, IndianRupee, History, Check, Search, TrendingUp, TrendingDown,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
@@ -90,9 +90,10 @@ export default function RateMasterPage() {
   const [activeTab, setActiveTab] = useState<"Sale" | "Purchase">("Sale");
 
   // Modal state
-  const [showModal, setShowModal] = useState(false);
-  const [deleteId,  setDeleteId]  = useState<number | null>(null);
-  const [viewItem,  setViewItem]  = useState<RateRow | null>(null);
+  const [showModal,  setShowModal]  = useState(false);
+  const [editingRate, setEditingRate] = useState<RateRow | null>(null); // pre-fill for edit mode
+  const [deleteId,   setDeleteId]   = useState<number | null>(null);
+  const [viewItem,   setViewItem]   = useState<RateRow | null>(null);
 
   // History modal
   const [historyRow,     setHistoryRow]     = useState<RateRow | null>(null);
@@ -157,7 +158,31 @@ export default function RateMasterPage() {
     setFAmount(""); setFDiscount(""); setFEffFrom("");
   }
 
-  function openAdd() { resetForm(); setShowModal(true); }
+  function openAdd() { resetForm(); setEditingRate(null); setShowModal(true); }
+
+  function openEdit(row: RateRow) {
+    resetForm();
+    setEditingRate(row);
+    // Pre-fill mill
+    const mill = mills.find(m => m.id === row.millId);
+    setFMillId(row.millId);
+    setFMillInput(mill ? `${mill.code} · ${mill.name}` : row.millName);
+    // Pre-fill quality
+    const qual = subgroups.find(s => s.id === row.qualityId);
+    setFQualId(row.qualityId ?? null);
+    setFQualInput(qual?.name ?? row.qualityName);
+    // Pre-fill GSM, type, amount, discount, effectiveFrom
+    setFGsmMin(String(row.gsmMin));
+    setFGsmMax(String(row.gsmMax));
+    setFType(row.type as "Reel" | "Sheet");
+    setFAmount(String(row.amount));
+    setFDiscount(row.discount ? String(row.discount) : "");
+    setFEffFrom(row.effectiveFrom);
+    if (row.rateType === "Purchase") setFRateCat((row.rateCategory as "Self" | "Customer") ?? "Self");
+    if (row.customerId) setFCustomerIds([row.customerId]);
+    setActiveTab(row.rateType as "Sale" | "Purchase");
+    setShowModal(true);
+  }
 
   async function openHistory(row: RateRow) {
     setHistoryRow(row);
@@ -369,6 +394,7 @@ export default function RateMasterPage() {
         return (
           <ActionMenu items={[
             { label: "View",    icon: IndianRupee, onClick: () => setViewItem(row) },
+            { label: "Edit",    icon: Pencil,      onClick: () => openEdit(row) },
             { label: "History", icon: History,     onClick: () => openHistory(row) },
             { label: "Delete",  icon: Trash2,      onClick: () => setDeleteId(row.id), variant: "danger" },
           ]} />
@@ -441,8 +467,8 @@ export default function RateMasterPage() {
       />
 
       {/* ── Add Rate Modal ──────────────────────────────────────────────────── */}
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)}
-        title={`Add ${activeTab} Rate`} size="sm"
+      <Modal isOpen={showModal} onClose={() => { setShowModal(false); setEditingRate(null); }}
+        title={editingRate ? `Edit ${activeTab} Rate` : `Add ${activeTab} Rate`} size="sm"
         footer={
           <>
             <button onClick={() => setShowModal(false)} disabled={saving}
@@ -469,18 +495,32 @@ export default function RateMasterPage() {
           {/* Mill */}
           <div>
             <label className={labelCls}>Mill *</label>
-            <Combobox options={millOptions} inputValue={fMillInput} allowCustom={false}
-              placeholder="Search mill…"
-              onChange={(val, opt) => { setFMillInput(val); setFMillId(opt ? Number(opt.value) : null); }} />
+            {editingRate ? (
+              <div className="flex items-center h-[38px] px-3 rounded-lg border border-gray-200 bg-gray-50">
+                <span className="text-sm font-semibold text-gray-700">{fMillInput}</span>
+                <span className="ml-auto text-[10px] text-gray-400 bg-gray-200 rounded px-1.5 py-0.5">locked</span>
+              </div>
+            ) : (
+              <Combobox options={millOptions} inputValue={fMillInput} allowCustom={false}
+                placeholder="Search mill…"
+                onChange={(val, opt) => { setFMillInput(val); setFMillId(opt ? Number(opt.value) : null); }} />
+            )}
           </div>
 
           {/* Quality + Brand Name */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Quality *</label>
-              <Combobox options={qualOptions} inputValue={fQualInput} allowCustom={false}
-                placeholder="Search quality…"
-                onChange={(val, opt) => { setFQualInput(val); setFQualId(opt ? Number(opt.value) : null); }} />
+              {editingRate ? (
+                <div className="flex items-center h-[38px] px-3 rounded-lg border border-gray-200 bg-gray-50">
+                  <span className="text-sm font-semibold text-gray-700">{fQualInput}</span>
+                  <span className="ml-auto text-[10px] text-gray-400 bg-gray-200 rounded px-1.5 py-0.5">locked</span>
+                </div>
+              ) : (
+                <Combobox options={qualOptions} inputValue={fQualInput} allowCustom={false}
+                  placeholder="Search quality…"
+                  onChange={(val, opt) => { setFQualInput(val); setFQualId(opt ? Number(opt.value) : null); }} />
+              )}
             </div>
             <div>
               <label className={labelCls}>Brand Name</label>
@@ -502,34 +542,54 @@ export default function RateMasterPage() {
           </div>
 
           {/* GSM Range */}
-          <div className="grid grid-cols-2 gap-3">
+          {editingRate ? (
             <div>
-              <label className={labelCls}>GSM Min *</label>
-              <input type="number" min={1} value={fGsmMin}
-                onChange={e => setFGsmMin(e.target.value)}
-                placeholder="e.g. 70" className={inputCls} />
+              <label className={labelCls}>GSM Range</label>
+              <div className="flex items-center h-[38px] px-3 rounded-lg border border-gray-200 bg-gray-50 gap-1">
+                <span className="text-sm font-semibold text-amber-700">{fGsmMin}–{fGsmMax} GSM</span>
+                <span className="ml-auto text-[10px] text-gray-400 bg-gray-200 rounded px-1.5 py-0.5">locked</span>
+              </div>
             </div>
-            <div>
-              <label className={labelCls}>GSM Max *</label>
-              <input type="number" min={1} value={fGsmMax}
-                onChange={e => setFGsmMax(e.target.value)}
-                placeholder="e.g. 90" className={inputCls} />
-            </div>
-          </div>
-          {gsmRangeError && <p className="text-xs text-red-500 -mt-1">GSM Max must be ≥ GSM Min</p>}
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>GSM Min *</label>
+                  <input type="number" min={1} value={fGsmMin}
+                    onChange={e => setFGsmMin(e.target.value)}
+                    placeholder="e.g. 70" className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>GSM Max *</label>
+                  <input type="number" min={1} value={fGsmMax}
+                    onChange={e => setFGsmMax(e.target.value)}
+                    placeholder="e.g. 90" className={inputCls} />
+                </div>
+              </div>
+              {gsmRangeError && <p className="text-xs text-red-500 -mt-1">GSM Max must be ≥ GSM Min</p>}
+            </>
+          )}
 
           {/* Type */}
           <div>
             <label className={labelCls}>Type *</label>
-            <div className="flex gap-2">
-              {TYPE_OPTIONS.map(t => (
-                <button key={t} type="button" onClick={() => setFType(t)}
-                  className={cn("flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
-                    fType === t ? "bg-blue-500 border-blue-500 text-white" : "border-gray-200 text-gray-600 hover:bg-gray-50")}>
-                  {t}
-                </button>
-              ))}
-            </div>
+            {editingRate ? (
+              <div className="flex items-center h-[38px] px-3 rounded-lg border border-gray-200 bg-gray-50">
+                <span className={cn("text-sm font-semibold",
+                  fType === "Reel" ? "text-blue-700" : "text-purple-700")}>{fType}</span>
+                <span className="ml-auto text-[10px] text-gray-400 bg-gray-200 rounded px-1.5 py-0.5">locked</span>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                {TYPE_OPTIONS.map(t => (
+                  <button key={t} type="button" onClick={() => setFType(t)}
+                    className={cn("flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                      fType === t ? "bg-blue-500 border-blue-500 text-white" : "border-gray-200 text-gray-600 hover:bg-gray-50")}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Purchase-only: Rate Category */}
@@ -664,29 +724,49 @@ export default function RateMasterPage() {
               <p className="text-sm text-gray-400 text-center py-6">No history found</p>
             ) : (
               <div className="divide-y divide-gray-100">
-                {historyData.map((h, i) => (
-                  <div key={h.id} className="flex items-center justify-between py-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
-                        i === 0 ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-500")}>
-                        {i + 1}
+                {historyData.map((h, i) => {
+                  const prev = historyData[i + 1]; // older entry
+                  const delta = prev ? h.amount - prev.amount : null;
+                  return (
+                    <div key={h.id} className="flex items-start justify-between py-2.5 gap-3">
+                      <div className="flex items-start gap-2.5">
+                        <div className={cn("h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5",
+                          i === 0 ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-500")}>
+                          {i + 1}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-sm font-semibold text-gray-900">₹{h.amount.toFixed(2)}</span>
+                            {delta !== null && (
+                              <span className={cn(
+                                "inline-flex items-center gap-0.5 text-[10px] font-semibold rounded-full px-1.5 py-0.5",
+                                delta > 0 ? "bg-green-50 text-green-700 border border-green-200"
+                                           : delta < 0 ? "bg-red-50 text-red-600 border border-red-200"
+                                           : "bg-gray-100 text-gray-500 border border-gray-200"
+                              )}>
+                                {delta > 0
+                                  ? <><TrendingUp className="h-2.5 w-2.5" /> +₹{delta.toFixed(2)}</>
+                                  : delta < 0
+                                  ? <><TrendingDown className="h-2.5 w-2.5" /> −₹{Math.abs(delta).toFixed(2)}</>
+                                  : "no change"}
+                              </span>
+                            )}
+                          </div>
+                          {h.discount && h.discount > 0 && (
+                            <p className="text-[10px] text-rose-500">Disc: ₹{h.discount.toFixed(2)}</p>
+                          )}
+                          <p className="text-[10px] text-gray-400">by {h.createdBy}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">₹{h.amount.toFixed(2)}</p>
-                        {h.discount && h.discount > 0 && (
-                          <p className="text-[10px] text-rose-500">Disc: ₹{h.discount.toFixed(2)}</p>
-                        )}
-                        <p className="text-[10px] text-gray-400">by {h.createdBy}</p>
+                      <div className="text-right shrink-0">
+                        <p className="text-xs font-medium text-gray-700">{h.effectiveFrom}</p>
+                        <p className="text-[10px] text-gray-400">
+                          {new Date(h.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                        </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-xs font-medium text-gray-700">{h.effectiveFrom}</p>
-                      <p className="text-[10px] text-gray-400">
-                        {new Date(h.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
