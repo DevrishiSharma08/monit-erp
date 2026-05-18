@@ -181,13 +181,13 @@ export default function QualityMasterPage() {
           <button onClick={openAdd} disabled={loading}
             className="flex items-center gap-2 rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 shadow-sm disabled:opacity-60">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            Add Quality Group
+            Add Qualities
           </button>
         }
       />
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)}
-        title={editItem ? "Edit Quality Group" : "Add Quality Group"} size="sm"
+        title={editItem ? "Edit Quality Group" : "Add Qualities"} size="sm"
         footer={
           <>
             <button onClick={() => setShowModal(false)} disabled={saving}

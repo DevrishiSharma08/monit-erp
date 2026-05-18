@@ -55,10 +55,10 @@ public class MillRepository(DbConnectionFactory db) : IMillRepository
                    (SELECT COUNT(*) FROM masters.MillUnits WHERE MillId = m.Id AND IsDeleted = 0) AS UnitCount
             FROM   masters.Mills m WHERE m.Id = @Id AND m.IsDeleted = 0;
 
-            SELECT Id, MillId, UnitName, Address
+            SELECT Id, MillId, UnitName, Address, IsDefault
             FROM   masters.MillUnits WHERE MillId = @Id AND IsDeleted = 0 ORDER BY Id;
 
-            SELECT mc.Id, mc.MillUnitId, mc.ContactPerson, mc.Designation, mc.Phone, mc.Email
+            SELECT mc.Id, mc.MillUnitId, mc.ContactPerson, mc.Designation, mc.Phone, mc.Email, mc.IsDefault
             FROM   masters.MillContacts mc
             JOIN   masters.MillUnits    mu ON mu.Id = mc.MillUnitId
             WHERE  mu.MillId = @Id AND mc.IsDeleted = 0 AND mu.IsDeleted = 0
@@ -78,7 +78,8 @@ public class MillRepository(DbConnectionFactory db) : IMillRepository
                                     .Select(c => new MillContactDto
                                     {
                                         Id = c.Id, ContactPerson = c.ContactPerson,
-                                        Designation = c.Designation, Phone = c.Phone, Email = c.Email
+                                        Designation = c.Designation, Phone = c.Phone, Email = c.Email,
+                                        IsDefault = c.IsDefault
                                     }).ToList();
 
         mill.Units = units;
@@ -160,22 +161,22 @@ public class MillRepository(DbConnectionFactory db) : IMillRepository
         string createdBy)
     {
         const string insertUnit = @"
-            INSERT INTO masters.MillUnits (MillId, UnitName, Address, IsActive, CreatedAt, CreatedBy)
+            INSERT INTO masters.MillUnits (MillId, UnitName, Address, IsDefault, IsActive, CreatedAt, CreatedBy)
             OUTPUT INSERTED.Id
-            VALUES (@MillId, @UnitName, @Address, 1, GETUTCDATE(), @CreatedBy)";
+            VALUES (@MillId, @UnitName, @Address, @IsDefault, 1, GETUTCDATE(), @CreatedBy)";
 
         const string insertContact = @"
-            INSERT INTO masters.MillContacts (MillUnitId, ContactPerson, Designation, Phone, Email, IsActive, CreatedAt, CreatedBy)
-            VALUES (@MillUnitId, @ContactPerson, @Designation, @Phone, @Email, 1, GETUTCDATE(), @CreatedBy)";
+            INSERT INTO masters.MillContacts (MillUnitId, ContactPerson, Designation, Phone, Email, IsDefault, IsActive, CreatedAt, CreatedBy)
+            VALUES (@MillUnitId, @ContactPerson, @Designation, @Phone, @Email, @IsDefault, 1, GETUTCDATE(), @CreatedBy)";
 
         foreach (var unit in units.Where(u => !string.IsNullOrWhiteSpace(u.UnitName)))
         {
             var unitId = await conn.ExecuteScalarAsync<int>(insertUnit,
-                new { MillId = millId, unit.UnitName, unit.Address, CreatedBy = createdBy }, tx);
+                new { MillId = millId, unit.UnitName, unit.Address, unit.IsDefault, CreatedBy = createdBy }, tx);
 
             foreach (var c in unit.Contacts.Where(c => !string.IsNullOrWhiteSpace(c.ContactPerson)))
                 await conn.ExecuteAsync(insertContact,
-                    new { MillUnitId = unitId, c.ContactPerson, c.Designation, c.Phone, c.Email, CreatedBy = createdBy }, tx);
+                    new { MillUnitId = unitId, c.ContactPerson, c.Designation, c.Phone, c.Email, c.IsDefault, CreatedBy = createdBy }, tx);
         }
     }
 
@@ -197,5 +198,5 @@ public class MillRepository(DbConnectionFactory db) : IMillRepository
     private static string SafeColumn(string? col, string def)
         => AllowedSort.Contains("m." + (col ?? "")) ? "m." + col! : def;
 
-    private record MillContactRaw(int Id, int MillUnitId, string ContactPerson, string? Designation, string? Phone, string? Email);
+    private record MillContactRaw(int Id, int MillUnitId, string ContactPerson, string? Designation, string? Phone, string? Email, bool IsDefault);
 }

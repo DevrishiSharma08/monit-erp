@@ -9,4 +9,5 @@ public class CustomerContact : BaseEntity
     public string? Designation  { get; set; }
     public string? Phone        { get; set; }
     public string? Email        { get; set; }
+    public bool    IsDefault    { get; set; }
 }

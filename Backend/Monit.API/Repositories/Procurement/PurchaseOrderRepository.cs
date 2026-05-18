@@ -200,7 +200,10 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
                 UpdatedBy             = updatedBy,
             }, tx);
 
-            await conn.ExecuteAsync("DELETE FROM procurement.PurchaseOrderItems WHERE POId=@Id", new { Id = id }, tx);
+            // Soft-delete existing items — hard DELETE would violate FK_MillTrackers_POItem
+            await conn.ExecuteAsync(
+                "UPDATE procurement.PurchaseOrderItems SET IsDeleted=1, DeletedAt=GETUTCDATE(), DeletedBy=@By WHERE POId=@Id AND IsDeleted=0",
+                new { Id = id, By = updatedBy }, tx);
             await InsertItems(conn, tx, id, items, updatedBy);
             tx.Commit();
         }

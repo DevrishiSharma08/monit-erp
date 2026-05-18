@@ -477,8 +477,8 @@ export default function PurchaseOrdersPage() {
             tableName="pending-po-sos"
             enableFilters={true}
             enablePagination={true}
-            enableColumnReordering={false}
-            enableColumnVisibility={false}
+            enableColumnReordering={true}
+            enableColumnVisibility={true}
             initialPageSize={5}
             onRowClick={handleCreateFromSO}
             emptyState={

@@ -145,7 +145,7 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
                 { label: "Customer",       value: so.customer },
                 { label: "Contact",        value: so.contactPerson || "—" },
                 { label: "Salesman",       value: so.salesman },
-                { label: "Payment Terms",  value: so.paymentTerms },
+                { label: "Payment Terms",  value: so.paymentTerms || "—" },
                 { label: "Delivery Mode",  value: so.deliveryMode },
                 { label: "Delivery Terms", value: so.deliveryTerms || "—" },
                 {
@@ -176,6 +176,7 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">Material</th>
                     <th className="px-3 py-2 text-right font-semibold text-gray-600">Qty / Weight</th>
                     <th className="px-3 py-2 text-right font-semibold text-gray-600">Rate</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-500">Disc %</th>
                     <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-500">Req. Date</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-500">Status</th>
@@ -202,6 +203,9 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
                         )}
                       </td>
                       <td className="px-3 py-2.5 text-right text-gray-700">₹{line.rate.toLocaleString("en-IN")}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-500">
+                        {line.discount && line.discount > 0 ? `${line.discount}%` : "—"}
+                      </td>
                       <td className="px-3 py-2.5 text-right font-bold text-gray-900">
                         ₹{line.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                       </td>
@@ -216,7 +220,7 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
                 </tbody>
                 <tfoot>
                   <tr className="bg-blue-50 border-t-2 border-blue-200">
-                    <td colSpan={4} className="px-3 py-2.5 text-right text-xs font-semibold text-blue-700">
+                    <td colSpan={5} className="px-3 py-2.5 text-right text-xs font-semibold text-blue-700">
                       Order Total
                     </td>
                     <td className="px-3 py-2.5 text-right text-sm font-black text-blue-800">

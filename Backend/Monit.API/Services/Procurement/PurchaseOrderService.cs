@@ -6,7 +6,9 @@ using Monit.API.Services.Interfaces;
 
 namespace Monit.API.Services.Procurement;
 
-public class PurchaseOrderService(IPurchaseOrderRepository repo) : IPurchaseOrderService
+public class PurchaseOrderService(
+    IPurchaseOrderRepository  repo,
+    IMillTrackerRepository    millTrackerRepo) : IPurchaseOrderService
 {
     public Task<PagedResult<PurchaseOrderListDto>> GetAllAsync(PurchaseOrderFilterRequest filter)
         => repo.GetAllAsync(filter);
@@ -20,21 +22,25 @@ public class PurchaseOrderService(IPurchaseOrderRepository repo) : IPurchaseOrde
         if (dto.Items.Count == 0)      throw new ValidationException("At least one item is required.");
         if (string.IsNullOrWhiteSpace(dto.OrderDate)) throw new ValidationException("Order date is required.");
 
-        var po = MapToListDto(dto);
-        var id = await repo.CreateAsync(po, dto.Items, createdBy);
-        return await GetByIdAsync(id);
+        var po       = MapToListDto(dto);
+        var id       = await repo.CreateAsync(po, dto.Items, createdBy);
+        var fullPo   = await GetByIdAsync(id);
+        await millTrackerRepo.CreateForPoAsync(fullPo, createdBy);
+        return fullPo;
     }
 
     public async Task<PurchaseOrderListDto> UpdateAsync(int id, UpdatePurchaseOrderDto dto, string updatedBy)
     {
-        await GetByIdAsync(id);
+        var oldPo = await GetByIdAsync(id);
         if (dto.MillId <= 0)           throw new ValidationException("Mill is required.");
         if (dto.Items.Count == 0)      throw new ValidationException("At least one item is required.");
 
         var po = MapToListDto(dto);
         if (!string.IsNullOrEmpty(dto.Status)) po.Status = dto.Status;
         await repo.UpdateAsync(id, po, dto.Items, updatedBy);
-        return await GetByIdAsync(id);
+        var updatedPo = await GetByIdAsync(id);
+        await millTrackerRepo.SyncForPoUpdateAsync(id, oldPo, updatedPo, updatedBy);
+        return updatedPo;
     }
 
     public async Task ApproveAsync(int id, string updatedBy)
