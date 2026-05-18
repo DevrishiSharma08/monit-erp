@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Plus, Save, AlertTriangle, Eye, Pencil, Trash2, Loader2, X } from "lucide-react";
+import { Plus, Save, AlertTriangle, Eye, Pencil, Trash2, Loader2, X, Star } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { Modal } from "@/components/Modal";
@@ -110,6 +110,18 @@ export default function MillMasterPage() {
         ...u,
         contacts: u.contacts.map((c, j) => j === ci ? { ...c, [field]: val } : c)
       } : u
+    ));
+  }
+
+  function setUnitDefault(ui: number) {
+    setFUnits((prev) => prev.map((u, i) => ({ ...u, isDefault: i === ui })));
+  }
+
+  function setContactDefaultInUnit(ui: number, ci: number) {
+    setFUnits((prev) => prev.map((u, i) =>
+      i === ui
+        ? { ...u, contacts: u.contacts.map((c, j) => ({ ...c, isDefault: j === ci })) }
+        : u
     ));
   }
 
@@ -359,14 +371,32 @@ export default function MillMasterPage() {
             )}
 
             {fUnits.map((unit, ui) => (
-              <div key={ui} className="relative border border-gray-200 rounded-xl p-4 space-y-3">
+              <div key={ui} className={cn(
+                "relative border rounded-xl p-4 space-y-3 transition-colors",
+                unit.isDefault ? "border-amber-300 bg-amber-50/30" : "border-gray-200"
+              )}>
                 {/* Corner remove button */}
                 <button type="button" onClick={() => removeUnit(ui)}
                   className="absolute top-3 right-3 text-gray-300 hover:text-red-400 transition-colors">
                   <X className="h-4 w-4" />
                 </button>
 
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Unit {ui + 1}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Unit {ui + 1}</p>
+                  {/* Default unit star */}
+                  <button type="button"
+                    title={unit.isDefault ? "Default unit for PO" : "Set as default unit"}
+                    onClick={() => setUnitDefault(ui)}
+                    className="flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors">
+                    <Star className={cn(
+                      "h-3.5 w-3.5 transition-colors",
+                      unit.isDefault ? "fill-amber-400 text-amber-400" : "fill-none text-gray-300 hover:text-amber-300"
+                    )} />
+                    {unit.isDefault && (
+                      <span className="text-[10px] font-semibold text-amber-600">Default</span>
+                    )}
+                  </button>
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -393,37 +423,34 @@ export default function MillMasterPage() {
                     </button>
                   </div>
                   {unit.contacts.map((c, ci) => (
-                    <div key={ci} className="grid grid-cols-12 gap-2 mb-2 items-center">
-                      <div className="col-span-3">
-                        <input value={c.contactPerson}
-                          onChange={(e) => updateContact(ui, ci, "contactPerson", e.target.value)}
-                          placeholder="Name" className={inputCls} />
-                      </div>
-                      <div className="col-span-3">
-                        <select value={c.designation ?? ""}
-                          onChange={(e) => updateContact(ui, ci, "designation", e.target.value)}
-                          className={selectCls}>
-                          {DESIGNATIONS.map((d) => <option key={d} value={d}>{d || "Designation"}</option>)}
-                        </select>
-                      </div>
-                      <div className="col-span-2">
-                        <input value={c.phone ?? ""}
-                          onChange={(e) => updateContact(ui, ci, "phone", e.target.value)}
-                          placeholder="Phone" className={inputCls} />
-                      </div>
-                      <div className="col-span-3">
-                        <input value={c.email ?? ""}
-                          onChange={(e) => updateContact(ui, ci, "email", e.target.value)}
-                          placeholder="Email" className={inputCls} />
-                      </div>
-                      <div className="col-span-1 flex justify-center">
-                        {unit.contacts.length > 1 && (
-                          <button type="button" onClick={() => removeContact(ui, ci)}
-                            className="text-gray-300 hover:text-red-400 transition-colors">
-                            <X className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
+                    <div key={ci} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto_auto] gap-2 mb-2 items-center">
+                      <input value={c.contactPerson}
+                        onChange={(e) => updateContact(ui, ci, "contactPerson", e.target.value)}
+                        placeholder="Name" className={inputCls} />
+                      <select value={c.designation ?? ""}
+                        onChange={(e) => updateContact(ui, ci, "designation", e.target.value)}
+                        className={selectCls}>
+                        {DESIGNATIONS.map((d) => <option key={d} value={d}>{d || "Designation"}</option>)}
+                      </select>
+                      <input value={c.phone ?? ""}
+                        onChange={(e) => updateContact(ui, ci, "phone", e.target.value)}
+                        placeholder="Phone" className={inputCls} />
+                      <input value={c.email ?? ""}
+                        onChange={(e) => updateContact(ui, ci, "email", e.target.value)}
+                        placeholder="Email" className={inputCls} />
+                      {/* Default contact star */}
+                      <button type="button"
+                        title={c.isDefault ? "Default contact for PO" : "Set as default contact"}
+                        onClick={() => setContactDefaultInUnit(ui, ci)}>
+                        <Star className={cn(
+                          "h-4 w-4 transition-colors",
+                          c.isDefault ? "fill-amber-400 text-amber-400" : "fill-none text-gray-300 hover:text-amber-300"
+                        )} />
+                      </button>
+                      <button type="button" onClick={() => removeContact(ui, ci)}
+                        className="text-gray-300 hover:text-red-400 transition-colors">
+                        <X className="h-4 w-4" />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -462,17 +489,32 @@ export default function MillMasterPage() {
               <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Units</p>
                 {viewData.units.map((u, i) => (
-                  <div key={i} className="border border-gray-100 rounded-lg p-3 space-y-2">
-                    <p className="text-sm font-semibold text-gray-800">{u.unitName}</p>
-                    {u.address && <p className="text-xs text-gray-500">{u.address}</p>}
+                  <div key={i} className={cn(
+                    "border rounded-lg p-3 space-y-2",
+                    u.isDefault ? "border-amber-200 bg-amber-50/40" : "border-gray-100"
+                  )}>
+                    <div className="flex items-center gap-2">
+                      <Star className={cn("h-3.5 w-3.5 flex-shrink-0",
+                        u.isDefault ? "fill-amber-400 text-amber-400" : "fill-none text-gray-200")} />
+                      <p className="text-sm font-semibold text-gray-800">{u.unitName}</p>
+                      {u.isDefault && (
+                        <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 rounded-full px-1.5 py-0.5 font-medium">Default</span>
+                      )}
+                    </div>
+                    {u.address && <p className="text-xs text-gray-500 pl-5">{u.address}</p>}
                     {u.contacts.length > 0 && (
-                      <div className="space-y-1">
+                      <div className="space-y-1 pl-5">
                         {u.contacts.map((c, j) => (
-                          <div key={j} className="flex gap-3 text-xs text-gray-600">
+                          <div key={j} className="flex items-center gap-2 text-xs text-gray-600">
+                            <Star className={cn("h-3 w-3 flex-shrink-0",
+                              c.isDefault ? "fill-amber-400 text-amber-400" : "fill-none text-gray-200")} />
                             <span className="font-medium">{c.contactPerson}</span>
                             {c.designation && <span className="text-gray-400">{c.designation}</span>}
                             {c.phone && <span>{c.phone}</span>}
                             {c.email && <span>{c.email}</span>}
+                            {c.isDefault && (
+                              <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 rounded-full px-1.5 py-0.5">Default contact</span>
+                            )}
                           </div>
                         ))}
                       </div>

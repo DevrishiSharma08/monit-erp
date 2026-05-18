@@ -327,12 +327,6 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
     };
   });
 
-  // Auto-fill insurance policy no. from company config for new SOs
-  useEffect(() => {
-    if (!initialData?.id && companyConfig.insurancePolicyNo) {
-      setFormData(prev => ({ ...prev, insurancePolicyNo: companyConfig.insurancePolicyNo! }));
-    }
-  }, [companyConfig.insurancePolicyNo, initialData?.id]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
@@ -389,8 +383,8 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
 
     const contacts = customer.contacts && customer.contacts.length > 0
       ? customer.contacts.map(c => ({ ...c, id: String(c.id) }))
-      : [{ id: "default", name: customer.company, phone: customer.phone ?? "", email: customer.email ?? "", designation: "" }];
-    const first = contacts[0];
+      : [{ id: "default", name: customer.company, phone: customer.phone ?? "", email: customer.email ?? "", designation: "", isDefault: true }];
+    const first = contacts.find(c => c.isDefault) ?? contacts[0];
     const defaultDelivery = customer.deliveryAddresses?.find(a => a.isDefault) ?? customer.deliveryAddresses?.[0];
     const defaultAddr = defaultDelivery ?? (customer.billingAddress ? { address: customer.billingAddress } : undefined);
 
@@ -576,7 +570,7 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
       deliveryTerms:        formData.deliveryTerms || undefined,
       deliveryMode:         formData.deliveryMode || undefined,
       remarks:              formData.remarks || undefined,
-      insurancePolicyNo:    formData.insurancePolicyNo || undefined,
+      insurancePolicyNo:    companyConfig.insurancePolicyNo || undefined,
       lines,
     };
   };
@@ -799,17 +793,20 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
               onChange={handleChange} placeholder="Notes or special instructions" className={inputCls} />
           </div>
 
-          {/* Insurance Policy No. */}
+          {/* Insurance Policy No. — read-only, always from Company Settings */}
           <div className="sm:col-span-2">
             <label className={labelCls + " flex items-center gap-1.5"}>
               <Shield className="h-3 w-3 text-blue-400" />
               Insurance Policy No.
             </label>
-            <input type="text" name="insurancePolicyNo"
-              value={formData.insurancePolicyNo || ""}
-              onChange={handleChange}
-              placeholder="Auto-filled from Company Settings"
-              className={cn(inputCls, !formData.insurancePolicyNo && "text-gray-400")} />
+            <input
+              type="text"
+              readOnly
+              value={companyConfig.insurancePolicyNo || ""}
+              placeholder="Set in Company Settings"
+              className={readonlyCls}
+            />
+            <p className="mt-1 text-[10px] text-gray-400">Managed in Company Settings · not editable here</p>
           </div>
 
         </div>

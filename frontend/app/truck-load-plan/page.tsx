@@ -1,18 +1,31 @@
 "use client";
 
-import { useMemo, useState, useRef, useCallback } from "react";
-import { TruckLoadPlan, TruckLoadPlanItem, MillOrderTracker, mockTransporters } from "@/data/mockData";
+import { useMemo, useState, useRef, useCallback, useEffect } from "react";
+import { TruckLoadPlan, TruckLoadPlanItem, MillOrderTracker } from "@/data/mockData";
 import {
   Truck, Clock, CheckCircle2, Plus, Package, AlertCircle,
-  MoreVertical, Eye, Trash2, Printer, RefreshCw, X, Weight,
-  ChevronDown, ChevronRight,
+  MoreVertical, Eye, EyeOff, Trash2, Printer, RefreshCw, X, Weight,
+  ChevronDown, ChevronRight, GripVertical, Filter, Search,
 } from "lucide-react";
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+} from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
+import {
+  arrayMove, SortableContext, horizontalListSortingStrategy, useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { Modal } from "@/components/Modal";
-import { usePurchaseOrder } from "@/context/PurchaseOrderContext";
 import { useToast } from "@/context/ToastContext";
 import { cn } from "@/lib/utils";
+import {
+  truckLoadPlanApi, TruckLoadPlanApiDto, TruckLoadPlanItemApiDto,
+  millTrackerApi, MillTrackerRow,
+  transporterApi, TransporterDropdown,
+} from "@/lib/api-services";
+import type { TransporterVehicleDto } from "@/lib/api-services";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -23,6 +36,44 @@ const STATUS_COLOR: Record<string, string> = {
   Delivered:    "bg-green-50 text-green-700 border border-green-200",
 };
 const STATUS_SEQ: TruckLoadPlan["status"][] = ["Planned", "Loading", "In Transit", "Delivered"];
+
+const TRUCK_TYPES: { label: string; value: string; capacity: number }[] = [
+  { label: "Tata Ace (750 kg)",     value: "Tata Ace",      capacity: 750   },
+  { label: "Pickup / Bolero (1.5T)",value: "Pickup",        capacity: 1500  },
+  { label: "Chhota Hathi (2T)",     value: "Chhota Hathi",  capacity: 2000  },
+  { label: "407 (4T)",              value: "407",            capacity: 4000  },
+  { label: "LCV (5T)",              value: "LCV",            capacity: 5000  },
+  { label: "17 ft (7T)",            value: "17 ft",          capacity: 7000  },
+  { label: "24 ft (12T)",           value: "24 ft",          capacity: 12000 },
+  { label: "32 ft SXL (20T)",       value: "32 ft SXL",      capacity: 20000 },
+  { label: "40 ft Trailer (25T+)",  value: "40 ft Trailer",  capacity: 25000 },
+];
+
+const PENDING_COLS = [
+  { id: "mill",     label: "Mill"             },
+  { id: "delivery", label: "Delivery Address" },
+  { id: "status",   label: "Status"           },
+  { id: "weight",   label: "Weight (kg)"      },
+  { id: "qty",      label: "Qty (sht)"        },
+  { id: "eta",      label: "ETA"              },
+] as const;
+type PendingColId = typeof PENDING_COLS[number]["id"];
+const DEFAULT_HIDDEN: PendingColId[] = ["qty"];
+const PENDING_COL_ALIGN: Record<PendingColId, "left" | "right"> = {
+  mill: "left", delivery: "left", status: "left",
+  weight: "right", qty: "right", eta: "left",
+};
+
+const TRACKER_STATUS_BADGE: Record<string, string> = {
+  "Ready":              "bg-green-100 text-green-700",
+  "Partial Ready":      "bg-amber-100 text-amber-700",
+  "Partial Dispatched": "bg-purple-100 text-purple-700",
+  "Order Placed":       "bg-gray-100 text-gray-600",
+  "In Production":      "bg-blue-100 text-blue-700",
+  "Dispatched":         "bg-teal-100 text-teal-700",
+  "Delayed":            "bg-red-100 text-red-700",
+  "Cancelled":          "bg-gray-100 text-gray-400",
+};
 
 // ─── Weight helper ─────────────────────────────────────────────────────────────
 
@@ -46,19 +97,187 @@ function planTotals(plan: TruckLoadPlan) {
   return { totalQty, totalWeight, uniquePOs };
 }
 
+// ─── Tracker Detail Modal ─────────────────────────────────────────────────────
+
+function TrackerDetailModal({ tracker, onClose }: { tracker: MillOrderTracker; onClose: () => void }) {
+  const avail          = tracker.readyQty - tracker.dispatchedQty;
+  const availWeight    = calcWeightKg(tracker.gsm, tracker.size, avail);
+  const orderedWeight  = calcWeightKg(tracker.gsm, tracker.size, tracker.orderedQty);
+  const readyWeight    = calcWeightKg(tracker.gsm, tracker.size, tracker.readyQty);
+  const dispatchWeight = calcWeightKg(tracker.gsm, tracker.size, tracker.dispatchedQty);
+
+  return (
+    <div className="space-y-4">
+      {/* PO & Mill Header */}
+      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3.5">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className="font-mono text-sm font-bold text-gray-900">{tracker.poNumber}</span>
+              {tracker.soNumber && <span className="text-xs text-purple-500">→ {tracker.soNumber}</span>}
+              <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                TRACKER_STATUS_BADGE[tracker.productionStatus] ?? "bg-gray-100 text-gray-600")}>
+                {tracker.productionStatus}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500">{tracker.mill} · PO Date: {tracker.poDate}</p>
+          </div>
+          {!!tracker.delayDays && tracker.delayDays > 0 && (
+            <div className="flex items-center gap-1 rounded-lg bg-red-50 border border-red-100 px-2.5 py-1 flex-shrink-0">
+              <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+              <span className="text-xs font-semibold text-red-600">{tracker.delayDays}d delay</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Material */}
+      <div>
+        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Material</p>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: "Paper", val: tracker.paper },
+            { label: "GSM",   val: String(tracker.gsm) },
+            { label: "Size",  val: tracker.size },
+          ].map(({ label, val }) => (
+            <div key={label} className="rounded-xl border border-gray-100 bg-white px-3 py-2.5">
+              <p className="text-[10px] text-gray-400 uppercase">{label}</p>
+              <p className="font-semibold text-gray-800 text-xs mt-0.5">{val}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Quantities */}
+      <div>
+        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Quantities</p>
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            { label: "Ordered",    val: tracker.orderedQty,    wt: orderedWeight,  color: "text-gray-800"   },
+            { label: "Ready",      val: tracker.readyQty,      wt: readyWeight,    color: "text-green-700"  },
+            { label: "Dispatched", val: tracker.dispatchedQty, wt: dispatchWeight, color: "text-purple-700" },
+            { label: "Available",  val: avail,                 wt: availWeight,    color: "text-blue-700"   },
+          ].map(({ label, val, wt, color }) => (
+            <div key={label} className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-center">
+              <p className="text-[10px] text-gray-400 uppercase">{label}</p>
+              <p className={cn("font-bold text-sm mt-0.5 tabular-nums", color)}>{val.toLocaleString()}</p>
+              {wt > 0 && <p className="text-[10px] text-gray-400 tabular-nums">{wt.toLocaleString()} kg</p>}
+            </div>
+          ))}
+        </div>
+        {tracker.productionProgress > 0 && (
+          <div className="mt-2">
+            <div className="flex justify-between text-[11px] text-gray-500 mb-1">
+              <span>Production Progress</span>
+              <span className="font-semibold">{tracker.productionProgress}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+              <div className="h-full rounded-full bg-blue-500 transition-all"
+                style={{ width: `${Math.min(tracker.productionProgress, 100)}%` }} />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Customer & Delivery */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-xl border border-gray-100 bg-white px-3 py-2.5">
+          <p className="text-[10px] text-gray-400 uppercase mb-1">Customer</p>
+          <p className="font-semibold text-gray-800 text-xs">{tracker.customerName ?? "—"}</p>
+          {tracker.deliveryMode && (
+            <p className="text-[11px] text-blue-500 mt-0.5">{tracker.deliveryMode}</p>
+          )}
+        </div>
+        <div className="rounded-xl border border-gray-100 bg-white px-3 py-2.5">
+          <p className="text-[10px] text-gray-400 uppercase mb-1">Delivery Address</p>
+          <p className="text-xs text-gray-700 leading-relaxed">{tracker.directDeliveryAddress ?? "—"}</p>
+        </div>
+      </div>
+
+      {/* Dates & Update */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-xl border border-gray-100 bg-white px-3 py-2.5">
+          <p className="text-[10px] text-gray-400 uppercase mb-1">Expected Delivery</p>
+          <p className="font-semibold text-xs text-gray-800">{tracker.expectedDelivery || "—"}</p>
+        </div>
+        <div className="rounded-xl border border-gray-100 bg-white px-3 py-2.5">
+          <p className="text-[10px] text-gray-400 uppercase mb-1">Last Updated</p>
+          <p className="text-xs text-gray-700">{tracker.lastUpdate || "—"}</p>
+          {tracker.lastUpdatedBy && <p className="text-[11px] text-gray-400">by {tracker.lastUpdatedBy}</p>}
+        </div>
+      </div>
+
+      {tracker.remarks && (
+        <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5">
+          <p className="text-[10px] text-gray-400 uppercase mb-1">Remarks</p>
+          <p className="text-xs text-amber-800">{tracker.remarks}</p>
+        </div>
+      )}
+
+      <div className="flex justify-end pt-2 border-t border-gray-100">
+        <button onClick={onClose}
+          className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Close</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sortable pending column header (DnD reordering) ──────────────────────────
+
+function SortablePendingTh({ id, align, children }: { id: PendingColId; align: "left" | "right"; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <th ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
+      className={cn("px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 select-none whitespace-nowrap",
+        align === "right" ? "text-right" : "text-left")}>
+      <div className={cn("inline-flex items-center gap-1", align === "right" ? "flex-row-reverse" : "")}>
+        <button {...attributes} {...listeners} onClick={(e) => e.stopPropagation()}
+          className="cursor-grab touch-none text-gray-300 hover:text-gray-400 active:cursor-grabbing">
+          <GripVertical className="h-3 w-3" />
+        </button>
+        {children}
+      </div>
+    </th>
+  );
+}
+
 // ─── Pending POs Section ───────────────────────────────────────────────────────
 
 interface PendingFilters { search: string; customer: string; mill: string; status: string; }
 
 function PendingPOsSection({
-  trackers, selectedIds, onToggle, onPlanSelected,
+  trackers, selectedIds, onToggle, onPlanSelected, onViewTracker,
 }: {
   trackers: MillOrderTracker[];
   selectedIds: Set<string>;
   onToggle: (id: string) => void;
   onPlanSelected: () => void;
+  onViewTracker: (t: MillOrderTracker) => void;
 }) {
-  const [filters, setFilters] = useState<PendingFilters>({ search: "", customer: "", mill: "", status: "" });
+  const [filters,      setFilters]     = useState<PendingFilters>({ search: "", customer: "", mill: "", status: "" });
+  const [hiddenCols,   setHiddenCols]  = useState<Set<PendingColId>>(new Set(DEFAULT_HIDDEN));
+  const [colMenuOpen,  setColMenuOpen] = useState(false);
+  const [showFilters,  setShowFilters] = useState(false);
+  const [colOrder,     setColOrder]    = useState<PendingColId[]>(PENDING_COLS.map((c) => c.id));
+
+  const sensors = useSensors(useSensor(PointerSensor));
+
+  const handleColDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setColOrder((prev) => {
+        const oldIdx = prev.indexOf(active.id as PendingColId);
+        const newIdx = prev.indexOf(over.id as PendingColId);
+        return arrayMove(prev, oldIdx, newIdx);
+      });
+    }
+  };
+
+  const visibleCols = colOrder.filter((id) => !hiddenCols.has(id));
+  const toggleCol = (col: PendingColId) => setHiddenCols((prev) => {
+    const next = new Set(prev); next.has(col) ? next.delete(col) : next.add(col); return next;
+  });
 
   const customers = useMemo(() => [...new Set(trackers.map((t) => t.customerName).filter(Boolean))] as string[], [trackers]);
   const mills     = useMemo(() => [...new Set(trackers.map((t) => t.mill))], [trackers]);
@@ -83,8 +302,53 @@ function PendingPOsSection({
 
   const setF = (k: keyof PendingFilters, v: string) => setFilters((p) => ({ ...p, [k]: v }));
 
+  const selectedWeight = useMemo(() =>
+    trackers.filter((t) => selectedIds.has(t.id))
+      .reduce((s, t) => s + calcWeightKg(t.gsm, t.size, t.readyQty - t.dispatchedQty), 0),
+    [trackers, selectedIds],
+  );
+
+  // Per-column cell renderer — returns the <td> element
+  const renderCell = (col: PendingColId, t: MillOrderTracker, avail: number, wt: number) => {
+    switch (col) {
+      case "mill":
+        return <td key={col} className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap">{t.mill}</td>;
+      case "delivery":
+        return (
+          <td key={col} className="px-3 py-3 text-xs text-gray-500 min-w-[160px] max-w-[220px]">
+            {t.directDeliveryAddress
+              ? <span className="line-clamp-2 leading-relaxed">{t.directDeliveryAddress}</span>
+              : <span className="text-gray-300">—</span>}
+          </td>
+        );
+      case "status":
+        return (
+          <td key={col} className="px-3 py-3 whitespace-nowrap">
+            <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
+              TRACKER_STATUS_BADGE[t.productionStatus] ?? "bg-gray-100 text-gray-600")}>
+              {t.productionStatus}
+            </span>
+          </td>
+        );
+      case "weight":
+        return (
+          <td key={col} className="px-3 py-3 text-right font-bold text-blue-700 tabular-nums text-sm whitespace-nowrap">
+            {wt > 0 ? `${wt.toLocaleString()} kg` : "—"}
+          </td>
+        );
+      case "qty":
+        return <td key={col} className="px-3 py-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">{avail.toLocaleString()}</td>;
+      case "eta":
+        return <td key={col} className="px-3 py-3 text-xs text-gray-500 whitespace-nowrap">{t.expectedDelivery || "—"}</td>;
+    }
+  };
+
+  const selCls     = "min-w-[140px] rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none";
+  const activeFilterCount = [filters.customer, filters.mill, filters.status].filter(Boolean).length;
+
   return (
     <div className="rounded-2xl border border-orange-200 bg-white shadow-sm overflow-hidden">
+      {/* Header */}
       <div className="flex items-center justify-between border-b border-orange-100 bg-gradient-to-r from-orange-50 to-amber-50 px-5 py-3.5">
         <div className="flex items-center gap-2.5">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-orange-500">
@@ -98,94 +362,216 @@ function PendingPOsSection({
         {selectedIds.size > 0 && (
           <button onClick={onPlanSelected}
             className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-bold text-white hover:bg-blue-700 active:scale-95 transition-all shadow-sm">
-            <Truck className="h-3.5 w-3.5" /> Plan {selectedIds.size} Selected
+            <Truck className="h-3.5 w-3.5" />
+            Plan {selectedIds.size} Selected
+            {selectedWeight > 0 && <span className="ml-1 opacity-80 font-normal">· {selectedWeight.toLocaleString()} kg</span>}
           </button>
         )}
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2 border-b border-gray-100 bg-gray-50/60 px-5 py-2.5">
-        <input type="search" placeholder="Search PO, material, customer…" value={filters.search}
-          onChange={(e) => setF("search", e.target.value)}
-          className="flex-1 min-w-[180px] rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-blue-400 focus:outline-none" />
-        <select value={filters.customer} onChange={(e) => setF("customer", e.target.value)}
-          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:border-blue-400 focus:outline-none bg-white">
-          <option value="">All Customers</option>
-          {customers.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={filters.mill} onChange={(e) => setF("mill", e.target.value)}
-          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:border-blue-400 focus:outline-none bg-white">
-          <option value="">All Mills</option>
-          {mills.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-        <select value={filters.status} onChange={(e) => setF("status", e.target.value)}
-          className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:border-blue-400 focus:outline-none bg-white">
-          <option value="">All Statuses</option>
-          {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        {(filters.search || filters.customer || filters.mill || filters.status) && (
-          <button onClick={() => setFilters({ search: "", customer: "", mill: "", status: "" })}
-            className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-500 hover:bg-gray-100">Clear</button>
+      {/* Toolbar */}
+      <div className="border-b border-gray-100">
+        {/* Row 1: Search + Filters btn + Columns btn */}
+        <div className="flex items-center gap-2 bg-gray-50/60 px-4 py-2.5">
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search PO, material, customer…"
+              value={filters.search}
+              onChange={(e) => setF("search", e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-gray-50 py-1.5 pl-9 pr-3 text-sm placeholder-gray-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+            />
+            {filters.search && (
+              <button onClick={() => setF("search", "")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Filters toggle */}
+          <button
+            onClick={() => setShowFilters((v) => !v)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors flex-shrink-0",
+              (showFilters || activeFilterCount > 0)
+                ? "border-blue-300 bg-blue-50 text-blue-700"
+                : "border-gray-200 text-gray-600 hover:bg-gray-50"
+            )}
+          >
+            <Filter className="h-4 w-4" />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[10px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+
+          {/* Column visibility */}
+          <div className="relative flex-shrink-0">
+            <button
+              onClick={() => setColMenuOpen((v) => !v)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
+                colMenuOpen
+                  ? "border-blue-300 bg-blue-50 text-blue-700"
+                  : "border-gray-200 text-gray-600 hover:bg-gray-50"
+              )}
+            >
+              <Eye className="h-4 w-4" />
+              <span>Columns</span>
+              {hiddenCols.size > 0 && (
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-400 text-[10px] font-bold text-white">
+                  {hiddenCols.size}
+                </span>
+              )}
+            </button>
+            {colMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setColMenuOpen(false)} />
+                <div className="absolute right-0 top-full mt-2 z-20 w-60 rounded-lg border border-gray-100 bg-white shadow-lg">
+                  <div className="p-3 space-y-1.5">
+                    <div className="flex items-center justify-between border-b pb-2 mb-1">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Toggle Columns</span>
+                      <button onClick={() => setColMenuOpen(false)} className="text-gray-400 hover:text-gray-600">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <div className="space-y-0.5">
+                      {PENDING_COLS.map((col) => (
+                        <label key={col.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50">
+                          <input type="checkbox" checked={!hiddenCols.has(col.id)} onChange={() => toggleCol(col.id)}
+                            className="h-3.5 w-3.5 rounded border-gray-300 text-blue-500 focus:ring-blue-400" />
+                          <span className="text-gray-700 flex-1">{col.label}</span>
+                          {!hiddenCols.has(col.id)
+                            ? <Eye className="h-3.5 w-3.5 text-blue-400" />
+                            : <EyeOff className="h-3.5 w-3.5 text-gray-300" />}
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 border-t pt-2">
+                      <button onClick={() => setHiddenCols(new Set())}
+                        className="flex-1 rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200">
+                        Show All
+                      </button>
+                      <button onClick={() => setHiddenCols(new Set(PENDING_COLS.map((c) => c.id)))}
+                        className="flex-1 rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200">
+                        Hide All
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Row 2: Collapsible filter panel */}
+        {showFilters && (
+          <div className="border-t px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={filters.customer} onChange={(e) => setF("customer", e.target.value)} className={selCls}>
+                <option value="">All Customers</option>
+                {customers.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={filters.mill} onChange={(e) => setF("mill", e.target.value)} className={selCls}>
+                <option value="">All Mills</option>
+                {mills.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <select value={filters.status} onChange={(e) => setF("status", e.target.value)} className={selCls}>
+                <option value="">All Statuses</option>
+                {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={() => setFilters((p) => ({ ...p, customer: "", mill: "", status: "" }))}
+                  className="flex items-center gap-1 flex-shrink-0 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-100"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear filters
+                </button>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="border-b border-gray-100 bg-gray-50 text-[11px] uppercase tracking-wider text-gray-500">
-            <tr>
-              <th className="w-10 px-4 py-2.5">
-                <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                  className="h-3.5 w-3.5 rounded border-gray-300 accent-blue-500" />
-              </th>
-              <th className="px-3 py-2.5 text-left font-semibold">PO #</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Material</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Mill</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Customer</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Status</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Avail Qty</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Est. Weight</th>
-              <th className="px-3 py-2.5 text-left font-semibold">ETA</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {filtered.length === 0
-              ? <tr><td colSpan={9} className="py-8 text-center text-sm text-gray-400">No pending items match filters</td></tr>
-              : filtered.map((t) => {
-                  const avail = t.readyQty - t.dispatchedQty;
-                  const wt = calcWeightKg(t.gsm, t.size, avail);
-                  const checked = selectedIds.has(t.id);
-                  return (
-                    <tr key={t.id} onClick={() => onToggle(t.id)}
-                      className={cn("cursor-pointer transition-colors", checked ? "bg-blue-50/70" : "hover:bg-gray-50/70")}>
-                      <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" checked={checked} onChange={() => onToggle(t.id)}
-                          className="h-3.5 w-3.5 rounded border-gray-300 accent-blue-500" />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className="font-mono text-xs font-semibold text-gray-800">{t.poNumber}</span>
-                        {t.soNumber && <span className="ml-1.5 text-[11px] text-purple-500">→ {t.soNumber}</span>}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <p className="font-medium text-gray-800 text-xs">{t.paper}</p>
-                        <p className="text-[11px] text-gray-400">{t.gsm} GSM · {t.size}</p>
-                      </td>
-                      <td className="px-3 py-2.5 text-xs text-gray-600">{t.mill}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-600">{t.customerName ?? "—"}</td>
-                      <td className="px-3 py-2.5">
-                        <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                          t.productionStatus === "Ready" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700")}>
-                          {t.productionStatus}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-semibold text-green-700 tabular-nums">{avail.toLocaleString()}</td>
-                      <td className="px-3 py-2.5 text-right text-xs text-gray-500 tabular-nums">{wt > 0 ? `${wt.toLocaleString()} kg` : "—"}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-500">{t.expectedDelivery ?? "—"}</td>
-                    </tr>
-                  );
-                })
-            }
-          </tbody>
-        </table>
+      {/* Table */}
+      <div className="overflow-x-auto [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-track]:bg-transparent">
+        <DndContext id="pending-cols-dnd" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleColDragEnd}>
+          <table className="w-full text-sm" style={{ tableLayout: "auto" }}>
+            <thead className="border-b-2 border-gray-200 bg-gradient-to-b from-slate-50 to-gray-50">
+              <tr>
+                {/* Fixed: checkbox */}
+                <th className="w-10 px-4 py-2.5">
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                    className="h-3.5 w-3.5 rounded border-gray-300 accent-blue-500" />
+                </th>
+                {/* Fixed: PO / Material */}
+                <th className="min-w-[180px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">
+                  PO # / Material
+                </th>
+                {/* Fixed: Customer */}
+                <th className="min-w-[120px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">
+                  Customer
+                </th>
+                {/* Drag-to-reorder visible columns */}
+                <SortableContext items={visibleCols} strategy={horizontalListSortingStrategy}>
+                  {visibleCols.map((col) => {
+                    const def = PENDING_COLS.find((c) => c.id === col)!;
+                    return (
+                      <SortablePendingTh key={col} id={col} align={PENDING_COL_ALIGN[col]}>
+                        {def.label}
+                      </SortablePendingTh>
+                    );
+                  })}
+                </SortableContext>
+                {/* Fixed: View */}
+                <th className="w-14 px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  View
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {filtered.length === 0
+                ? <tr><td colSpan={99} className="py-8 text-center text-sm text-gray-400">No pending items match filters</td></tr>
+                : filtered.map((t) => {
+                    const avail   = t.readyQty - t.dispatchedQty;
+                    const wt      = calcWeightKg(t.gsm, t.size, avail);
+                    const checked = selectedIds.has(t.id);
+                    return (
+                      <tr key={t.id} onClick={() => onToggle(t.id)}
+                        className={cn("cursor-pointer transition-colors", checked ? "bg-blue-50/70" : "hover:bg-gray-50/60")}>
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <input type="checkbox" checked={checked} onChange={() => onToggle(t.id)}
+                            className="h-3.5 w-3.5 rounded border-gray-300 accent-blue-500" />
+                        </td>
+                        <td className="px-3 py-3 min-w-[180px]">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span className="font-mono text-xs font-semibold text-gray-800">{t.poNumber}</span>
+                            {t.soNumber && <span className="text-[11px] text-purple-500">→ {t.soNumber}</span>}
+                          </div>
+                          <p className="font-medium text-gray-700 text-xs">{t.paper}</p>
+                          <p className="text-[11px] text-gray-400">{t.gsm} GSM · {t.size}</p>
+                        </td>
+                        <td className="px-3 py-3 text-xs font-medium text-gray-700 whitespace-nowrap min-w-[120px]">{t.customerName ?? "—"}</td>
+                        {visibleCols.map((col) => renderCell(col, t, avail, wt))}
+                        <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => onViewTracker(t)}
+                            className="rounded-md p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600 transition-colors">
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+              }
+            </tbody>
+          </table>
+        </DndContext>
       </div>
     </div>
   );
@@ -202,41 +588,44 @@ interface PlanItem {
 
 interface PlanForm {
   items: PlanItem[];
-  truckNumber: string; truckCapacityKg: number;
+  truckNumber: string; truckType: string; truckCapacityKg: number;
   transporterName: string; driverName: string; driverPhone: string;
+  freightAmount: number;
   millInvoiceNo: string; deliveryBillNo: string;
-  origin: string; deliveryMode: "Direct To Customer" | "To Godown" | "Multi-Stop";
+  origin: string;
   plannedLoadDate: string; plannedDeliveryDate: string;
 }
 
-function PlanCreationModal({ trackers, onSubmit, onCancel }: {
+function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
   trackers: MillOrderTracker[];
+  transporters: TransporterDropdown[];
   onSubmit: (form: PlanForm) => void;
   onCancel: () => void;
 }) {
   const today = new Date().toISOString().split("T")[0];
-  const mode: PlanForm["deliveryMode"] = trackers.length > 1 ? "Multi-Stop"
-    : (trackers[0]?.deliveryMode as "Direct To Customer" | "To Godown") ?? "To Godown";
 
   const initialItems: PlanItem[] = trackers.map((t, i) => ({
     trackerId: t.id, poNumber: t.poNumber, soNumber: t.soNumber ?? "",
     paper: t.paper, gsm: t.gsm, size: t.size,
-    customerName: t.customerName ?? "", mill: t.mill, deliveryAddress: "",
+    customerName: t.customerName ?? "", mill: t.mill,
+    deliveryAddress: t.directDeliveryAddress ?? "",
     maxQty: t.readyQty - t.dispatchedQty,
     quantity: t.readyQty - t.dispatchedQty,
     loadOrder: trackers.length - i,
   }));
 
   const [form, setForm] = useState<PlanForm>({
-    items: initialItems, truckNumber: "", truckCapacityKg: 15000,
-    transporterName: "", driverName: "", driverPhone: "",
+    items: initialItems, truckNumber: "", truckType: "", truckCapacityKg: 15000,
+    transporterName: "", driverName: "", driverPhone: "", freightAmount: 0,
     millInvoiceNo: "", deliveryBillNo: "",
     origin: trackers[0]?.mill ?? "",
-    deliveryMode: mode,
     plannedLoadDate: today, plannedDeliveryDate: today,
   });
+  const [availVehicles,   setAvailVehicles]   = useState<TransporterVehicleDto[]>([]);
+  const [vehiclesLoading, setVehiclesLoading] = useState(false);
 
   const setF = <K extends keyof PlanForm>(k: K, v: PlanForm[K]) => setForm((p) => ({ ...p, [k]: v }));
+
   const updateItem = (idx: number, qty: number) =>
     setForm((p) => ({ ...p, items: p.items.map((it, i) => i === idx ? { ...it, quantity: Math.max(1, Math.min(qty, it.maxQty)) } : it) }));
   const updateItemAddr = (idx: number, addr: string) =>
@@ -244,11 +633,51 @@ function PlanCreationModal({ trackers, onSubmit, onCancel }: {
   const removeItem = (idx: number) =>
     setForm((p) => ({ ...p, items: p.items.filter((_, i) => i !== idx).map((it, i, arr) => ({ ...it, loadOrder: arr.length - i })) }));
 
+  const handleTransporterChange = async (name: string) => {
+    setF("transporterName", name);
+    setAvailVehicles([]);
+    const found = transporters.find((t) => t.name === name);
+    if (!found) return;
+    setVehiclesLoading(true);
+    try {
+      const detail = await transporterApi.getById(found.id);
+      setAvailVehicles(detail.vehicles);
+      if (detail.vehicles.length === 1) {
+        const v = detail.vehicles[0];
+        setForm((p) => ({
+          ...p,
+          truckType:       v.vehicleType    || p.truckType,
+          truckCapacityKg: v.capacity       ?? p.truckCapacityKg,
+          freightAmount:   v.freightRate    ?? p.freightAmount,
+        }));
+      }
+    } catch { /* silently ignore — fields remain editable */ }
+    finally { setVehiclesLoading(false); }
+  };
+
+  // Vehicle Type select (master vehicles only) — auto-fills capacity and freight
+  const handleVehicleTypeChange = (type: string) => {
+    const masterV = availVehicles.find((v) => v.vehicleType === type);
+    if (masterV) {
+      setForm((p) => ({
+        ...p,
+        truckType:       masterV.vehicleType,
+        truckCapacityKg: masterV.capacity    ?? p.truckCapacityKg,
+        freightAmount:   masterV.freightRate ?? p.freightAmount,
+      }));
+    } else {
+      setF("truckType", type);
+    }
+  };
+
   const totalWeight = form.items.reduce((s, it) => s + calcWeightKg(it.gsm, it.size, it.quantity), 0);
-  const cap = form.truckCapacityKg || 15000;
-  const pct = Math.min((totalWeight / cap) * 100, 100);
+  const cap  = form.truckCapacityKg || 15000;
+  const pct  = Math.min((totalWeight / cap) * 100, 100);
   const over = totalWeight > cap;
   const isValid = form.items.length > 0 && form.truckNumber.trim() && form.transporterName.trim() && form.plannedLoadDate && !over;
+
+  const iCls = "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-100";
+  const lCls = "block text-xs font-semibold text-gray-600 mb-1";
 
   return (
     <div className="space-y-5">
@@ -258,44 +687,51 @@ function PlanCreationModal({ trackers, onSubmit, onCancel }: {
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Items — LIFO (top = first delivery stop)</p>
           <span className="text-[11px] text-gray-400">{form.items.length} item{form.items.length !== 1 ? "s" : ""}</span>
         </div>
-        <div className="rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full text-xs">
+        <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-gray-300">
+          <table className="w-full text-xs" style={{ minWidth: 580 }}>
             <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-400">
               <tr>
                 <th className="w-7 px-2 py-2 text-center">#</th>
-                <th className="px-3 py-2 text-left">Material / PO</th>
-                <th className="px-3 py-2 text-left">Delivery Address</th>
-                <th className="px-3 py-2 text-right">Qty (sht)</th>
-                <th className="px-3 py-2 text-right">Weight</th>
+                <th className="px-3 py-2 text-left min-w-[160px]">Material / PO</th>
+                <th className="px-3 py-2 text-left min-w-[160px]">Delivery Address</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap">Qty · Weight</th>
                 <th className="w-8 px-2 py-2"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {form.items.length === 0 && (
-                <tr><td colSpan={6} className="py-4 text-center text-gray-400">No items</td></tr>
+                <tr><td colSpan={5} className="py-4 text-center text-gray-400">No items</td></tr>
               )}
               {form.items.map((it, idx) => (
                 <tr key={it.trackerId} className="bg-white">
                   <td className="px-2 py-2 text-center">
                     <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[11px] font-bold text-blue-600">{idx + 1}</span>
                   </td>
-                  <td className="px-3 py-2">
-                    <p className="font-medium text-gray-800">{it.paper}</p>
-                    <p className="text-[11px] text-gray-400">{it.gsm} GSM · {it.size} · {it.poNumber}</p>
-                    {it.customerName && <p className="text-[11px] text-blue-500">{it.customerName}</p>}
+                  <td className="px-3 py-2 min-w-[160px]">
+                    <p className="font-medium text-gray-800 truncate max-w-[180px]">{it.paper}</p>
+                    <p className="text-[11px] text-gray-400 whitespace-nowrap">{it.gsm} GSM · {it.size} · {it.poNumber}</p>
+                    {it.customerName && <p className="text-[11px] text-blue-500 truncate max-w-[180px]">{it.customerName}</p>}
                   </td>
-                  <td className="px-3 py-2">
-                    <input type="text" value={it.deliveryAddress} placeholder="Full delivery address"
+                  <td className="px-3 py-2 min-w-[160px]">
+                    <input type="text" value={it.deliveryAddress} placeholder="Delivery address"
                       onChange={(e) => updateItemAddr(idx, e.target.value)}
                       className="w-full rounded border border-gray-200 px-2 py-1 text-xs focus:border-blue-400 focus:outline-none" />
                   </td>
-                  <td className="px-3 py-2">
-                    <input type="number" value={it.quantity} min={1} max={it.maxQty}
-                      onChange={(e) => updateItem(idx, parseInt(e.target.value) || 1)}
-                      className="w-24 rounded border border-gray-200 px-2 py-1 text-right text-xs font-semibold focus:border-blue-400 focus:outline-none" />
-                    <p className="text-[10px] text-gray-400 text-right mt-0.5">max {it.maxQty.toLocaleString()}</p>
+                  {/* Qty + Weight combined to keep side-by-side on narrow modals */}
+                  <td className="px-3 py-2 whitespace-nowrap text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <div className="text-right">
+                        <input type="number" value={it.quantity} min={1} max={it.maxQty}
+                          onChange={(e) => updateItem(idx, parseInt(e.target.value) || 1)}
+                          className="w-20 rounded border border-gray-200 px-2 py-1 text-right text-xs font-semibold focus:border-blue-400 focus:outline-none" />
+                        <p className="text-[10px] text-gray-400 mt-0.5">/{it.maxQty.toLocaleString()} sht</p>
+                      </div>
+                      <div className="text-right min-w-[52px]">
+                        <p className="font-semibold tabular-nums text-gray-700">{calcWeightKg(it.gsm, it.size, it.quantity).toLocaleString()}</p>
+                        <p className="text-[10px] text-gray-400">kg</p>
+                      </div>
+                    </div>
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-gray-600">{calcWeightKg(it.gsm, it.size, it.quantity).toLocaleString()} kg</td>
                   <td className="px-2 py-2 text-center">
                     <button onClick={() => removeItem(idx)} className="rounded p-0.5 text-gray-300 hover:bg-red-50 hover:text-red-400 transition-colors">
                       <X className="h-3.5 w-3.5" />
@@ -312,7 +748,7 @@ function PlanCreationModal({ trackers, onSubmit, onCancel }: {
       <div className="rounded-xl border bg-gray-50 px-4 py-3">
         <div className="flex items-center justify-between mb-1.5">
           <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600">
-            <Weight className="h-3.5 w-3.5" /> Truck Weight
+            <Weight className="h-3.5 w-3.5" /> Truck Load
           </span>
           <span className={cn("text-xs font-bold tabular-nums", over ? "text-red-600" : "text-gray-700")}>
             {totalWeight.toLocaleString()} / {cap.toLocaleString()} kg
@@ -320,85 +756,132 @@ function PlanCreationModal({ trackers, onSubmit, onCancel }: {
           </span>
         </div>
         <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
-          <div className={cn("h-full rounded-full transition-all", over ? "bg-red-500" : pct > 85 ? "bg-amber-400" : "bg-green-500")} style={{ width: `${pct}%` }} />
+          <div className={cn("h-full rounded-full transition-all", over ? "bg-red-500" : pct > 85 ? "bg-amber-400" : "bg-green-500")}
+            style={{ width: `${pct}%` }} />
         </div>
-        <div className="mt-2 flex items-center gap-2">
-          <label className="text-[11px] text-gray-500 whitespace-nowrap">Capacity (kg):</label>
-          <input type="number" value={form.truckCapacityKg} min={1000} step={500}
-            onChange={(e) => setF("truckCapacityKg", parseInt(e.target.value) || 15000)}
-            className="w-28 rounded border border-gray-200 px-2 py-0.5 text-xs focus:border-blue-400 focus:outline-none" />
-        </div>
-        {over && <p className="mt-1.5 text-xs text-red-600 font-medium">Remove items or reduce quantities to fit truck capacity.</p>}
+        {over && (
+          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600 font-medium">
+            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+            Truck capacity exceeded by {(totalWeight - cap).toLocaleString()} kg — remove items or reduce quantities.
+          </p>
+        )}
       </div>
 
-      {/* Transport details */}
+      {/* Transport Details */}
       <div>
         <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Transport Details</p>
         <div className="grid grid-cols-2 gap-3">
+
+          {/* Row 1: Transporter | Vehicle Type */}
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Truck / Vehicle No <span className="text-red-500">*</span></label>
-            <input type="text" value={form.truckNumber} placeholder="MP09AB1234"
-              onChange={(e) => setF("truckNumber", e.target.value.toUpperCase())}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Transporter <span className="text-red-500">*</span></label>
+            <label className={lCls}>Transporter <span className="text-red-500">*</span></label>
             <input list="transporters-list" value={form.transporterName} placeholder="Transporter name"
-              onChange={(e) => setF("transporterName", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              onChange={(e) => handleTransporterChange(e.target.value)}
+              className={iCls} />
             <datalist id="transporters-list">
-              {mockTransporters.map((t) => <option key={t.id} value={t.name} />)}
+              {transporters.map((t) => <option key={t.id} value={t.name} />)}
             </datalist>
           </div>
+
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Driver Name</label>
+            <label className={lCls}>
+              Vehicle Type
+              {vehiclesLoading && <span className="ml-1.5 text-[10px] font-normal text-blue-400">loading…</span>}
+            </label>
+            {availVehicles.length > 0 ? (
+              <select value={form.truckType} onChange={(e) => handleVehicleTypeChange(e.target.value)} className={iCls}>
+                <option value="">Select vehicle…</option>
+                {availVehicles.map((v, i) => (
+                  <option key={i} value={v.vehicleType}>
+                    {v.vehicleType}
+                    {v.capacity    ? ` · ${v.capacity.toLocaleString()} kg`    : ""}
+                    {v.freightRate ? ` · ₹${v.freightRate.toLocaleString()}`   : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input type="text" value={form.truckType}
+                placeholder={vehiclesLoading ? "Loading…" : "e.g. 24 ft, Tata Ace…"}
+                onChange={(e) => setF("truckType", e.target.value)}
+                className={iCls} />
+            )}
+          </div>
+
+          {/* Row 2: Capacity | Vehicle No */}
+          <div>
+            <label className={lCls}>Truck Capacity (kg)</label>
+            <input type="number" value={form.truckCapacityKg} min={100} step={500}
+              onChange={(e) => setF("truckCapacityKg", parseInt(e.target.value) || 15000)}
+              className={iCls} />
+          </div>
+
+          <div>
+            <label className={lCls}>Truck / Vehicle No <span className="text-red-500">*</span></label>
+            <input type="text" value={form.truckNumber} placeholder="MP09AB1234"
+              onChange={(e) => setF("truckNumber", e.target.value.toUpperCase())}
+              className={cn(iCls, "font-mono")} />
+          </div>
+
+          {/* Row 3: Driver Name | Driver Phone */}
+          <div>
+            <label className={lCls}>Driver Name</label>
             <input type="text" value={form.driverName} placeholder="Driver full name"
               onChange={(e) => setF("driverName", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              className={iCls} />
           </div>
+
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Driver Phone</label>
+            <label className={lCls}>Driver Phone</label>
             <input type="tel" value={form.driverPhone} placeholder="+91-9876543210"
               onChange={(e) => setF("driverPhone", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              className={iCls} />
           </div>
+
+          {/* Row 4: Freight Amount | Origin */}
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Mill Invoice No.</label>
-            <input type="text" value={form.millInvoiceNo} placeholder="INV-2024-001"
-              onChange={(e) => setF("millInvoiceNo", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+            <label className={lCls}>Freight Amount (₹)</label>
+            <input type="number" value={form.freightAmount || ""} min={0} step={100} placeholder="0"
+              onChange={(e) => setF("freightAmount", parseFloat(e.target.value) || 0)}
+              className={iCls} />
           </div>
+
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Delivery Bill No.</label>
-            <input type="text" value={form.deliveryBillNo} placeholder="DB-2024-001"
-              onChange={(e) => setF("deliveryBillNo", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Origin</label>
+            <label className={lCls}>Origin (Mill / City)</label>
             <input type="text" value={form.origin}
               onChange={(e) => setF("origin", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              className={iCls} />
           </div>
+
+          {/* Row 5: Load Date | Delivery Date */}
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Delivery Mode</label>
-            <select value={form.deliveryMode} onChange={(e) => setF("deliveryMode", e.target.value as PlanForm["deliveryMode"])}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
-              <option value="Direct To Customer">Direct To Customer</option>
-              <option value="To Godown">To Godown</option>
-              <option value="Multi-Stop">Multi-Stop</option>
-            </select>
+            <label className={lCls}>Planned Load Date <span className="text-red-500">*</span></label>
+            <input type="date" value={form.plannedLoadDate}
+              onChange={(e) => setF("plannedLoadDate", e.target.value)}
+              className={iCls} />
           </div>
+
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Planned Load Date <span className="text-red-500">*</span></label>
-            <input type="date" value={form.plannedLoadDate} onChange={(e) => setF("plannedLoadDate", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+            <label className={lCls}>Planned Delivery Date</label>
+            <input type="date" value={form.plannedDeliveryDate}
+              onChange={(e) => setF("plannedDeliveryDate", e.target.value)}
+              className={iCls} />
           </div>
+
+          {/* Row 6: Mill Invoice | Delivery Bill */}
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Planned Delivery Date</label>
-            <input type="date" value={form.plannedDeliveryDate} onChange={(e) => setF("plannedDeliveryDate", e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+            <label className={lCls}>Mill Invoice No.</label>
+            <input type="text" value={form.millInvoiceNo} placeholder="INV-2024-001"
+              onChange={(e) => setF("millInvoiceNo", e.target.value)}
+              className={iCls} />
           </div>
+
+          <div>
+            <label className={lCls}>Delivery Bill No.</label>
+            <input type="text" value={form.deliveryBillNo} placeholder="DB-2024-001"
+              onChange={(e) => setF("deliveryBillNo", e.target.value)}
+              className={iCls} />
+          </div>
+
         </div>
       </div>
 
@@ -469,14 +952,16 @@ function PlanDrillDown({ plan, onClose }: { plan: TruckLoadPlan; onClose: () => 
 
         <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
           {[
-            ["Truck", plan.truckNumber || "—"],
-            ["Transporter", plan.transporterName || "—"],
-            ["Driver", plan.driverName || "—"],
-            ["Phone", plan.driverPhone || "—"],
-            ["Origin", plan.origin],
-            ["Mode", plan.deliveryMode],
-            ["Load Date", plan.plannedLoadDate],
-            ["Delivery Date", plan.plannedDeliveryDate],
+            ["Truck",          plan.truckNumber    || "—"],
+            ["Truck Type",     plan.truckType      || "—"],
+            ["Transporter",    plan.transporterName || "—"],
+            ["Driver",         plan.driverName     || "—"],
+            ["Phone",          plan.driverPhone    || "—"],
+            ["Freight",        plan.freightAmount ? `₹ ${plan.freightAmount.toLocaleString()}` : "—"],
+            ["Origin",         plan.origin],
+            ["Mode",           plan.deliveryMode],
+            ["Load Date",      plan.plannedLoadDate],
+            ["Delivery Date",  plan.plannedDeliveryDate],
           ].map(([label, val]) => (
             <div key={label}>
               <span className="text-gray-400">{label}: </span>
@@ -500,7 +985,6 @@ function PlanDrillDown({ plan, onClose }: { plan: TruckLoadPlan; onClose: () => 
           const expanded = expandedPOs.has(poNumber);
           return (
             <div key={poNumber} className="rounded-xl border border-gray-200 overflow-hidden">
-              {/* PO group header */}
               <button onClick={() => togglePO(poNumber)}
                 className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left">
                 <div className="flex items-center gap-2.5">
@@ -517,7 +1001,6 @@ function PlanDrillDown({ plan, onClose }: { plan: TruckLoadPlan; onClose: () => 
                 </div>
               </button>
 
-              {/* Item rows */}
               {expanded && (
                 <table className="w-full text-xs border-t border-gray-100">
                   <thead className="bg-white text-[11px] uppercase tracking-wider text-gray-400">
@@ -591,6 +1074,7 @@ function StatusUpdateModal({ plan, onClose, onSave }: {
         <p className="text-xs text-gray-500 mt-1">
           {uniquePOs} PO{uniquePOs !== 1 ? "s" : ""} · {plan.items.length} item{plan.items.length !== 1 ? "s" : ""} · {totalQty.toLocaleString()} sht · {totalWeight.toLocaleString()} kg
           {plan.truckNumber ? ` · ${plan.truckNumber}` : ""}
+          {plan.truckType ? ` (${plan.truckType})` : ""}
         </p>
       </div>
 
@@ -614,7 +1098,7 @@ function StatusUpdateModal({ plan, onClose, onSave }: {
 
       {newStatus === "In Transit" && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-          Setting to <strong>In Transit</strong> marks this load as dispatched. A GRN entry will appear when material arrives.
+          Setting to <strong>In Transit</strong> marks this load as dispatched. Mill Tracker will be updated automatically.
         </div>
       )}
 
@@ -633,6 +1117,89 @@ function StatusUpdateModal({ plan, onClose, onSave }: {
       </div>
     </div>
   );
+}
+
+// ─── API → frontend model mappers ─────────────────────────────────────────────
+
+function mapTrackerRow(r: MillTrackerRow): MillOrderTracker {
+  return {
+    id:                    String(r.id),
+    poNumber:              r.poNumber,
+    poItemId:              r.poItemId != null ? String(r.poItemId) : undefined,
+    poDate:                r.poDate ?? "",
+    mill:                  r.mill ?? "",
+    paper:                 r.paper ?? "",
+    gsm:                   r.gsm ?? 0,
+    size:                  r.size ?? "",
+    orderedQty:            Number(r.orderedQty),
+    readyQty:              Number(r.readyQty),
+    dispatchedQty:         Number(r.dispatchedQty),
+    balanceQty:            Number(r.balanceQty),
+    rate:                  Number(r.rate),
+    totalAmount:           Number(r.totalAmount),
+    productionStatus:      r.productionStatus as MillOrderTracker["productionStatus"],
+    productionProgress:    Number(r.productionProgress),
+    expectedDelivery:      r.expectedDelivery ?? "",
+    actualDispatchDate:    r.actualDispatchDate,
+    lastUpdate:            r.lastUpdate ?? "",
+    lastUpdatedBy:         r.lastUpdatedBy,
+    delayDays:             r.delayDays,
+    soNumber:              r.soNumber,
+    deliveryMode:          r.deliveryMode as MillOrderTracker["deliveryMode"],
+    millInvoiceNo:         r.millInvoiceNo,
+    remarks:               r.remarks,
+    customerName:          r.customerName,
+    soCustomerName:        r.soCustomerName,
+    customerId:            r.customerId != null ? String(r.customerId) : undefined,
+    millSONumber:          r.millSONumber,
+    soDeliveryDate:        r.soDeliveryDate,
+    directDeliveryAddress: r.directDeliveryAddress,
+    partialDeliveries:     [],
+    history:               [],
+  };
+}
+
+function mapApiItem(item: TruckLoadPlanItemApiDto): TruckLoadPlanItem {
+  return {
+    id:               String(item.id),
+    trackerSourceId:  item.trackerId != null ? String(item.trackerId) : undefined,
+    poNumber:         item.poNumber         ?? "",
+    soNumber:         item.soNumber         ?? undefined,
+    paper:            item.paper            ?? "",
+    gsm:              item.gsm              ?? 0,
+    size:             item.size             ?? "",
+    customerName:     item.customerName     ?? undefined,
+    deliveryLocation: item.deliveryLocation ?? undefined,
+    deliveryAddress:  item.deliveryAddress  ?? undefined,
+    quantity:         Number(item.quantity),
+    weightKg:         item.weightKg != null ? Number(item.weightKg) : undefined,
+    loadOrder:        item.loadOrder,
+    millInvoiceNo:    item.millInvoiceNo    ?? undefined,
+    deliveryBillNo:   item.deliveryBillNo   ?? undefined,
+  };
+}
+
+function mapApiPlan(plan: TruckLoadPlanApiDto): TruckLoadPlan {
+  return {
+    id:                  String(plan.id),
+    planNumber:          plan.planNumber,
+    planDate:            plan.planDate,
+    truckNumber:         plan.truckNumber         ?? undefined,
+    truckType:           plan.truckType           ?? undefined,
+    transporterName:     plan.transporterName     ?? undefined,
+    driverName:          plan.driverName          ?? undefined,
+    driverPhone:         plan.driverPhone         ?? undefined,
+    truckCapacityKg:     plan.truckCapacityKg != null ? Number(plan.truckCapacityKg) : undefined,
+    freightAmount:       plan.freightAmount   != null ? Number(plan.freightAmount)   : undefined,
+    origin:              plan.origin              ?? "",
+    deliveryMode:        (plan.deliveryMode as TruckLoadPlan["deliveryMode"]) ?? "Direct To Customer",
+    plannedLoadDate:     plan.plannedLoadDate      ?? "",
+    plannedDeliveryDate: plan.plannedDeliveryDate  ?? "",
+    actualLoadDate:      plan.actualLoadDate       ?? undefined,
+    actualDeliveryDate:  plan.actualDeliveryDate   ?? undefined,
+    status:              (plan.status as TruckLoadPlan["status"]) ?? "Planned",
+    items:               plan.items.map(mapApiItem),
+  };
 }
 
 // ─── 3-dot Actions Menu ────────────────────────────────────────────────────────
@@ -689,15 +1256,58 @@ function PlanActionsMenu({ plan, onView, onUpdateStatus, onDelete, onPrint }: {
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TruckLoadPlanPage() {
-  const { truckLoadPlans, addTruckLoadPlan, updateTruckLoadPlan, deleteTruckLoadPlan, readyTrackers } = usePurchaseOrder();
   const { success } = useToast();
 
-  const [showPending, setShowPending]   = useState(false);
-  const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
-  const [showPlanModal, setShowPlanModal]     = useState(false);
-  const [showStatusModal, setShowStatusModal] = useState(false);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [activePlan, setActivePlan]     = useState<TruckLoadPlan | null>(null);
+  // ── API state ──────────────────────────────────────────────────────────────
+  const [truckLoadPlans, setTruckLoadPlans] = useState<TruckLoadPlan[]>([]);
+  const [readyTrackers,  setReadyTrackers]  = useState<MillOrderTracker[]>([]);
+  const [transporters,   setTransporters]   = useState<TransporterDropdown[]>([]);
+  const [isPageLoading,  setIsPageLoading]  = useState(true);
+
+  // ── Data loading ───────────────────────────────────────────────────────────
+  const refreshReadyTrackers = useCallback(async () => {
+    const res = await millTrackerApi.list({ pageSize: 500 });
+    setReadyTrackers(
+      res.items
+        .filter(t => (Number(t.readyQty) - Number(t.dispatchedQty)) > 0 &&
+                     ["Ready", "Partial Ready", "Partial Dispatched"].includes(t.productionStatus))
+        .map(mapTrackerRow)
+    );
+  }, []);
+
+  const loadData = useCallback(async () => {
+    setIsPageLoading(true);
+    try {
+      const [plansRes, trackersRes, tpRes] = await Promise.all([
+        truckLoadPlanApi.list({ pageSize: 200 }),
+        millTrackerApi.list({ pageSize: 500 }),
+        transporterApi.dropdown(),
+      ]);
+      setTruckLoadPlans(plansRes.items.map(mapApiPlan));
+      setReadyTrackers(
+        trackersRes.items
+          .filter(t => (Number(t.readyQty) - Number(t.dispatchedQty)) > 0 &&
+                       ["Ready", "Partial Ready", "Partial Dispatched"].includes(t.productionStatus))
+          .map(mapTrackerRow)
+      );
+      setTransporters(tpRes);
+    } catch {
+      // errors surfaced by global ExceptionMiddleware
+    } finally {
+      setIsPageLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const [showPending,      setShowPending]      = useState(false);
+  const [selectedIds,      setSelectedIds]      = useState<Set<string>>(new Set());
+  const [showPlanModal,    setShowPlanModal]     = useState(false);
+  const [showStatusModal,  setShowStatusModal]   = useState(false);
+  const [showDetailModal,  setShowDetailModal]   = useState(false);
+  const [showTrackerModal, setShowTrackerModal]  = useState(false);
+  const [activePlan,       setActivePlan]        = useState<TruckLoadPlan | null>(null);
+  const [activeTracker,    setActiveTracker]     = useState<MillOrderTracker | null>(null);
   const [activeStatusFilter, setActiveStatusFilter] = useState<TruckLoadPlan["status"] | null>(null);
 
   const kpis = useMemo(() => ({
@@ -717,69 +1327,233 @@ export default function TruckLoadPlanPage() {
     setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }, []);
 
-  const handleSubmitPlan = (form: PlanForm) => {
-    const planNumber = `TLP-${new Date().getFullYear()}-${String(truckLoadPlans.length + 1).padStart(3, "0")}`;
-    const newTLP: TruckLoadPlan = {
-      id: `tlp_${Date.now()}`,
-      planNumber,
-      planDate: new Date().toISOString().split("T")[0],
-      truckNumber:     form.truckNumber || undefined,
-      driverName:      form.driverName || undefined,
-      driverPhone:     form.driverPhone || undefined,
-      transporterName: form.transporterName || undefined,
-      truckCapacityKg: form.truckCapacityKg,
-      origin:          form.origin,
-      deliveryMode:    form.deliveryMode,
-      plannedLoadDate:     form.plannedLoadDate,
-      plannedDeliveryDate: form.plannedDeliveryDate,
-      status: "Planned",
-      items: form.items.map((it, idx) => ({
-        id: `item_${Date.now()}_${idx}`,
-        trackerSourceId:  it.trackerId,
-        poNumber:         it.poNumber,
-        soNumber:         it.soNumber || undefined,
-        paper:            it.paper,
-        gsm:              it.gsm,
-        size:             it.size,
-        quantity:         it.quantity,
-        weightKg:         calcWeightKg(it.gsm, it.size, it.quantity),
-        loadOrder:        it.loadOrder,
-        customerName:     it.customerName || undefined,
-        deliveryLocation: it.customerName || undefined,
-        deliveryAddress:  it.deliveryAddress || undefined,
-        millInvoiceNo:    form.millInvoiceNo || undefined,
-        deliveryBillNo:   form.deliveryBillNo || undefined,
-      })),
-    };
-    addTruckLoadPlan(newTLP);
-    success(`Load plan ${planNumber} created — ${form.items.length} item${form.items.length !== 1 ? "s" : ""} on ${form.truckNumber}.`);
-    setShowPlanModal(false);
-    setSelectedIds(new Set());
-    setShowPending(false);
+  const handleSubmitPlan = async (form: PlanForm) => {
+    try {
+      const apiPlan = await truckLoadPlanApi.create({
+        truckNumber:         form.truckNumber         || undefined,
+        truckType:           form.truckType           || undefined,
+        transporterName:     form.transporterName     || undefined,
+        driverName:          form.driverName          || undefined,
+        driverPhone:         form.driverPhone         || undefined,
+        truckCapacityKg:     form.truckCapacityKg,
+        freightAmount:       form.freightAmount > 0 ? form.freightAmount : undefined,
+        origin:              form.origin              || undefined,
+        deliveryMode:        form.items.length > 1 ? "Multi-Stop" : "Direct To Customer",
+        millInvoiceNo:       form.millInvoiceNo       || undefined,
+        deliveryBillNo:      form.deliveryBillNo      || undefined,
+        plannedLoadDate:     form.plannedLoadDate,
+        plannedDeliveryDate: form.plannedDeliveryDate || undefined,
+        items: form.items.map((it) => ({
+          trackerId:        it.trackerId ? parseInt(it.trackerId) : undefined,
+          poNumber:         it.poNumber,
+          soNumber:         it.soNumber        || undefined,
+          paper:            it.paper,
+          gsm:              it.gsm,
+          size:             it.size,
+          customerName:     it.customerName    || undefined,
+          mill:             it.mill            || undefined,
+          quantity:         it.quantity,
+          weightKg:         calcWeightKg(it.gsm, it.size, it.quantity) || undefined,
+          loadOrder:        it.loadOrder,
+          deliveryLocation: it.customerName    || undefined,
+          deliveryAddress:  it.deliveryAddress || undefined,
+          millInvoiceNo:    form.millInvoiceNo || undefined,
+          deliveryBillNo:   form.deliveryBillNo || undefined,
+        })),
+      });
+      const newPlan = mapApiPlan(apiPlan);
+      setTruckLoadPlans((prev) => [newPlan, ...prev]);
+      const plannedIds = new Set(form.items.map((it) => it.trackerId).filter(Boolean));
+      setReadyTrackers((prev) => prev.filter((t) => !plannedIds.has(t.id)));
+      success(`Load plan ${newPlan.planNumber} created — ${form.items.length} item${form.items.length !== 1 ? "s" : ""} on ${form.truckNumber}.`);
+      setShowPlanModal(false);
+      setSelectedIds(new Set());
+      setShowPending(false);
+    } catch {
+      // error surfaced by global middleware
+    }
   };
 
-  const handleStatusUpdate = (patch: Partial<TruckLoadPlan>) => {
+  const handleStatusUpdate = async (patch: Partial<TruckLoadPlan>) => {
     if (!activePlan) return;
-    updateTruckLoadPlan(activePlan.id, patch);
-    success(`${activePlan.planNumber} → ${patch.status}`);
-    setShowStatusModal(false);
-    setActivePlan(null);
+    try {
+      const apiPlan = await truckLoadPlanApi.updateStatus(parseInt(activePlan.id), {
+        status:             patch.status!,
+        actualLoadDate:     patch.actualLoadDate,
+        actualDeliveryDate: patch.actualDeliveryDate,
+      });
+      const updated = mapApiPlan(apiPlan);
+      setTruckLoadPlans((prev) => prev.map((p) => p.id === activePlan.id ? updated : p));
+      if (patch.status === "In Transit") await refreshReadyTrackers();
+      success(`${activePlan.planNumber} → ${patch.status}`);
+      setShowStatusModal(false);
+      setActivePlan(null);
+    } catch {
+      // error surfaced by global middleware
+    }
   };
 
-  const handleDelete = (plan: TruckLoadPlan) => {
+  const handleDelete = async (plan: TruckLoadPlan) => {
     if (!confirm(`Delete ${plan.planNumber}? This cannot be undone.`)) return;
-    deleteTruckLoadPlan(plan.id);
-    success(`Plan ${plan.planNumber} deleted.`);
+    try {
+      await truckLoadPlanApi.remove(parseInt(plan.id));
+      setTruckLoadPlans((prev) => prev.filter((p) => p.id !== plan.id));
+      success(`Plan ${plan.planNumber} deleted.`);
+    } catch {
+      // error surfaced by global middleware
+    }
   };
 
   const handlePrint = (plan: TruckLoadPlan) => {
-    const { totalQty, totalWeight } = planTotals(plan);
-    const itemLines = plan.items
-      .sort((a, b) => b.loadOrder - a.loadOrder)
-      .map((it, i) => `  ${i + 1}. [Load#${it.loadOrder}] ${it.paper} ${it.gsm}GSM ${it.size} — ${it.quantity.toLocaleString()} sht — ${itemWeight(it).toLocaleString()} kg\n     PO: ${it.poNumber}  Customer: ${it.customerName || "—"}  Delivery: ${it.deliveryLocation || "—"}`)
-      .join("\n");
-    const content = `TRUCK LOAD PLAN — ${plan.planNumber}\nDate: ${plan.planDate}  Status: ${plan.status}\nTruck: ${plan.truckNumber ?? "—"}  Transporter: ${plan.transporterName ?? "—"}\nDriver: ${plan.driverName ?? "—"}  Phone: ${plan.driverPhone ?? "—"}\nOrigin: ${plan.origin}  Mode: ${plan.deliveryMode}\nLoad Date: ${plan.plannedLoadDate}  Delivery Date: ${plan.plannedDeliveryDate}\nTotal: ${totalQty.toLocaleString()} sht  ${totalWeight.toLocaleString()} kg\n\nITEMS (LIFO Order — top loaded first, delivered last):\n${itemLines}`;
-    const blob = new Blob([`<html><body><pre style="font-family:monospace;padding:24px">${content}</pre></body></html>`], { type: "text/html" });
+    const { totalQty, totalWeight, uniquePOs } = planTotals(plan);
+    const sortedItems = [...plan.items].sort((a, b) => b.loadOrder - a.loadOrder);
+
+    const esc = (s: string | undefined | null) =>
+      (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+    const field = (label: string, val: string | number | undefined | null) =>
+      `<div class="field"><span class="label">${label}</span><span class="val">${esc(String(val ?? "—"))}</span></div>`;
+
+    const itemRows = sortedItems.map((it, i) => `
+      <tr>
+        <td class="center">${i + 1}</td>
+        <td class="center mono">${it.loadOrder}</td>
+        <td>
+          <strong>${esc(it.paper)}</strong><br/>
+          <span class="sub">${it.gsm} GSM &middot; ${esc(it.size)}</span>
+        </td>
+        <td class="mono">${esc(it.poNumber)}</td>
+        <td>${esc(it.customerName)}</td>
+        <td>${esc(it.deliveryAddress || it.deliveryLocation)}</td>
+        <td class="right">${it.quantity.toLocaleString("en-IN")}</td>
+        <td class="right">${itemWeight(it).toLocaleString("en-IN")}</td>
+        <td>${esc(it.millInvoiceNo)}</td>
+      </tr>`).join("");
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TLP ${esc(plan.planNumber)}</title>
+  <style>
+    @page { margin: 18mm 16mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 11px; color: #111; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 12px; }
+    .company { font-size: 15px; font-weight: 700; letter-spacing: .3px; }
+    .doc-title { font-size: 13px; font-weight: 700; color: #1a56db; }
+    .plan-no { font-size: 11px; color: #555; margin-top: 2px; }
+    .status-badge { display: inline-block; padding: 2px 8px; border-radius: 99px; border: 1px solid #1a56db; color: #1a56db; font-size: 10px; font-weight: 600; margin-top: 4px; }
+    .section { margin-bottom: 10px; }
+    .section-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #555; border-bottom: 1px solid #ddd; padding-bottom: 3px; margin-bottom: 6px; }
+    .fields { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px 12px; }
+    .fields-2 { grid-template-columns: repeat(2, 1fr); }
+    .field { display: flex; flex-direction: column; }
+    .label { font-size: 8.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #777; }
+    .val { font-size: 10.5px; color: #111; margin-top: 1px; }
+    .mono { font-family: 'Courier New', monospace; }
+    table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 4px; }
+    thead th { background: #f3f4f6; border: 1px solid #d1d5db; padding: 5px 6px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: #555; font-weight: 700; }
+    tbody td { border: 1px solid #e5e7eb; padding: 5px 6px; vertical-align: top; }
+    tbody tr:nth-child(even) td { background: #f9fafb; }
+    .center { text-align: center; }
+    .right { text-align: right; }
+    .sub { font-size: 9px; color: #666; }
+    .totals-row { background: #f3f4f6 !important; font-weight: 700; }
+    .summary-box { display: flex; gap: 20px; border: 1px solid #d1d5db; border-radius: 4px; padding: 8px 12px; margin-top: 8px; background: #f9fafb; }
+    .sum-item { display: flex; flex-direction: column; }
+    .sum-label { font-size: 8.5px; color: #777; text-transform: uppercase; letter-spacing: .5px; }
+    .sum-val { font-size: 13px; font-weight: 700; color: #111; }
+    .footer { margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; border-top: 1px solid #ddd; padding-top: 10px; }
+    .sig-box { text-align: center; }
+    .sig-line { border-top: 1px solid #999; margin: 28px 8px 4px; }
+    .sig-label { font-size: 9px; color: #666; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="company">Monit Paper Agency</div>
+      <div style="font-size:9px;color:#666;margin-top:2px;">Indore, Madhya Pradesh</div>
+    </div>
+    <div style="text-align:right">
+      <div class="doc-title">TRUCK LOAD PLAN</div>
+      <div class="plan-no">${esc(plan.planNumber)} &nbsp;&bull;&nbsp; ${esc(plan.planDate)}</div>
+      <div class="status-badge">${esc(plan.status)}</div>
+    </div>
+  </div>
+
+  <!-- Transport info -->
+  <div class="section">
+    <div class="section-title">Transport Details</div>
+    <div class="fields">
+      ${field("Truck / Vehicle No", plan.truckNumber)}
+      ${field("Vehicle Type", plan.truckType)}
+      ${field("Transporter", plan.transporterName)}
+      ${field("Driver", plan.driverName)}
+      ${field("Driver Phone", plan.driverPhone)}
+      ${field("Freight Amount", plan.freightAmount ? "Rs. " + plan.freightAmount.toLocaleString("en-IN") : null)}
+      ${field("Origin", plan.origin)}
+      ${field("Delivery Mode", plan.deliveryMode)}
+      ${field("Planned Load Date", plan.plannedLoadDate)}
+      ${field("Planned Delivery Date", plan.plannedDeliveryDate)}
+      ${plan.actualLoadDate     ? field("Actual Load Date",     plan.actualLoadDate)     : ""}
+      ${plan.actualDeliveryDate ? field("Actual Delivery Date", plan.actualDeliveryDate) : ""}
+    </div>
+  </div>
+
+  <!-- Items -->
+  <div class="section">
+    <div class="section-title">Load Items &mdash; LIFO Order (Row 1 = loaded first, delivered last)</div>
+    <table>
+      <thead>
+        <tr>
+          <th class="center" style="width:28px">#</th>
+          <th class="center" style="width:40px">Load #</th>
+          <th style="min-width:120px">Material</th>
+          <th style="width:100px">PO Number</th>
+          <th style="width:100px">Customer</th>
+          <th>Delivery Address</th>
+          <th class="right" style="width:60px">Qty (sht)</th>
+          <th class="right" style="width:60px">Weight (kg)</th>
+          <th style="width:90px">Mill Invoice</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${itemRows}
+        <tr class="totals-row">
+          <td colspan="6" class="right" style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;">Total</td>
+          <td class="right">${totalQty.toLocaleString("en-IN")}</td>
+          <td class="right">${totalWeight.toLocaleString("en-IN")}</td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Summary -->
+  <div class="summary-box">
+    <div class="sum-item"><span class="sum-label">Purchase Orders</span><span class="sum-val">${uniquePOs}</span></div>
+    <div class="sum-item"><span class="sum-label">Line Items</span><span class="sum-val">${sortedItems.length}</span></div>
+    <div class="sum-item"><span class="sum-label">Total Quantity</span><span class="sum-val">${totalQty.toLocaleString("en-IN")} sht</span></div>
+    <div class="sum-item"><span class="sum-label">Total Weight</span><span class="sum-val">${totalWeight.toLocaleString("en-IN")} kg</span></div>
+    ${plan.truckCapacityKg ? `<div class="sum-item"><span class="sum-label">Truck Capacity</span><span class="sum-val">${plan.truckCapacityKg.toLocaleString("en-IN")} kg</span></div>` : ""}
+  </div>
+
+  <!-- Signature -->
+  <div class="footer">
+    <div class="sig-box"><div class="sig-line"></div><div class="sig-label">Prepared By</div></div>
+    <div class="sig-box"><div class="sig-line"></div><div class="sig-label">Transporter Signature</div></div>
+    <div class="sig-box"><div class="sig-line"></div><div class="sig-label">Authorized Signatory</div></div>
+  </div>
+
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const win = window.open(url, "_blank");
     if (win) win.onload = () => { win.print(); URL.revokeObjectURL(url); };
@@ -801,9 +1575,11 @@ export default function TruckLoadPlanPage() {
       id: "truckNumber", accessorKey: "truckNumber", header: "Truck",
       filterType: "text", enableSorting: false, size: 120,
       cell: (info) => {
-        const v = info.getValue() as string | undefined;
-        return v ? <span className="font-mono text-xs font-semibold">{v}</span>
-                 : <span className="text-xs text-amber-600">Not set</span>;
+        const v  = info.getValue() as string | undefined;
+        const tt = (info.row.original as TruckLoadPlan).truckType;
+        return v
+          ? <div><span className="font-mono text-xs font-semibold">{v}</span>{tt && <p className="text-[11px] text-gray-400">{tt}</p>}</div>
+          : <span className="text-xs text-amber-600">Not set</span>;
       },
     },
     {
@@ -950,21 +1726,25 @@ export default function TruckLoadPlanPage() {
           );
         })}
 
-        {/* New Plan button aligned to the right */}
-        <div className="flex items-center">
-          <button
-            onClick={() => { setShowPending((v) => !v); if (showPending) setSelectedIds(new Set()); }}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-200 hover:bg-blue-700 active:scale-[0.97] transition-all whitespace-nowrap"
-          >
-            <Plus className="h-4 w-4" /> New Plan
-          </button>
-        </div>
+        {/* New Plan button */}
+        <button
+          onClick={() => { setShowPending((v) => !v); if (showPending) setSelectedIds(new Set()); }}
+          className="flex items-center gap-2 self-stretch rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-blue-200 hover:bg-blue-700 active:scale-[0.97] transition-all whitespace-nowrap"
+        >
+          <Plus className="h-4 w-4" /> New Plan
+        </button>
       </div>
 
       {/* ── Pending Section ────────────────────────────────────────────────── */}
       {showPending && (
         readyTrackers.length > 0
-          ? <PendingPOsSection trackers={readyTrackers} selectedIds={selectedIds} onToggle={toggleSelect} onPlanSelected={() => setShowPlanModal(true)} />
+          ? <PendingPOsSection
+              trackers={readyTrackers}
+              selectedIds={selectedIds}
+              onToggle={toggleSelect}
+              onPlanSelected={() => setShowPlanModal(true)}
+              onViewTracker={(t) => { setActiveTracker(t); setShowTrackerModal(true); }}
+            />
           : (
             <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-white px-5 py-5 shadow-sm">
               <AlertCircle className="h-5 w-5 text-gray-300 flex-shrink-0" />
@@ -996,6 +1776,7 @@ export default function TruckLoadPlanPage() {
             enableColumnReordering={true}
             enableColumnVisibility={true}
             initialPageSize={10}
+            isLoading={isPageLoading}
             onRowClick={(plan) => { setActivePlan(plan); setShowDetailModal(true); }}
             emptyMessage="No load plans yet. Use New Plan to create one."
           />
@@ -1009,9 +1790,21 @@ export default function TruckLoadPlanPage() {
         size="xl">
         <PlanCreationModal
           trackers={readyTrackers.filter((t) => selectedIds.has(t.id))}
+          transporters={transporters}
           onSubmit={handleSubmitPlan}
           onCancel={() => setShowPlanModal(false)}
         />
+      </Modal>
+
+      {/* ── Tracker Detail Modal ───────────────────────────────────────────── */}
+      <Modal isOpen={showTrackerModal && !!activeTracker} onClose={() => { setShowTrackerModal(false); setActiveTracker(null); }}
+        title={`Tracker — ${activeTracker?.poNumber ?? ""}`} size="md">
+        {activeTracker && (
+          <TrackerDetailModal
+            tracker={activeTracker}
+            onClose={() => { setShowTrackerModal(false); setActiveTracker(null); }}
+          />
+        )}
       </Modal>
 
       {/* ── Plan Detail Drill-Down ─────────────────────────────────────────── */}

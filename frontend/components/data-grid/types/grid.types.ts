@@ -54,6 +54,9 @@ export interface ColumnConfig<TData> {
 
   /** Maximum column width in pixels */
   maxSize?: number;
+
+  /** Pin column to left or right edge (sticky) */
+  sticky?: "left" | "right";
 }
 
 /**

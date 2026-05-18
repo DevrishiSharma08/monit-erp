@@ -426,8 +426,18 @@ export interface MillOrderTracker {
   remarks?: string;
 
   // Customer linkage (denormalized from linked SO for display)
-  customerName?: string;
+  customerName?: string;        // PO delivery customer
+  soCustomerName?: string;      // Original SO customer (may differ in blind/override shipments)
   customerId?: string;
+
+  // Mill's own SO reference number
+  millSONumber?: string;
+
+  // Required delivery date from linked SO
+  soDeliveryDate?: string;
+
+  // Direct delivery address from PO
+  directDeliveryAddress?: string;
 
   // Partial delivery batches (mill may dispatch in multiple lots)
   partialDeliveries?: PartialDelivery[];
@@ -581,10 +591,12 @@ export interface TruckLoadPlan {
 
   // Truck details
   truckNumber?: string;
+  truckType?: string;
   driverName?: string;
   driverPhone?: string;
   transporterName?: string;
   truckCapacityKg?: number;
+  freightAmount?: number;
 
   // Route
   origin: string; // Mill name OR Godown name
