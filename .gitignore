@@ -1,0 +1,33 @@
+# ── Secrets & Environment ──────────────────────────────────────────────────────
+# These files contain DB passwords, JWT secrets, API keys — NEVER commit them
+Backend/Monit.API/appsettings.Development.json
+Backend/Monit.API/appsettings.Production.json
+**/.env
+**/.env.local
+**/.env.*.local
+
+# ── .NET Build Artifacts ───────────────────────────────────────────────────────
+**/bin/
+**/obj/
+*.user
+*.suo
+.vs/
+*.DotSettings.user
+
+# ── Backend Logs ──────────────────────────────────────────────────────────────
+Backend/Monit.API/logs/
+
+# ── Node / Next.js ────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+
+# ── OS & Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+.idea/
+.vscode/settings.json

@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Monit Paper ERP — System Flow & Functional Overview</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Arial', sans-serif;
+    font-size: 13px;
+    color: #1e293b;
+    background: #fff;
+    line-height: 1.6;
+  }
+
+  @page { size: A4; margin: 16mm 16mm 16mm 16mm; }
+  @media print {
+    .page-break { page-break-before: always; }
+    body { font-size: 11.5px; }
+    .cover { min-height: auto; padding: 50mm 20mm; }
+  }
+
+  /* ─── PAGE WRAPPER ─── */
+  .page { max-width: 760px; margin: 0 auto; padding: 36px 48px 28px; }
+
+  /* ─── COVER ─── */
+  .cover {
+    background: linear-gradient(150deg, #0f2d5f 0%, #1d4ed8 55%, #3b82f6 100%);
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 60px 60px;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover-circle-1 { position: absolute; top: -80px; right: -80px; width: 340px; height: 340px; border-radius: 50%; background: rgba(255,255,255,0.04); }
+  .cover-circle-2 { position: absolute; bottom: -60px; left: -40px; width: 220px; height: 220px; border-radius: 50%; background: rgba(255,255,255,0.05); }
+  .cover-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.65); margin-bottom: 20px; }
+  .cover h1 { font-size: 40px; font-weight: 800; line-height: 1.15; letter-spacing: -0.5px; margin-bottom: 8px; }
+  .cover h2 { font-size: 19px; font-weight: 400; color: rgba(255,255,255,0.8); margin-bottom: 40px; }
+  .cover-line { width: 56px; height: 3px; background: rgba(255,255,255,0.45); border-radius: 2px; margin-bottom: 36px; }
+  .cover-meta { font-size: 12px; color: rgba(255,255,255,0.65); }
+  .cover-meta table { border-collapse: collapse; }
+  .cover-meta td { padding: 3px 0; vertical-align: top; }
+  .cover-meta td:first-child { font-weight: 600; padding-right: 16px; color: rgba(255,255,255,0.85); white-space: nowrap; }
+
+  /* ─── PAGE HEADER ─── */
+  .ph { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 28px; }
+  .ph-brand { font-size: 13px; font-weight: 700; color: #2563eb; }
+  .ph-doc   { font-size: 10.5px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  /* ─── TYPOGRAPHY ─── */
+  h1.st { font-size: 20px; font-weight: 800; color: #0f172a; border-bottom: 3px solid #2563eb; padding-bottom: 8px; margin: 0 0 24px; }
+  h2.sb { font-size: 14px; font-weight: 700; color: #1e3a5f; margin: 24px 0 10px; }
+  h3.it { font-size: 12.5px; font-weight: 700; color: #334155; margin: 14px 0 6px; }
+  p    { margin-bottom: 9px; color: #334155; }
+  ul, ol { padding-left: 18px; margin-bottom: 9px; }
+  li   { margin-bottom: 3px; color: #334155; }
+  strong { color: #1e293b; }
+
+  /* ─── STATS ROW ─── */
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 16px 0; }
+  .stat-card { background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 14px 10px; text-align: center; }
+  .stat-card .num { font-size: 26px; font-weight: 800; color: #1d4ed8; line-height: 1; margin-bottom: 4px; }
+  .stat-card .lbl { font-size: 10px; font-weight: 500; color: #64748b; }
+
+  /* ─── TABLES ─── */
+  table.t { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+  table.t th { background: #1e3a5f; color: #fff; padding: 8px 10px; text-align: left; font-size: 11px; font-weight: 600; }
+  table.t td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  table.t tr:nth-child(even) td { background: #f8fafc; }
+  table.t tr:hover td { background: #eff6ff; }
+  table.t code { font-family: 'Courier New', monospace; font-size: 11px; background: #f1f5f9; padding: 1px 5px; border-radius: 3px; color: #2563eb; }
+
+  /* ─── MODULE CARDS ─── */
+  .mc { border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; background: #fff; break-inside: avoid; }
+  .mc-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+  .mc-name { font-size: 14px; font-weight: 700; color: #0f172a; }
+  .mc-url  { font-family: 'Courier New', monospace; font-size: 10.5px; background: #eff6ff; color: #1d4ed8; padding: 2px 8px; border-radius: 4px; border: 1px solid #bfdbfe; white-space: nowrap; }
+  .mc-desc { font-size: 12px; color: #475569; margin-bottom: 8px; }
+
+  /* ─── STATUS FLOWS ─── */
+  .sf { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 6px 0; }
+  .sb-s   { padding: 2px 9px; border-radius: 10px; font-size: 10.5px; font-weight: 600; white-space: nowrap; border: 1px solid; }
+  .s-init { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; }
+  .s-mid  { background: #fef9c3; color: #854d0e; border-color: #fde68a; }
+  .s-ok   { background: #dcfce7; color: #166534; border-color: #86efac; }
+  .s-bad  { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
+  .s-gray { background: #f1f5f9; color: #334155; border-color: #cbd5e1; }
+  .s-arr  { color: #94a3b8; font-size: 14px; font-weight: 700; }
+
+  /* ─── TAGS ─── */
+  .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 10.5px; font-weight: 500; }
+  .tb { background: #dbeafe; color: #1d4ed8; }
+  .tg { background: #dcfce7; color: #15803d; }
+  .to { background: #ffedd5; color: #c2410c; }
+  .tp { background: #f3e8ff; color: #7e22ce; }
+  .tr { background: #fee2e2; color: #b91c1c; }
+
+  /* ─── ROLES GRID ─── */
+  .rg { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+  .rc { border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; background: #f8fafc; }
+  .rc-name { font-size: 13px; font-weight: 700; color: #1e3a5f; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .rbadge { display: inline-block; padding: 1px 8px; border-radius: 8px; font-size: 10px; font-weight: 600; }
+  .rc li { font-size: 11.5px; color: #475569; margin-bottom: 2px; }
+
+  /* ─── INFO / WARN BOXES ─── */
+  .info { background: #eff6ff; border-left: 4px solid #2563eb; padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 12px; color: #1e40af; }
+  .warn { background: #fef9c3; border-left: 4px solid #ca8a04; padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 12px; color: #854d0e; }
+  .succ { background: #f0fdf4; border-left: 4px solid #16a34a; padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 12px; color: #15803d; }
+
+  /* ─── FLOW DIAGRAM ─── */
+  .flow-wrap { background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; margin: 10px 0; break-inside: avoid; }
+  .flow-label { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 10px; }
+  .flow-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+  .fn { display: flex; flex-direction: column; align-items: center; background: #fff; border: 2px solid #3b82f6; border-radius: 8px; padding: 6px 10px; min-width: 86px; text-align: center; }
+  .fn-t { font-size: 10.5px; font-weight: 700; color: #1e40af; line-height: 1.3; }
+  .fn-u { font-size: 9px; color: #93c5fd; font-family: monospace; margin-top: 2px; }
+  .fn.g { border-color: #16a34a; } .fn.g .fn-t { color: #15803d; }
+  .fn.o { border-color: #ea580c; } .fn.o .fn-t { color: #c2410c; }
+  .fn.p { border-color: #9333ea; } .fn.p .fn-t { color: #7e22ce; }
+  .fa { font-size: 16px; color: #94a3b8; font-weight: 700; }
+  .fa-d { display: block; text-align: center; color: #94a3b8; font-size: 16px; margin: 4px auto; }
+  .connector-note { text-align: center; font-size: 10.5px; color: #64748b; font-style: italic; margin: 3px 0; }
+
+  /* ─── TOC ─── */
+  .toc-item { display: flex; align-items: baseline; padding: 5px 0; border-bottom: 1px dotted #e2e8f0; }
+  .toc-n { font-weight: 700; color: #2563eb; min-width: 30px; }
+  .toc-t { flex: 1; color: #334155; }
+
+  /* ─── FOOTER ─── */
+  .pf { margin-top: 32px; padding-top: 10px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; }
+
+  /* ─── SECTION HEADER BAND ─── */
+  .band { background: #1e3a5f; color: #fff; padding: 8px 16px; border-radius: 8px 8px 0 0; font-size: 12px; font-weight: 700; margin-top: 20px; }
+  .band + table.t th { border-radius: 0; }
+  .band + .mc { border-radius: 0 0 12px 12px; }
+
+  /* num circles */
+  .nc { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #2563eb; color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+  .nc.o { background: #ea580c; }
+  .nc.p { background: #9333ea; }
+  .nc.g { background: #16a34a; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════ COVER ═══════════════════════════ -->
+<div class="cover">
+  <div class="cover-circle-1"></div>
+  <div class="cover-circle-2"></div>
+  <div class="cover-eyebrow">Internal Technical Documentation</div>
+  <h1>Monit Paper Agency<br>ERP System</h1>
+  <h2>System Flow &amp; Functional Overview</h2>
+  <div class="cover-line"></div>
+  <div class="cover-meta">
+    <table>
+      <tr><td>Document Type</td><td>Business Process &amp; Functional Reference</td></tr>
+      <tr><td>Version</td><td>1.0</td></tr>
+      <tr><td>Date</td><td>April 2026</td></tr>
+      <tr><td>Prepared by</td><td>Engineering Team, Monit Paper Agency</td></tr>
+      <tr><td>Status</td><td>Phase 1 — Frontend Prototype Complete</td></tr>
+      <tr><td>Classification</td><td>Internal / Confidential</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ TABLE OF CONTENTS ═══════════════ -->
+<div class="page page-break">
+  <div class="ph"><span class="ph-brand">Monit Paper ERP</span><span class="ph-doc">System Flow &amp; Functional Overview · v1.0</span></div>
+  <h1 class="st">Table of Contents</h1>
+  <div class="toc-item"><span class="toc-n">1.</span><span class="toc-t">System Overview &amp; Objectives</span></div>
+  <div class="toc-item"><span class="toc-n">2.</span><span class="toc-t">Technology Stack</span></div>
+  <div class="toc-item"><span class="toc-n">3.</span><span class="toc-t">User Roles &amp; Access Control</span></div>
+  <div class="toc-item"><span class="toc-n">4.</span><span class="toc-t">Module Overview — Sales Pipeline (Inquiry, Sales Order, Coverage)</span></div>
+  <div class="toc-item"><span class="toc-n">5.</span><span class="toc-t">Module Overview — Procurement Pipeline (PO, Mill Tracker, GRN, Stock Lots)</span></div>
+  <div class="toc-item"><span class="toc-n">6.</span><span class="toc-t">Module Overview — Logistics Pipeline (Dispatch, Pick Plan, Truck Load, Challan, In-Transit)</span></div>
+  <div class="toc-item"><span class="toc-n">7.</span><span class="toc-t">Module Overview — Finance &amp; Dashboards</span></div>
+  <div class="toc-item"><span class="toc-n">8.</span><span class="toc-t">Master Data &amp; Settings</span></div>
+  <div class="toc-item"><span class="toc-n">9.</span><span class="toc-t">End-to-End Business Flow Diagram</span></div>
+  <div class="toc-item"><span class="toc-n">10.</span><span class="toc-t">Inter-Module Relationship Matrix</span></div>
+  <div class="toc-item"><span class="toc-n">11.</span><span class="toc-t">Role-Based Page Access Summary</span></div>
+  <div class="pf"><span>Monit Paper Agency ERP — Confidential</span><span>System Flow &amp; Functional Overview</span></div>
+</div>
+
+<!-- ═══════════════════════════ SECTION 1 — OVERVIEW ════════════ -->
+<div class="page page-break">
+  <div class="ph"><span class="ph-brand">Monit Paper ERP</span><span class="ph-doc">System Flow &amp; Functional Overview · v1.0</span></div>
+
+  <h1 class="st">1. System Overview &amp; Objectives</h1>
+  <p><strong>Monit Paper Agency ERP</strong> is a fully integrated enterprise resource planning system built for Monit Paper Agency, a paper trading company based in Indore, Madhya Pradesh. The system digitizes and centralizes the entire paper trading lifecycle — from customer inquiry capture through procurement from mills, quality-controlled warehouse receipt, FIFO-based inventory management, dispatch planning, challan generation, in-transit tracking, and invoicing.</p>
+
+  <div class="stats">
+    <div class="stat-card"><div class="num">30+</div><div class="lbl">Application Pages</div></div>
+    <div class="stat-card"><div class="num">4</div><div class="lbl">User Roles</div></div>
+    <div class="stat-card"><div class="num">5</div><div class="lbl">Core Pipelines</div></div>
+    <div class="stat-card"><div class="num">9</div><div class="lbl">Master Entities</div></div>
+    <div class="stat-card"><div class="num">4</div><div class="lbl">Dashboards</div></div>
+  </div>
+
+  <h2 class="sb">1.1 Business Objectives</h2>
+  <ul>
+    <li>Centralize all customer inquiries and sales orders with end-to-end status tracking</li>
+    <li>Provide real-time inventory visibility across multiple warehouses using FIFO allocation logic</li>
+    <li>Automate coverage analysis — instantly identify stock surplus or shortage against confirmed SO requirements</li>
+    <li>Streamline procurement from mills with PO issuance, mill confirmation tracking, and GRN-based receipt</li>
+    <li>Manage pick planning, truck loading, challan generation, and in-transit monitoring</li>
+    <li>Enable role-based access so each team sees a tailored view relevant to their function</li>
+    <li>Provide management with consolidated dashboards and reports across sales, operations, and finance</li>
+  </ul>
+
+  <h2 class="sb">1.2 Technology Stack</h2>
+  <table class="t">
+    <tr><th>Layer</th><th>Technology</th><th>Notes</th></tr>
+    <tr><td>Framework</td><td>Next.js 16 (App Router)</td><td>React 18, Server + Client components</td></tr>
+    <tr><td>Language</td><td>TypeScript (strict)</td><td>Typed throughout — interfaces in mockData.ts</td></tr>
+    <tr><td>Styling</td><td>Tailwind CSS v4</td><td>Utility-first; configured via postcss.config.mjs</td></tr>
+    <tr><td>Data Tables</td><td>@tanstack/react-table + DataGrid</td><td>Sorting, filtering, pagination, column hide/show</td></tr>
+    <tr><td>Charts</td><td>Recharts</td><td>Line, bar, pie charts for dashboards and reports</td></tr>
+    <tr><td>State Management</td><td>React Context API</td><td>InquiryContext, SalesOrderContext, StockContext</td></tr>
+    <tr><td>Drag &amp; Drop</td><td>@dnd-kit</td><td>Truck load planner, pick plan ordering</td></tr>
+    <tr><td>Data (Phase 1)</td><td>mockData.ts</td><td>Single-file mock; replaced by REST API in Phase 2</td></tr>
+    <tr><td>Routing</td><td>Next.js App Router</td><td>File-based routing under <code>/app</code></td></tr>
+  </table>
+
+  <div class="pf"><span>Monit Paper Agency ERP — Confidential</span><span>System Flow &amp; Functional Overview</span></div>
+</div>
+
+<!-- ═══════════════════════════ SECTION 3 — ROLES ══════════════════ -->
+<div class="page page-break">
+  <div class="ph"><span class="ph-brand">Monit Paper ERP</span><span class="ph-doc">System Flow &amp; Functional Overview · v1.0</span></div>
+
+  <h1 class="st">3. User Roles &amp; Access Control</h1>
+  <p>The system enforces four distinct roles. Each role is assigned a tailored navigation sidebar, filtered data views, and scoped action permissions. Role enforcement is applied at the UI layer (Phase 1) and will extend to the API layer in Phase 2.</p>
+
+  <div class="rg">
+    <div class="rc">
+      <div class="rc-name"><span class="nc">1</span> Owner / Admin <span class="rbadge" style="background:#fee2e2;color:#b91c1c;">Full Access</span></div>
+      <ul>
+        <li>Full access to all 30+ pages and modules</li>
+        <li>All four dashboards (Owner, Accounts, Salesman, Planner)</li>
+        <li>Create, edit, approve, and delete any record</li>
+        <li>Manage masters: materials, mills, customers, rates, etc.</li>
+        <li>User and role management</li>
+        <li>Full visibility into all financial and operational reports</li>
+      </ul>
+    </div>
+    <div class="rc">
+      <div class="rc-name"><span class="nc">2</span> Salesman <span class="rbadge" style="background:#dbeafe;color:#1d4ed8;">Sales Access</span></div>
+      <ul>
+        <li>Create and manage inquiries and sales orders</li>
+        <li>View all inquiries and SOs (not filtered to self)</li>
+        <li>Coverage: view only (cannot allocate)</li>
+        <li>Salesman Dashboard: own performance metrics</li>
+        <li>Customer Master: view only</li>
+        <li>No access to procurement, logistics, or finance modules</li>
+      </ul>
+    </div>
+    <div class="rc">
+      <div class="rc-name"><span class="nc o">3</span> Planner <span class="rbadge" style="background:#ffedd5;color:#c2410c;">Operations Access</span></div>
+      <ul>
+        <li>Purchase Orders: create and manage</li>
+        <li>Mill Tracker, GRN, Stock Lots</li>
+        <li>Dispatch Queue, Pick Plan, Truck Load Plan</li>
+        <li>Challan &amp; Loading, In-Transit Tracking</li>
+        <li>Planner Dashboard</li>
+        <li>No access to financial data or master management</li>
+      </ul>
+    </div>
+    <div class="rc">
+      <div class="rc-name"><span class="nc p">4</span> Customer <span class="rbadge" style="background:#f3e8ff;color:#7e22ce;">Portal Access</span></div>
+      <ul>
+        <li>Customer self-service portal (minimal sidebar)</li>
+        <li>View and submit only their own inquiries</li>
+        <li>Cannot edit inquiries once past Draft status</li>
+        <li>No access to any internal operational pages</li>
+        <li>Data strictly isolated — cannot see other customers</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="info"><strong>Role Enforcement:</strong> Data filtering is applied at the Context layer. Customers receive only inquiries where <code>inquiry.customer === user.customerName</code>. The Sidebar navigation itself changes based on role, so unauthorized routes are not even visible to limited roles.</div>
+
+  <div class="pf"><span>Monit Paper Agency ERP — Confidential</span><span>System Flow &amp; Functional Overview</span></div>
+</div>
+
+<!-- ═══════════════════════════ SECTION 4 — SALES PIPELINE ══════ -->
+<div class="page page-break">
+  <div class="ph"><span class="ph-brand">Monit Paper ERP</span><span class="ph-doc">System Flow &amp; Functional Overview · v1.0</span></div>
+
+  <h1 class="st">4. Module Overview — Sales Pipeline</h1>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Customer Inquiry</div><div class="mc-url">/inquiry</div></div>
+    <p class="mc-desc">The entry point of every sales cycle. Captures all inbound paper requirements from customers received via phone, WhatsApp, email, or in-person visit. Each inquiry can contain multiple material requirements (different paper types, GSM, size, delivery location) and is assigned to a salesman.</p>
+    <table class="t">
+      <tr><th>Attribute</th><th>Detail</th></tr>
+      <tr><td>Key Actions</td><td>Create new inquiry, Edit (role-based), View detail, Convert to Sales Order</td></tr>
+      <tr><td>Filters Available</td><td>Status, Priority, Source, Customer, Date Range, Salesman</td></tr>
+      <tr><td>KPIs Shown</td><td>Total Inquiries · Confirmed · In Progress · Rejected / Lost</td></tr>
+      <tr><td>Feeds Into</td><td>Sales Order (upon confirmation)</td></tr>
+      <tr><td>Customer View</td><td>Customers see only their own inquiries; can create new; cannot edit after submission</td></tr>
+    </table>
+    <p style="margin-top:8px;font-size:11px;font-weight:700;color:#64748b;">STATUS FLOW:</p>
+    <div class="sf">
+      <span class="sb-s s-init">Draft</span><span class="s-arr">→</span>
+      <span class="sb-s s-mid">Stock Checked</span><span class="s-arr">→</span>
+      <span class="sb-s s-mid">Waiting Mill</span><span class="s-arr">→</span>
+      <span class="sb-s s-mid">Mill Confirmed</span><span class="s-arr">→</span>
+      <span class="sb-s s-mid">Customer Confirmed</span><span class="s-arr">→</span>
+      <span class="sb-s s-ok">Confirmed</span><span class="s-arr">→</span>
+      <span class="sb-s s-ok">Converted</span>
+    </div>
+    <div class="sf">
+      <span style="font-size:10.5px;color:#64748b;font-weight:600;">Terminal:</span>
+      <span class="sb-s s-bad">Rejected</span>
+      <span class="sb-s s-bad">Lost</span>
+      <span class="sb-s" style="background:#fff7ed;color:#c2410c;border-color:#fdba74;">On Hold</span>
+    </div>
+    <div class="tags"><span class="tag tb">Roles: Admin / Salesman / Customer</span><span class="tag tg">Context: InquiryContext</span><span class="tag to">Priority: Low / Medium / High / Urgent</span></div>
+  </div>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Sales Order</div><div class="mc-url">/orders</div></div>
+    <p class="mc-desc">Represents the formal agreement to supply paper to a customer. Created either from a confirmed inquiry (auto-fills customer, material, qty) or manually. Each SO has line items defining material, ordered quantity, agreed rate, and delivery schedule. The SO is the central anchor record connecting procurement and dispatch.</p>
+    <table class="t">
+      <tr><th>Attribute</th><th>Detail</th></tr>
+      <tr><td>Key Actions</td><td>Create SO, Convert from Inquiry (pre-fills all data), Edit, View detail</td></tr>
+      <tr><td>Filters Available</td><td>Status, Customer, Salesman, Date Range, Value Range</td></tr>
+      <tr><td>KPIs Shown</td><td>Total SOs · Confirmed Pending PO · Dispatched · Total Order Value</td></tr>
+      <tr><td>Feeds Into</td><td>Coverage Analysis (requirements), Purchase Order (Against-SO type)</td></tr>
+    </table>
+    <div class="sf" style="margin-top:8px;">
+      <span class="sb-s s-init">Draft</span><span class="s-arr">→</span>
+      <span class="sb-s s-ok">Confirmed</span><span class="s-arr">→</span>
+      <span class="sb-s s-mid">Partially Dispatched</span><span class="s-arr">→</span>
+      <span class="sb-s s-ok">Dispatched</span><span class="s-arr">→</span>
+      <span class="sb-s s-gray">Closed</span>
+      &nbsp;&nbsp;<span class="sb-s s-bad">Cancelled</span>
+    </div>
+    <div class="tags"><span class="tag tb">Roles: Admin / Salesman</span><span class="tag tg">Context: SalesOrderContext</span><span class="tag tp">Links: Inquiry (source), linkedPoIds</span></div>
+  </div>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Coverage Analysis</div><div class="mc-url">/coverage</div></div>
+    <p class="mc-desc">The strategic decision bridge between sales demand and supply. Compares confirmed SO material requirements against available physical stock (Stock Lots) plus in-transit stock (confirmed POs not yet received). Clearly shows surplus or shortage per material, enabling planners to either allocate existing stock or raise a new Purchase Order.</p>
+    <table class="t">
+      <tr><th>Coverage Formula</th><th>Description</th></tr>
+      <tr><td><strong>Coverage = Physical Stock + In-Transit − SO Requirement</strong></td><td>Positive = surplus; Negative = shortage → raise PO</td></tr>
+    </table>
+    <div class="tags"><span class="tag tb">Roles: Admin / Planner</span><span class="tag to">Reads: StockContext.getAvailableByMaterial()</span><span class="tag tp">Action: Allocate lot OR Create PO</span></div>
+  </div>
+
+  <div class="pf"><span>Monit Paper Agency ERP — Confidential</span><span>System Flow &amp; Functional Overview</span></div>
+</div>
+
+<!-- ═══════════════════════════ SECTION 5 — PROCUREMENT ════════ -->
+<div class="page page-break">
+  <div class="ph"><span class="ph-brand">Monit Paper ERP</span><span class="ph-doc">System Flow &amp; Functional Overview · v1.0</span></div>
+
+  <h1 class="st">5. Module Overview — Procurement Pipeline</h1>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Purchase Order</div><div class="mc-url">/purchase-orders</div></div>
+    <p class="mc-desc">Issued to paper mills to procure stock. Supports two distinct modes: <strong>For Stock</strong> (buffer inventory, items added manually) and <strong>Against Sales Order</strong> (demand-driven, material lines auto-populate from the linked SO). The form dynamically adapts its fields based on the selected PO type.</p>
+    <table class="t">
+      <tr><th>PO Type</th><th>Behaviour &amp; Fields</th></tr>
+      <tr><td><strong>For Stock</strong></td><td>Delivery to Monit's own godown address · No customer/SO section · No blind shipment option · Manual item entry with "Add Item" button</td></tr>
+      <tr><td><strong>Against Sales Order</strong></td><td>Links to specific SO · All SO line items auto-fill immediately · Blind shipment compact toggle shown · Customer delivery address shown · When mill selected, purchase rates auto-load from Rate Master per material</td></tr>
+    </table>
+    <div class="sf" style="margin-top:8px;">
+      <span class="sb-s s-init">Draft</span><span class="s-arr">→</span>
+      <span class="sb-s s-mid">Sent to Mill</span><span class="s-arr">→</span>
+      <span class="sb-s s-mid">Mill Confirmed</span><span class="s-arr">→</span>
+      <span class="sb-s s-mid">Partially Received</span><span class="s-arr">→</span>
+      <span class="sb-s s-ok">Fully Received</span><span class="s-arr">→</span>
+      <span class="sb-s s-gray">Closed</span>
+    </div>
+    <div class="tags"><span class="tag tb">Roles: Admin / Planner</span><span class="tag tg">Context: SalesOrderContext (reads pendingPoSOs)</span><span class="tag tp">Auto-fill: buildItemsFromSO() + Rate Master lookup</span></div>
+  </div>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Mill Order Tracker</div><div class="mc-url">/mill-tracker</div></div>
+    <p class="mc-desc">Post-PO issuance, this module tracks each order at the mill. Records mill acknowledgment, production start, expected dispatch date, and actual dispatch date along with the LR (Lorry Receipt) number. Provides early visibility into potential delays.</p>
+    <table class="t">
+      <tr><th>Step</th><th>Action</th></tr>
+      <tr><td>1. PO Sent</td><td>PO transmitted to mill (manual or via system)</td></tr>
+      <tr><td>2. Acknowledged</td><td>Mill confirms receipt and provides expected dates</td></tr>
+      <tr><td>3. Under Production</td><td>Paper being manufactured / reel cutting in progress</td></tr>
+      <tr><td>4. Dispatched from Mill</td><td>Vehicle departed mill; LR number attached</td></tr>
+    </table>
+    <div class="tags"><span class="tag tb">Roles: Admin / Planner</span><span class="tag to">Feeds: GRN (expected arrival date, LR number)</span></div>
+  </div>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">GRN — Goods Receipt Note</div><div class="mc-url">/grn</div></div>
+    <p class="mc-desc">Records the physical arrival of paper at the godown. The workflow includes unloading verification, quality inspection, bin assignment, and the critical final step of moving material into live inventory.</p>
+    <table class="t">
+      <tr><th>Stage</th><th>Action Performed</th><th>System Effect</th></tr>
+      <tr><td><strong>Draft</strong></td><td>Vehicle arrives; unloading begins; received qty recorded</td><td>GRN record created in StockContext</td></tr>
+      <tr><td><strong>QC Pending</strong></td><td>Material submitted for quality check</td><td>StockContext.updateGRN() — status updated</td></tr>
+      <tr><td><strong>Approved</strong></td><td>QC Manager records condition, quality grade, damages, shortages</td><td>QC fields saved; discrepancy flagged if qty mismatch</td></tr>
+      <tr><td><strong>Stock Updated</strong></td><td>Planner confirms bin location; moves to inventory</td><td><strong>StockContext.addToStock(grn) — creates new StockLot</strong></td></tr>
+    </table>
+    <div class="tags"><span class="tag tb">Roles: Admin / Planner</span><span class="tag tg">Context: StockContext (updateGRN, addToStock)</span><span class="tag tr">Key Trigger: addToStock() creates a live StockLot</span></div>
+  </div>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Stock Lots</div><div class="mc-url">/stock-lots</div></div>
+    <p class="mc-desc">The live inventory ledger. Every approved GRN produces exactly one Stock Lot entry. Each lot tracks four quantity states and the physical bin where the paper resides. The FIFO rule ensures the oldest received stock is always consumed first.</p>
+    <table class="t">
+      <tr><th>Quantity Field</th><th>Meaning</th></tr>
+      <tr><td><strong>Received Qty</strong></td><td>Original quantity received in this lot (immutable after creation)</td></tr>
+      <tr><td><strong>Current Qty</strong></td><td>Physical quantity remaining after dispatches</td></tr>
+      <tr><td><strong>Allocated Qty</strong></td><td>Quantity reserved against confirmed SOs (soft reservation)</td></tr>
+      <tr><td><strong>Available Qty</strong></td><td>Current Qty − Allocated Qty = freely allocatable stock</td></tr>
+    </table>
+    <div class="sf" style="margin-top:8px;">
+      <span class="sb-s s-ok">Available</span><span class="s-arr">→</span>
+      <span class="sb-s s-mid">Allocated</span><span class="s-arr">→</span>
+      <span class="sb-s s-gray">Depleted</span>
+    </div>
+    <div class="tags"><span class="tag tb">Roles: Admin / Planner / Salesman (view)</span><span class="tag tg">Context: StockContext</span><span class="tag tp">FIFO: Sorted by receivedDate ascending</span></div>
+  </div>
+
+  <div class="pf"><span>Monit Paper Agency ERP — Confidential</span><span>System Flow &amp; Functional Overview</span></div>
+</div>
+
+<!-- ═══════════════════════════ SECTION 6 — LOGISTICS ══════════ -->
+<div class="page page-break">
+  <div class="ph"><span class="ph-brand">Monit Paper ERP</span><span class="ph-doc">System Flow &amp; Functional Overview · v1.0</span></div>
+
+  <h1 class="st">6. Module Overview — Logistics &amp; Dispatch Pipeline</h1>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Dispatch Queue</div><div class="mc-url">/dispatch-queue</div></div>
+    <p class="mc-desc">A prioritized work queue of all confirmed SO line items ready for dispatch. Shows material, customer, required quantity, allocated stock lots, and urgency indicators. Planners use this to initiate pick planning for selected SO lines.</p>
+    <table class="t">
+      <tr><th>Entry Condition</th><td>SO status = Confirmed AND stock allocated from at least one StockLot</td></tr>
+      <tr><th>Key Actions</th><td>View queue, re-prioritize lines, select items to create Pick Plan</td></tr>
+    </table>
+  </div>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Pick Plan (FIFO + Bin)</div><div class="mc-url">/pick-plan</div></div>
+    <p class="mc-desc">Generates the warehouse picking instruction. Uses FIFO (First In, First Out) ordering of stock lots combined with bin location data to direct the warehouse team to exactly which physical bin to pick from, and in what quantity, for each delivery. Manual lot override is supported for exceptions.</p>
+    <table class="t">
+      <tr><th>Attribute</th><th>Detail</th></tr>
+      <tr><td>FIFO Algorithm</td><td>Primary sort: receivedDate ascending (oldest first) · Secondary sort: binLocation</td></tr>
+      <tr><td>System Effect</td><td>StockContext.allocateLot() reserves qty on selected lots</td></tr>
+      <tr><td>Feeds Into</td><td>Truck Load Plan (approved pick items grouped into truck loads)</td></tr>
+    </table>
+  </div>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Truck Load Planner</div><div class="mc-url">/truck-load-plan</div></div>
+    <p class="mc-desc">Groups multiple SO deliveries into a single truck load to maximize transport efficiency. Supports drag-and-drop item arrangement per truck, gross weight and volume monitoring, and transporter/vehicle assignment. One confirmed truck load generates one Challan.</p>
+    <table class="t">
+      <tr><th>Key Actions</th><td>Create truck load, drag picked items onto truck, assign transporter, set vehicle, confirm load</td></tr>
+    </table>
+  </div>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Challan &amp; Loading</div><div class="mc-url">/challan</div></div>
+    <p class="mc-desc">The official delivery document generated from a confirmed truck load. Records itemized loaded materials, vehicle and driver details, delivery address, and customer signature on receipt. Acts as the legal dispatch record and triggers permanent stock reduction.</p>
+    <table class="t">
+      <tr><th>System Effect</th><td>StockContext.dispatchLot() — permanently reduces currentQty in allocated lots</td></tr>
+      <tr><th>Links To</th><td>In-Transit (created on dispatch), Sales Invoice (on delivery confirmation)</td></tr>
+    </table>
+    <div class="sf">
+      <span class="sb-s s-init">Draft</span><span class="s-arr">→</span>
+      <span class="sb-s s-mid">Generated</span><span class="s-arr">→</span>
+      <span class="sb-s s-mid">Dispatched</span><span class="s-arr">→</span>
+      <span class="sb-s s-ok">Delivered</span>
+    </div>
+  </div>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">In-Transit Tracking</div><div class="mc-url">/in-transit</div></div>
+    <p class="mc-desc">Monitors all dispatched challans not yet delivered. Provides real-time visibility into material in motion: vehicle details, estimated arrival, transporter contact, and delivery confirmation. Updates the corresponding SO lines to "Partially Dispatched" or "Dispatched" status on delivery.</p>
+  </div>
+
+  <h1 class="st">7. Module Overview — Finance &amp; Dashboards</h1>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Purchase Invoices</div><div class="mc-url">/purchase-invoices</div></div>
+    <p class="mc-desc">Tracks mill invoices against received GRNs. Performs three-way matching: PO ↔ GRN ↔ Invoice. Records invoice amount, GST breakup, payment status, and due dates for payables management.</p>
+  </div>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Sales Invoices</div><div class="mc-url">/sales-invoices</div></div>
+    <p class="mc-desc">Customer-facing GST invoices generated upon delivery confirmation. Linked to Challans and SO lines. Manages outstanding balances, payment recording, and receivables ageing for the accounts team.</p>
+  </div>
+
+  <div class="mc">
+    <div class="mc-head"><div class="mc-name">Reports (4 Categories)</div><div class="mc-url">/reports/*</div></div>
+    <table class="t">
+      <tr><th>Report</th><th>Route</th><th>Key Metrics</th></tr>
+      <tr><td>Sales &amp; Performance</td><td><code>/reports/sales-performance</code></td><td>Inquiry conversion, SO value, salesman targets, top customers</td></tr>
+      <tr><td>Mill &amp; Supply</td><td><code>/reports/mill-supply</code></td><td>PO fulfillment rate, mill on-time delivery, pending GRNs</td></tr>
+      <tr><td>Logistics &amp; Transport</td><td><code>/reports/logistics-transport</code></td><td>Dispatch efficiency, vehicle utilization, in-transit time</td></tr>
+      <tr><td>Finance &amp; Inventory</td><td><code>/reports/finance-inventory</code></td><td>Stock valuation, FIFO cost, invoice ageing, outstanding payments</td></tr>
+    </table>
+  </div>
+
+  <div class="pf"><span>Monit Paper Agency ERP — Confidential</span><span>System Flow &amp; Functional Overview</span></div>
+</div>
+
+<!-- ═══════════════════════════ SECTION 9 — FLOW DIAGRAM ════════ -->
+<div class="page page-break">
+  <div class="ph"><span class="ph-brand">Monit Paper ERP</span><span class="ph-doc">System Flow &amp; Functional Overview · v1.0</span></div>
+
+  <h1 class="st">9. End-to-End Business Flow Diagram</h1>
+  <p>The five pipelines operate in sequence, passing data through shared key records. Each pipeline handoff is described with the data linkage used.</p>
+
+  <div class="flow-wrap">
+    <div class="flow-label">① Sales Pipeline — Demand Capture</div>
+    <div class="flow-row">
+      <div class="fn g"><div class="fn-t">Customer<br>Inquiry</div><div class="fn-u">/inquiry</div></div>
+      <div class="fa">→</div>
+      <div class="fn"><div class="fn-t">Inquiry<br>Confirmed</div><div class="fn-u">status: Confirmed</div></div>
+      <div class="fa">→</div>
+      <div class="fn g"><div class="fn-t">Sales<br>Order</div><div class="fn-u">/orders</div></div>
+      <div class="fa">→</div>
+      <div class="fn o"><div class="fn-t">Coverage<br>Analysis</div><div class="fn-u">/coverage</div></div>
+    </div>
+  </div>
+
+  <div class="connector-note">↓ If coverage gap → Create Purchase Order &nbsp;&nbsp;&nbsp; ↓ If stock available → Allocate &amp; proceed to dispatch</div>
+
+  <div class="flow-wrap">
+    <div class="flow-label">② Procurement Pipeline — Supply Fulfillment</div>
+    <div class="flow-row">
+      <div class="fn o"><div class="fn-t">Purchase<br>Order</div><div class="fn-u">/purchase-orders</div></div>
+      <div class="fa">→</div>
+      <div class="fn"><div class="fn-t">Mill Order<br>Tracker</div><div class="fn-u">/mill-tracker</div></div>
+      <div class="fa">→</div>
+      <div class="fn"><div class="fn-t">GRN<br>Receipt</div><div class="fn-u">/grn</div></div>
+      <div class="fa">→</div>
+      <div class="fn g"><div class="fn-t">Stock Lot<br>Created</div><div class="fn-u">/stock-lots</div></div>
+    </div>
+  </div>
+
+  <div class="connector-note">↓ Stock available → Enter dispatch queue</div>
+
+  <div class="flow-wrap">
+    <div class="flow-label">③ Logistics Pipeline — Delivery Execution</div>
+    <div class="flow-row">
+      <div class="fn"><div class="fn-t">Dispatch<br>Queue</div><div class="fn-u">/dispatch-queue</div></div>
+      <div class="fa">→</div>
+      <div class="fn"><div class="fn-t">Pick Plan<br>(FIFO+Bin)</div><div class="fn-u">/pick-plan</div></div>
+      <div class="fa">→</div>
+      <div class="fn"><div class="fn-t">Truck Load<br>Plan</div><div class="fn-u">/truck-load-plan</div></div>
+      <div class="fa">→</div>
+      <div class="fn g"><div class="fn-t">Challan &amp;<br>Loading</div><div class="fn-u">/challan</div></div>
+      <div class="fa">→</div>
+      <div class="fn"><div class="fn-t">In-Transit<br>Tracking</div><div class="fn-u">/in-transit</div></div>
+    </div>
+  </div>
+
+  <div class="connector-note">↓ Delivery confirmed → Generate invoice</div>
+
+  <div class="flow-wrap">
+    <div class="flow-label">④ Finance Pipeline — Invoicing &amp; Payments</div>
+    <div class="flow-row">
+      <div class="fn p"><div class="fn-t">Purchase<br>Invoice</div><div class="fn-u">/purchase-invoices</div></div>
+      <div class="fa">←</div>
+      <div class="fn"><div class="fn-t">GRN<br>(3-way match)</div><div class="fn-u">PO+GRN+Invoice</div></div>
+      <div class="fa" style="min-width:40px;"></div>
+      <div class="fn p"><div class="fn-t">Sales<br>Invoice</div><div class="fn-u">/sales-invoices</div></div>
+      <div class="fa">←</div>
+      <div class="fn"><div class="fn-t">Challan<br>Delivered</div><div class="fn-u">status: Delivered</div></div>
+    </div>
+  </div>
+
+  <div class="flow-wrap">
+    <div class="flow-label">⑤ Analytics — Management Visibility</div>
+    <div class="flow-row">
+      <div class="fn p"><div class="fn-t">Owner<br>Dashboard</div><div class="fn-u">/</div></div>
+      <div class="fn p"><div class="fn-t">Accounts<br>Dashboard</div><div class="fn-u">/dashboard/accounts</div></div>
+      <div class="fn p"><div class="fn-t">Salesman<br>Dashboard</div><div class="fn-u">/dashboard/salesman</div></div>
+      <div class="fn p"><div class="fn-t">Planner<br>Dashboard</div><div class="fn-u">/dashboard/planner</div></div>
+      <div class="fn p"><div class="fn-t">Reports<br>(4 Types)</div><div class="fn-u">/reports/*</div></div>
+    </div>
+  </div>
+
+  <div class="pf"><span>Monit Paper Agency ERP — Confidential</span><span>System Flow &amp; Functional Overview</span></div>
+</div>
+
+<!-- ═══════════════════════════ SECTION 8 — MASTERS ═══════════════ -->
+<div class="page page-break">
+  <div class="ph"><span class="ph-brand">Monit Paper ERP</span><span class="ph-doc">System Flow &amp; Functional Overview · v1.0</span></div>
+
+  <h1 class="st">8. Master Data &amp; Settings</h1>
+  <p>All transaction pages rely on master data configured upfront. Masters define the entities used across the system in dropdowns, rate lookups, and workflow validations.</p>
+
+  <table class="t">
+    <tr><th>Master</th><th>Route</th><th>Key Fields</th><th>Used By Modules</th></tr>
+    <tr><td><strong>Material Master</strong></td><td><code>/masters/materials</code></td><td>Paper type, Category, GSM, Size, Packing, Unit, Mill</td><td>Inquiry, SO, PO, GRN, Stock Lots, Coverage</td></tr>
+    <tr><td><strong>Category Master</strong></td><td><code>/masters/categories</code></td><td>Category code, Name, Description</td><td>Material Master</td></tr>
+    <tr><td><strong>Customer Master</strong></td><td><code>/customers</code></td><td>Name, GST No., Address, Contact person, Credit limit</td><td>Inquiry, SO, Coverage, Sales Invoice</td></tr>
+    <tr><td><strong>Mill Master</strong></td><td><code>/masters/mills</code></td><td>Mill code, Name, Address, GST No., Contact</td><td>PO, Mill Tracker, GRN, Rate Master</td></tr>
+    <tr><td><strong>Salesman Master</strong></td><td><code>/masters/salesmen</code></td><td>Name, Employee ID, Territory, Monthly target</td><td>Inquiry, SO, Salesman Dashboard</td></tr>
+    <tr><td><strong>Warehouse Master</strong></td><td><code>/masters/warehouse</code></td><td>Code, Name, City, Address, Storage capacity</td><td>GRN, Stock Lots, Pick Plan</td></tr>
+    <tr><td><strong>Bin Location Master</strong></td><td><code>/bin-locations</code></td><td>Bin code (Warehouse-Aisle-Rack-Pos), Warehouse, Occupancy</td><td>GRN (bin assignment), Pick Plan, Stock Lots</td></tr>
+    <tr><td><strong>Transporter Master</strong></td><td><code>/masters/transporters</code></td><td>Name, Contact, Vehicle types, Rate per MT/km</td><td>Truck Load Plan, Challan, In-Transit</td></tr>
+    <tr><td><strong>Rate Master</strong></td><td><code>/masters/rates</code></td><td>Mill, Material, Purchase rate, Validity period, Active status</td><td>PO (auto-fills rate when mill selected)</td></tr>
+  </table>
+
+  <h1 class="st">10. Inter-Module Relationship Matrix</h1>
+
+  <table class="t">
+    <tr><th>Module</th><th>Receives Data From</th><th>Sends Data To</th><th>Key Linking Field</th></tr>
+    <tr><td><strong>Inquiry</strong></td><td>Customer (direct submission)</td><td>Sales Order (on conversion)</td><td>inquiryNumber</td></tr>
+    <tr><td><strong>Sales Order</strong></td><td>Inquiry (pre-fill), Manual entry</td><td>Coverage, PO, Dispatch Queue</td><td>soNumber, linkedPoIds</td></tr>
+    <tr><td><strong>Coverage</strong></td><td>Sales Orders + Stock Lots + POs</td><td>PO (gap), Allocation (surplus)</td><td>materialId, availableQty</td></tr>
+    <tr><td><strong>Purchase Order</strong></td><td>Sales Orders (Against-SO), Rate Master</td><td>Mill Tracker, GRN</td><td>poNumber, soId, materialId</td></tr>
+    <tr><td><strong>GRN</strong></td><td>PO (expected qty and material)</td><td>Stock Lots, Purchase Invoice</td><td>grnNumber, poId, materialId</td></tr>
+    <tr><td><strong>Stock Lots</strong></td><td>GRN (created on approval)</td><td>Coverage, Pick Plan, Dispatch</td><td>lotNumber, materialId, availableQty</td></tr>
+    <tr><td><strong>Pick Plan</strong></td><td>Dispatch Queue, Stock Lots (FIFO)</td><td>Truck Load Plan</td><td>lotId, allocatedQty</td></tr>
+    <tr><td><strong>Challan</strong></td><td>Truck Load Plan</td><td>In-Transit, Sales Invoice, Stock (dispatch)</td><td>challanNumber, soNumber, vehicleNumber</td></tr>
+    <tr><td><strong>Sales Invoice</strong></td><td>Challan (on delivery)</td><td>Accounts Dashboard, Finance Reports</td><td>invoiceNumber, challanNumber</td></tr>
+    <tr><td><strong>Purchase Invoice</strong></td><td>GRN (3-way match)</td><td>Accounts Dashboard, Finance Reports</td><td>invoiceNumber, poNumber, grnNumber</td></tr>
+  </table>
+
+  <h1 class="st">11. Role-Based Page Access Summary</h1>
+  <table class="t">
+    <tr><th>Module Group</th><th style="text-align:center">Admin</th><th style="text-align:center">Salesman</th><th style="text-align:center">Planner</th><th style="text-align:center">Customer</th></tr>
+    <tr><td>All 4 Dashboards</td><td style="text-align:center">✅ Full</td><td style="text-align:center">Own only</td><td style="text-align:center">Planner only</td><td style="text-align:center">—</td></tr>
+    <tr><td>Inquiry</td><td style="text-align:center">✅ Full</td><td style="text-align:center">✅ Full</td><td style="text-align:center">View only</td><td style="text-align:center">Own only</td></tr>
+    <tr><td>Sales Orders</td><td style="text-align:center">✅ Full</td><td style="text-align:center">✅ Full</td><td style="text-align:center">View only</td><td style="text-align:center">—</td></tr>
+    <tr><td>Coverage</td><td style="text-align:center">✅ Full</td><td style="text-align:center">View only</td><td style="text-align:center">✅ Full</td><td style="text-align:center">—</td></tr>
+    <tr><td>Purchase Orders</td><td style="text-align:center">✅ Full</td><td style="text-align:center">—</td><td style="text-align:center">✅ Full</td><td style="text-align:center">—</td></tr>
+    <tr><td>Mill Tracker / GRN</td><td style="text-align:center">✅ Full</td><td style="text-align:center">—</td><td style="text-align:center">✅ Full</td><td style="text-align:center">—</td></tr>
+    <tr><td>Stock Lots</td><td style="text-align:center">✅ Full</td><td style="text-align:center">View only</td><td style="text-align:center">✅ Full</td><td style="text-align:center">—</td></tr>
+    <tr><td>Dispatch / Pick / Challan</td><td style="text-align:center">✅ Full</td><td style="text-align:center">—</td><td style="text-align:center">✅ Full</td><td style="text-align:center">—</td></tr>
+    <tr><td>Purchase &amp; Sales Invoices</td><td style="text-align:center">✅ Full</td><td style="text-align:center">—</td><td style="text-align:center">—</td><td style="text-align:center">—</td></tr>
+    <tr><td>Reports (all 4)</td><td style="text-align:center">✅ Full</td><td style="text-align:center">Own data</td><td style="text-align:center">Ops only</td><td style="text-align:center">—</td></tr>
+    <tr><td>Masters &amp; Settings</td><td style="text-align:center">✅ Full</td><td style="text-align:center">—</td><td style="text-align:center">—</td><td style="text-align:center">—</td></tr>
+  </table>
+
+  <div class="succ"><strong>Phase 1 Status:</strong> All modules above are complete as a fully functional frontend prototype using mock data. All business logic, state management (Context API), form validations, status workflows, and role-based access controls are implemented. Phase 2 will integrate a backend REST API while retaining all existing TypeScript interfaces, page structures, and business logic.</div>
+
+  <div class="pf"><span>Monit Paper Agency ERP — Confidential</span><span>System Flow &amp; Functional Overview — End of Document</span></div>
+</div>
+
+</body>
+</html>
