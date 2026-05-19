@@ -9,6 +9,8 @@ using Monit.API.Repositories.Config;
 using Monit.API.Repositories.Inventory;
 using Monit.API.Repositories.Procurement;
 using Monit.API.Repositories.Sales;
+using Monit.API.Repositories.Dash;
+using Monit.API.Services.Dash;
 using Monit.API.Services;
 using Monit.API.Services.Auth;
 using Monit.API.Services.Config;

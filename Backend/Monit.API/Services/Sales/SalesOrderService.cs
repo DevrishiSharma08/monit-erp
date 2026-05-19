@@ -1,4 +1,5 @@
 using Monit.API.Common.Helpers;
+using Monit.API.Common.Middleware;
 using Monit.API.Common.Response;
 using Monit.API.Models.DTOs.Mail;
 using Monit.API.Models.DTOs.Sales;
