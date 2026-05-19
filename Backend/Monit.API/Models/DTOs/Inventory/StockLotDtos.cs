@@ -54,6 +54,13 @@ public class StockLotRow
     public string?  LinkedSoNumber    { get; set; }
     public string?  CustomerName      { get; set; }  // effective real client
 
+    // Packing format (from GRN)
+    public string?  PackingType       { get; set; }
+    public int?     SheetsPerPacket   { get; set; }
+    public int?     PacketsPerBundle  { get; set; }
+    public int?     NoOfPackets       { get; set; }
+    public int?     NoOfBundles       { get; set; }
+
     // Audit
     public string   CreatedBy         { get; set; } = string.Empty;
     public DateTime CreatedAt         { get; set; }

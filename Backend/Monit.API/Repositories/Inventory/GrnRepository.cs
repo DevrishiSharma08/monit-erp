@@ -51,6 +51,7 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
             g.LotNumber,
             g.VehicleNumber,
             g.LRNumber                                                          AS LrNumber,
+            CONVERT(NVARCHAR(10), g.DispatchDate, 23)                          AS DispatchDate,
             g.[Condition],
             g.QCResult                                                          AS QcResult,
             g.QualityGrade,
@@ -59,6 +60,14 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
             so.SONumber                                                         AS LinkedSoNumber,
             ISNULL(mt.CustomerName, cust.Name)                                 AS CustomerName,
             ISNULL(mt.CustomerName, cust.Name)                                 AS EffectiveClientName,
+            -- Billing & packing
+            g.ItemInvoiceNo,
+            g.BillingRate,
+            g.PackingType,
+            g.SheetsPerPacket,
+            g.PacketsPerBundle,
+            g.NoOfPackets,
+            g.NoOfBundles,
             -- Audit
             g.CreatedBy,
             g.CreatedAt
@@ -311,6 +320,8 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
                 LotNumber, LRNumber, VehicleNumber, DriverName,
                 FreightAmount, UnloadingCharges, InvoiceEligible,
                 PurchaseInvoiceNumber, MillChallanNumber,
+                DispatchDate, ItemInvoiceNo, BillingRate,
+                PackingType, SheetsPerPacket, PacketsPerBundle, NoOfPackets, NoOfBundles,
                 LinkedSOId, ReceivedBy, Remarks,
                 GRNDeliveryMode, StockQty, DirectQty, DirectClientId, DirectClientName,
                 CreatedAt, CreatedBy
@@ -329,6 +340,8 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
                 @LotNumber, @LrNumber, @VehicleNumber, @DriverName,
                 @FreightAmount, @UnloadingCharges, @InvoiceEligible,
                 @PurchaseInvoiceNumber, @MillChallanNumber,
+                TRY_CAST(@DispatchDate AS DATE), @ItemInvoiceNo, @BillingRate,
+                @PackingType, @SheetsPerPacket, @PacketsPerBundle, @NoOfPackets, @NoOfBundles,
                 @LinkedSoId, @ReceivedBy, @Remarks,
                 @DeliveryMode, @StockQty, @DirectQty, @DirectClientId, @DirectClientName,
                 GETUTCDATE(), @CreatedBy
@@ -387,6 +400,14 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
         p.Add("InvoiceEligible",       dto.InvoiceEligible);
         p.Add("PurchaseInvoiceNumber", dto.PurchaseInvoiceNumber);
         p.Add("MillChallanNumber",     dto.MillChallanNumber);
+        p.Add("DispatchDate",          dto.DispatchDate);
+        p.Add("ItemInvoiceNo",         dto.ItemInvoiceNo);
+        p.Add("BillingRate",           dto.BillingRate);
+        p.Add("PackingType",           dto.PackingType);
+        p.Add("SheetsPerPacket",       dto.SheetsPerPacket);
+        p.Add("PacketsPerBundle",      dto.PacketsPerBundle);
+        p.Add("NoOfPackets",           dto.NoOfPackets);
+        p.Add("NoOfBundles",           dto.NoOfBundles);
         p.Add("LinkedSoId",            ctx.LinkedSoId);
         p.Add("ReceivedBy",            dto.ReceivedBy);
         p.Add("Remarks",               dto.Remarks);
@@ -472,6 +493,7 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
                 GRNDate, OpeningQty, CurrentQty, ReservedQty,
                 CostPerUnit, TotalCost,
                 [Status], FIFOSequence,
+                PackingType, SheetsPerPacket, PacketsPerBundle, NoOfPackets, NoOfBundles,
                 CreatedAt, CreatedBy
             )
             SELECT
@@ -482,6 +504,7 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
                 g.GRNDate, @Qty, @Qty, 0,
                 @CostPerUnit, @Qty * ISNULL(@CostPerUnit, 0),
                 'Available', @FifoSeq,
+                g.PackingType, g.SheetsPerPacket, g.PacketsPerBundle, g.NoOfPackets, g.NoOfBundles,
                 GETUTCDATE(), @CreatedBy
             FROM inventory.GRNs g
             WHERE g.Id = @GrnId";

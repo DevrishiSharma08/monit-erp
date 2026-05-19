@@ -153,6 +153,19 @@ public class MillRepository(DbConnectionFactory db) : IMillRepository
         return (await conn.QueryAsync<MillDropdownDto>(sql)).ToList();
     }
 
+    public async Task<List<MillContactDto>> GetContactsAsync(int millId)
+    {
+        // Flatten contacts across all units of this mill
+        const string sql = @"
+            SELECT mc.Id, mc.ContactPerson, mc.Designation, mc.Phone, mc.Email, mc.IsDefault
+            FROM   masters.MillContacts mc
+            JOIN   masters.MillUnits    mu ON mu.Id = mc.MillUnitId
+            WHERE  mu.MillId = @MillId AND mc.IsDeleted = 0 AND mu.IsDeleted = 0
+            ORDER  BY mc.IsDefault DESC, mc.ContactPerson";
+        using var conn = db.Create();
+        return (await conn.QueryAsync<MillContactDto>(sql, new { MillId = millId })).ToList();
+    }
+
     private static async Task SaveUnits(
         System.Data.IDbConnection conn,
         System.Data.IDbTransaction tx,

@@ -17,8 +17,7 @@ using Monit.API.Services.Masters;
 using Monit.API.Services.Procurement;
 using Monit.API.Services.Inventory;
 using Monit.API.Services.Sales;
-using Monit.API.Repositories.Dash;
-using Monit.API.Services.Dash;
+using Monit.API.Services.System;
 
 namespace Monit.API.Common.Helpers;
 
@@ -84,8 +83,11 @@ public static class DependencyInjection
         services.AddScoped<ILocalityService,         LocalityService>();
         services.AddScoped<IInstructionService,      InstructionService>();
         services.AddScoped<ICompanyConfigService,    CompanyConfigService>();
+        services.AddScoped<IEmailService,            EmailService>();
+        services.AddScoped<ISalesOrderPdfService,    SalesOrderPdfService>();
+        services.AddScoped<IPurchaseOrderPdfService, PurchaseOrderPdfService>();
         services.AddScoped<ISalesOrderService,       SalesOrderService>();
-        services.AddScoped<IPurchaseOrderService,   PurchaseOrderService>();
+        services.AddScoped<IPurchaseOrderService,    PurchaseOrderService>();
         services.AddScoped<IMillTrackerService,      MillTrackerService>();
         services.AddScoped<ITruckLoadPlanService,    TruckLoadPlanService>();
         services.AddScoped<IGrnService,              GrnService>();

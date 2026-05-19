@@ -59,6 +59,7 @@ public class GrnListDto
     // Transport
     public string?  VehicleNumber         { get; set; }
     public string?  LrNumber              { get; set; }
+    public string?  DispatchDate          { get; set; }
 
     // Quality
     public string?  Condition             { get; set; }
@@ -70,6 +71,15 @@ public class GrnListDto
     public string?  LinkedSoNumber        { get; set; }
     public string?  CustomerName          { get; set; }   // effective real client
     public string?  EffectiveClientName   { get; set; }
+
+    // Billing & Packing
+    public string?  ItemInvoiceNo         { get; set; }
+    public decimal? BillingRate           { get; set; }
+    public string   PackingType           { get; set; } = "Sheets";
+    public int?     SheetsPerPacket       { get; set; }
+    public int?     PacketsPerBundle      { get; set; }
+    public int?     NoOfPackets           { get; set; }
+    public int?     NoOfBundles           { get; set; }
 
     // Audit
     public string   CreatedBy             { get; set; } = string.Empty;
@@ -142,6 +152,9 @@ public class CreateGrnDto
     // Invoice / challan refs
     public string?  PurchaseInvoiceNumber { get; set; }
     public string?  MillChallanNumber     { get; set; }
+    public string?  DispatchDate          { get; set; }
+    public string?  ItemInvoiceNo         { get; set; }
+    public decimal? BillingRate           { get; set; }
 
     // Quantities
     public decimal  ReceivedQty           { get; set; }
@@ -175,6 +188,13 @@ public class CreateGrnDto
     public decimal  FreightAmount         { get; set; }
     public decimal  UnloadingCharges      { get; set; }
     public bool     InvoiceEligible       { get; set; } = true;
+
+    // Packing format
+    public string   PackingType           { get; set; } = "Sheets";
+    public int?     SheetsPerPacket       { get; set; }
+    public int?     PacketsPerBundle      { get; set; }
+    public int?     NoOfPackets           { get; set; }
+    public int?     NoOfBundles           { get; set; }
 
     // Misc
     public string?  ReceivedBy            { get; set; }

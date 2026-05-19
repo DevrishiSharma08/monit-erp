@@ -20,6 +20,9 @@ public class CompanyConfigService(ICompanyConfigRepository repo) : ICompanyConfi
             InsurancePolicyNo = dto.InsurancePolicyNo?.Trim(),
             InsurancePolicyFy = dto.InsurancePolicyFy?.Trim(),
             InsuranceIssuer   = dto.InsuranceIssuer?.Trim(),
+            SmtpSenderEmail   = dto.SmtpSenderEmail?.Trim(),
+            SmtpSenderName    = dto.SmtpSenderName?.Trim(),
+            SmtpAppPassword   = dto.SmtpAppPassword,   // null = keep existing; "" = clear
             UpdatedAt         = DateTime.UtcNow,
             UpdatedBy         = updatedBy,
         });
@@ -31,6 +34,10 @@ public class CompanyConfigService(ICompanyConfigRepository repo) : ICompanyConfi
         InsurancePolicyNo = e.InsurancePolicyNo,
         InsurancePolicyFy = e.InsurancePolicyFy,
         InsuranceIssuer   = e.InsuranceIssuer,
+        SmtpSenderEmail   = e.SmtpSenderEmail,
+        SmtpSenderName    = e.SmtpSenderName,
+        SmtpConfigured    = !string.IsNullOrWhiteSpace(e.SmtpSenderEmail)
+                         && !string.IsNullOrWhiteSpace(e.SmtpAppPassword),
         UpdatedAt         = e.UpdatedAt,
         UpdatedBy         = e.UpdatedBy,
     };

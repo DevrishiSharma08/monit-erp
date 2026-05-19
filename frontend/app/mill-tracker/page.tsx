@@ -1102,7 +1102,7 @@ function UpdateStatusModal({
               <label className={labelCls}>Ready Quantity <span className="text-red-400">*</span></label>
               <input
                 type="number"
-                value={formData.readyQty}
+                value={formData.readyQty || ""}
                 onChange={(e) => setFormData({ ...formData, readyQty: parseInt(e.target.value) || 0 })}
                 className={inputCls}
                 min="0" max={tracker.orderedQty} required

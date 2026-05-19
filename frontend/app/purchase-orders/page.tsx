@@ -7,7 +7,7 @@ import {
   ShoppingCart, ChevronUp, ChevronDown,
   MoreVertical, Eye, Pencil, Trash2, Printer, Mail, X,
 } from "lucide-react";
-import { EmailModal, EmailFormData } from "@/components/EmailModal";
+import { EmailModal, EmailFormData, EmailContact } from "@/components/EmailModal";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { PurchaseOrderForm } from "@/components/forms/PurchaseOrderForm";
@@ -16,7 +16,8 @@ import { KpiCard } from "@/components/ui/KpiCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useSalesOrder, SalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
-import { poApi, PORow, POItemRow, CreatePODto } from "@/lib/api-services";
+import { poApi, PORow, POItemRow, CreatePODto, millApi } from "@/lib/api-services";
+import { emailSentCache } from "@/lib/emailSentCache";
 import { cn } from "@/lib/utils";
 
 // ─── SO status colours (for inline SO view modal) ─────────────────────────────
@@ -74,12 +75,20 @@ export default function PurchaseOrdersPage() {
   const [viewSO, setViewSO]                 = useState<SalesOrder | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [emailOrder, setEmailOrder]         = useState<PORow | null>(null);
-  const [emailSentIds, setEmailSentIds]     = useState<Set<number>>(new Set());
+  const [emailContacts, setEmailContacts]   = useState<EmailContact[]>([]);
+  const [emailSentIds, setEmailSentIds]     = useState<Set<number>>(() => emailSentCache.getPoIds());
 
   const loadPos = useCallback(() => {
     setLoadingPos(true);
     poApi.list({ pageSize: 200 })
-      .then((r) => setPos(r.items))
+      .then((r) => {
+        setPos(r.items);
+        const sentFromApi = r.items.filter((p) => p.emailSentAt).map((p) => p.id);
+        if (sentFromApi.length > 0) {
+          emailSentCache.seedPoIds(sentFromApi);
+          setEmailSentIds(emailSentCache.getPoIds());
+        }
+      })
       .catch(() => showError("Failed to load purchase orders."))
       .finally(() => setLoadingPos(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -213,7 +222,7 @@ export default function PurchaseOrdersPage() {
             onEdit={() => { setSourceSO(null); setEditingOrder(po); setShowForm(true); }}
             onDelete={() => setDeleteConfirmId(po.id)}
             onPrint={() => {}}
-            onSendMail={() => setEmailOrder(po)}
+            onSendMail={() => openEmailModal(po)}
             mailSent={emailSentIds.has(po.id)}
           />
         );
@@ -346,16 +355,37 @@ export default function PurchaseOrdersPage() {
     setDeleteConfirmId(null);
   };
 
-  const buildPOEmailData = (po: PORow) => {
+  const openEmailModal = async (po: PORow) => {
+    setEmailOrder(po);
+    try {
+      const raw = await millApi.getContacts(po.millId);
+      setEmailContacts(raw.filter((c) => c.email).map((c) => ({
+        name:      c.contactPerson,
+        email:     c.email!,
+        isDefault: c.isDefault ?? false,
+      })));
+    } catch {
+      setEmailContacts([]);
+    }
+  };
+
+  const buildPOEmailData = (po: PORow): EmailFormData => {
     const shipMode = po.shipmentMode ?? (po.blindShipment ? "Blind" : "Normal");
     // For blind/override POs, the mill must NOT see the actual SO customer name
     const billTo =
       shipMode === "Blind"           ? "Monit Paper Agency" :
       shipMode === "InvoiceOverride" ? (po.invoiceParty || "—") :
       po.directCustomer || "";
-    const itemLines = po.items.map((item, i) =>
-      `  ${i + 1}. ${item.description || "—"} — Qty: ${item.quantity} — ₹${item.rate}/- — Amt: ₹${item.amount.toLocaleString("en-IN")}`
-    ).join("\n");
+    const totalWeightKg = po.items.reduce((s, item) => s + (item.weightKg ?? 0), 0);
+    const itemLines = po.items.map((item, i) => {
+      const baseRate = item.discount && item.discount > 0
+        ? (item.rate / (1 - item.discount / 100))
+        : item.rate;
+      const qty = item.weightKg && item.weightKg > 0
+        ? `${item.weightKg.toLocaleString("en-IN")} KG`
+        : `${item.quantity.toLocaleString("en-IN")} ${item.unit || ""}`.trim();
+      return `  ${i + 1}. ${item.description || "—"} — ${qty} — ₹${baseRate.toFixed(2)}/- — Amt: ₹${item.amount.toLocaleString("en-IN")}`;
+    }).join("\n");
     const body = [
       `Dear ${po.millName},`,
       ``,
@@ -372,7 +402,9 @@ export default function PurchaseOrdersPage() {
       `Items:`,
       itemLines,
       ``,
-      `Total Qty  : ${po.totalQuantity.toLocaleString("en-IN")}`,
+      totalWeightKg > 0
+        ? `Total Wt   : ${totalWeightKg.toLocaleString("en-IN")} KG`
+        : `Total Qty  : ${po.totalQuantity.toLocaleString("en-IN")}`,
       `Total Value: ₹${po.totalValue.toLocaleString("en-IN")}`,
       ...(po.specialInstructions ? [``, `Special Instructions:`, po.specialInstructions] : []),
       ``,
@@ -381,13 +413,19 @@ export default function PurchaseOrdersPage() {
       `Regards,`,
       `Monit Paper Agency`,
     ].join("\n");
-    return { to: "", cc: "", subject: `Purchase Order: ${po.poNumber}`, body };
+    return { to: [], cc: [], subject: `Purchase Order: ${po.poNumber}`, body };
   };
 
-  const handleSendPOEmail = (_data: EmailFormData) => {
-    if (emailOrder) setEmailSentIds((prev) => new Set([...prev, emailOrder.id]));
-    success("Email sent to mill.");
+  const handleSendPOEmail = async (data: EmailFormData) => {
+    if (!emailOrder) return;
+    await poApi.sendEmail(emailOrder.id, {
+      to: data.to, cc: data.cc, subject: data.subject, body: data.body,
+    });
+    emailSentCache.addPoId(emailOrder.id);
+    setEmailSentIds((prev) => new Set([...prev, emailOrder.id]));
+    success(`Email sent to ${data.to.join(", ")}`);
     setEmailOrder(null);
+    setEmailContacts([]);
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -535,7 +573,7 @@ export default function PurchaseOrdersPage() {
           po={viewOrder}
           onClose={() => setViewOrder(null)}
           onEdit={() => { setEditingOrder(viewOrder); setViewOrder(null); setShowForm(true); }}
-          onSendMail={() => { const po = viewOrder; setViewOrder(null); setEmailOrder(po); }}
+          onSendMail={() => { const po = viewOrder; setViewOrder(null); openEmailModal(po); }}
           mailSent={emailSentIds.has(viewOrder.id)}
         />
       )}
@@ -554,8 +592,9 @@ export default function PurchaseOrdersPage() {
         <EmailModal
           title={`Send Mail to Mill — ${emailOrder.poNumber}`}
           initialData={buildPOEmailData(emailOrder)}
+          contacts={emailContacts}
           onSend={handleSendPOEmail}
-          onClose={() => setEmailOrder(null)}
+          onClose={() => { setEmailOrder(null); setEmailContacts([]); }}
         />
       )}
 

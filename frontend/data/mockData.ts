@@ -384,6 +384,7 @@ export interface MillOrderTracker {
   poItemId?: string; // Reference to PurchaseOrderItem
   poDate: string;
   mill: string;
+  millAddress?: string;
 
   paper: string;
   gsm: number;

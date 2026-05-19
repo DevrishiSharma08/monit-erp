@@ -14,4 +14,5 @@ public interface IMillRepository
     Task                            UpdateAsync(Mill mill, List<MillUnitDto> units, string updatedBy);
     Task                            SoftDeleteAsync(int id, string deletedBy);
     Task<List<MillDropdownDto>>     GetDropdownAsync();
+    Task<List<MillContactDto>>      GetContactsAsync(int millId);
 }
