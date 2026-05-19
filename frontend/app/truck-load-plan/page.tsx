@@ -50,18 +50,20 @@ const TRUCK_TYPES: { label: string; value: string; capacity: number }[] = [
 ];
 
 const PENDING_COLS = [
-  { id: "mill",     label: "Mill"             },
-  { id: "delivery", label: "Delivery Address" },
-  { id: "status",   label: "Status"           },
-  { id: "weight",   label: "Weight (kg)"      },
-  { id: "qty",      label: "Qty (sht)"        },
-  { id: "eta",      label: "ETA"              },
+  { id: "mill",     label: "Mill"              },
+  { id: "delivery", label: "Delivery Address"  },
+  { id: "status",   label: "Status"            },
+  { id: "qty",      label: "Ready (sht)"       },
+  { id: "plan",     label: "Dispatched (sht)"  },
+  { id: "balance",  label: "Balance (sht)"     },
+  { id: "weight",   label: "Weight (kg)"       },
+  { id: "eta",      label: "ETA"               },
 ] as const;
 type PendingColId = typeof PENDING_COLS[number]["id"];
-const DEFAULT_HIDDEN: PendingColId[] = ["qty"];
+const DEFAULT_HIDDEN: PendingColId[] = ["delivery"];
 const PENDING_COL_ALIGN: Record<PendingColId, "left" | "right"> = {
   mill: "left", delivery: "left", status: "left",
-  weight: "right", qty: "right", eta: "left",
+  qty: "right", plan: "right", balance: "right", weight: "right", eta: "left",
 };
 
 const TRACKER_STATUS_BADGE: Record<string, string> = {
@@ -330,14 +332,29 @@ function PendingPOsSection({
             </span>
           </td>
         );
+      case "qty":
+        return <td key={col} className="px-3 py-3 text-right text-xs text-gray-600 tabular-nums whitespace-nowrap">{t.readyQty.toLocaleString()}</td>;
+      case "plan": {
+        const planWt = calcWeightKg(t.gsm, t.size, t.dispatchedQty);
+        return (
+          <td key={col} className="px-3 py-3 text-right whitespace-nowrap">
+            <p className="text-xs font-medium text-purple-600 tabular-nums">{t.dispatchedQty.toLocaleString()}</p>
+            {planWt > 0 && <p className="text-[10px] text-gray-400 tabular-nums">{planWt.toLocaleString()} kg</p>}
+          </td>
+        );
+      }
+      case "balance":
+        return (
+          <td key={col} className="px-3 py-3 text-right whitespace-nowrap">
+            <p className="text-xs font-semibold text-blue-700 tabular-nums">{avail.toLocaleString()}</p>
+          </td>
+        );
       case "weight":
         return (
           <td key={col} className="px-3 py-3 text-right font-bold text-blue-700 tabular-nums text-sm whitespace-nowrap">
             {wt > 0 ? `${wt.toLocaleString()} kg` : "—"}
           </td>
         );
-      case "qty":
-        return <td key={col} className="px-3 py-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">{avail.toLocaleString()}</td>;
       case "eta":
         return <td key={col} className="px-3 py-3 text-xs text-gray-500 whitespace-nowrap">{t.expectedDelivery || "—"}</td>;
     }
@@ -583,7 +600,7 @@ interface PlanItem {
   trackerId: string; poNumber: string; soNumber: string;
   paper: string; gsm: number; size: string;
   customerName: string; mill: string; deliveryAddress: string;
-  maxQty: number; quantity: number; loadOrder: number;
+  maxQty: number; quantity: number; quantityStr: string; loadOrder: number;
 }
 
 interface PlanForm {
@@ -604,21 +621,29 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
 }) {
   const today = new Date().toISOString().split("T")[0];
 
-  const initialItems: PlanItem[] = trackers.map((t, i) => ({
-    trackerId: t.id, poNumber: t.poNumber, soNumber: t.soNumber ?? "",
-    paper: t.paper, gsm: t.gsm, size: t.size,
-    customerName: t.customerName ?? "", mill: t.mill,
-    deliveryAddress: t.directDeliveryAddress ?? "",
-    maxQty: t.readyQty - t.dispatchedQty,
-    quantity: t.readyQty - t.dispatchedQty,
-    loadOrder: trackers.length - i,
-  }));
+  const initialItems: PlanItem[] = trackers.map((t, i) => {
+    const avail = t.readyQty - t.dispatchedQty;
+    return {
+      trackerId: t.id, poNumber: t.poNumber, soNumber: t.soNumber ?? "",
+      paper: t.paper, gsm: t.gsm, size: t.size,
+      customerName: t.customerName ?? "", mill: t.mill,
+      deliveryAddress: t.directDeliveryAddress ?? "",
+      maxQty: avail,
+      quantity: avail,
+      quantityStr: String(avail),
+      loadOrder: trackers.length - i,
+    };
+  });
 
   const [form, setForm] = useState<PlanForm>({
     items: initialItems, truckNumber: "", truckType: "", truckCapacityKg: 15000,
     transporterName: "", driverName: "", driverPhone: "", freightAmount: 0,
     millInvoiceNo: "", deliveryBillNo: "",
-    origin: trackers[0]?.mill ?? "",
+    origin: trackers[0]
+      ? trackers[0].millAddress
+        ? `${trackers[0].mill} — ${trackers[0].millAddress}`
+        : trackers[0].mill
+      : "",
     plannedLoadDate: today, plannedDeliveryDate: today,
   });
   const [availVehicles,   setAvailVehicles]   = useState<TransporterVehicleDto[]>([]);
@@ -626,8 +651,6 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
 
   const setF = <K extends keyof PlanForm>(k: K, v: PlanForm[K]) => setForm((p) => ({ ...p, [k]: v }));
 
-  const updateItem = (idx: number, qty: number) =>
-    setForm((p) => ({ ...p, items: p.items.map((it, i) => i === idx ? { ...it, quantity: Math.max(1, Math.min(qty, it.maxQty)) } : it) }));
   const updateItemAddr = (idx: number, addr: string) =>
     setForm((p) => ({ ...p, items: p.items.map((it, i) => i === idx ? { ...it, deliveryAddress: addr } : it) }));
   const removeItem = (idx: number) =>
@@ -721,8 +744,29 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
                   <td className="px-3 py-2 whitespace-nowrap text-right">
                     <div className="flex items-center justify-end gap-2">
                       <div className="text-right">
-                        <input type="number" value={it.quantity} min={1} max={it.maxQty}
-                          onChange={(e) => updateItem(idx, parseInt(e.target.value) || 1)}
+                        <input type="number" value={it.quantityStr} min={1} max={it.maxQty}
+                          onChange={(e) => {
+                            const str = e.target.value;
+                            const n = parseInt(str);
+                            setForm((p) => ({
+                              ...p,
+                              items: p.items.map((it2, i) => i !== idx ? it2 : {
+                                ...it2,
+                                quantityStr: str,
+                                quantity: !isNaN(n) && n > 0 ? Math.min(n, it2.maxQty) : it2.quantity,
+                              }),
+                            }));
+                          }}
+                          onBlur={() => {
+                            setForm((p) => ({
+                              ...p,
+                              items: p.items.map((it2, i) => {
+                                if (i !== idx) return it2;
+                                const clamped = Math.max(1, Math.min(it2.quantity, it2.maxQty));
+                                return { ...it2, quantity: clamped, quantityStr: String(clamped) };
+                              }),
+                            }));
+                          }}
                           className="w-20 rounded border border-gray-200 px-2 py-1 text-right text-xs font-semibold focus:border-blue-400 focus:outline-none" />
                         <p className="text-[10px] text-gray-400 mt-0.5">/{it.maxQty.toLocaleString()} sht</p>
                       </div>
@@ -788,30 +832,25 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
               Vehicle Type
               {vehiclesLoading && <span className="ml-1.5 text-[10px] font-normal text-blue-400">loading…</span>}
             </label>
-            {availVehicles.length > 0 ? (
-              <select value={form.truckType} onChange={(e) => handleVehicleTypeChange(e.target.value)} className={iCls}>
-                <option value="">Select vehicle…</option>
-                {availVehicles.map((v, i) => (
-                  <option key={i} value={v.vehicleType}>
-                    {v.vehicleType}
-                    {v.capacity    ? ` · ${v.capacity.toLocaleString()} kg`    : ""}
-                    {v.freightRate ? ` · ₹${v.freightRate.toLocaleString()}`   : ""}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input type="text" value={form.truckType}
-                placeholder={vehiclesLoading ? "Loading…" : "e.g. 24 ft, Tata Ace…"}
-                onChange={(e) => setF("truckType", e.target.value)}
-                className={iCls} />
-            )}
+            <input list="vehicles-list" type="text" value={form.truckType}
+              placeholder="e.g. 24 ft, Tata Ace…"
+              onChange={(e) => handleVehicleTypeChange(e.target.value)}
+              className={iCls} />
+            <datalist id="vehicles-list">
+              {availVehicles.map((v, i) => (
+                <option key={i} value={v.vehicleType}>
+                  {v.capacity    ? `${v.capacity.toLocaleString()} kg`    : ""}
+                  {v.freightRate ? ` · ₹${v.freightRate.toLocaleString()}` : ""}
+                </option>
+              ))}
+            </datalist>
           </div>
 
           {/* Row 2: Capacity | Vehicle No */}
           <div>
             <label className={lCls}>Truck Capacity (kg)</label>
-            <input type="number" value={form.truckCapacityKg} min={100} step={500}
-              onChange={(e) => setF("truckCapacityKg", parseInt(e.target.value) || 15000)}
+            <input type="number" value={form.truckCapacityKg || ""} min={100} step={500}
+              onChange={(e) => setF("truckCapacityKg", parseInt(e.target.value) || 0)}
               className={iCls} />
           </div>
 
@@ -864,21 +903,6 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
             <label className={lCls}>Planned Delivery Date</label>
             <input type="date" value={form.plannedDeliveryDate}
               onChange={(e) => setF("plannedDeliveryDate", e.target.value)}
-              className={iCls} />
-          </div>
-
-          {/* Row 6: Mill Invoice | Delivery Bill */}
-          <div>
-            <label className={lCls}>Mill Invoice No.</label>
-            <input type="text" value={form.millInvoiceNo} placeholder="INV-2024-001"
-              onChange={(e) => setF("millInvoiceNo", e.target.value)}
-              className={iCls} />
-          </div>
-
-          <div>
-            <label className={lCls}>Delivery Bill No.</label>
-            <input type="text" value={form.deliveryBillNo} placeholder="DB-2024-001"
-              onChange={(e) => setF("deliveryBillNo", e.target.value)}
               className={iCls} />
           </div>
 
@@ -1011,7 +1035,6 @@ function PlanDrillDown({ plan, onClose }: { plan: TruckLoadPlan; onClose: () => 
                       <th className="px-3 py-2 text-left">Delivery Location</th>
                       <th className="px-3 py-2 text-right">Qty</th>
                       <th className="px-3 py-2 text-right">Weight</th>
-                      <th className="px-3 py-2 text-left">Mill Invoice</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -1033,7 +1056,6 @@ function PlanDrillDown({ plan, onClose }: { plan: TruckLoadPlan; onClose: () => 
                         </td>
                         <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-800">{item.quantity.toLocaleString()}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-gray-600">{itemWeight(item).toLocaleString()} kg</td>
-                        <td className="px-3 py-2.5 text-gray-500">{item.millInvoiceNo || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1128,6 +1150,7 @@ function mapTrackerRow(r: MillTrackerRow): MillOrderTracker {
     poItemId:              r.poItemId != null ? String(r.poItemId) : undefined,
     poDate:                r.poDate ?? "",
     mill:                  r.mill ?? "",
+    millAddress:           r.millAddress,
     paper:                 r.paper ?? "",
     gsm:                   r.gsm ?? 0,
     size:                  r.size ?? "",

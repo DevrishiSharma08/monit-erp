@@ -76,6 +76,7 @@ public class MillTrackerListDto
     public string?  Remarks                { get; set; }
     public string?  MillSONumber           { get; set; }
     public string?  DirectDeliveryAddress  { get; set; }
+    public string?  MillAddress            { get; set; }
     public DateTime CreatedAt              { get; set; }
 
     public List<MillTrackerBatchDto>   Batches { get; set; } = [];

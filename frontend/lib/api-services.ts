@@ -137,16 +137,19 @@ export interface MillDetailRow extends MillRow {
 }
 export interface MillDropdown { id: number; code: string; name: string; paymentTerms?: string; }
 
+export interface MillContactRow { id?: number; contactPerson: string; designation?: string; phone?: string; email?: string; isDefault?: boolean; }
+
 const ML_BASE = "/api/v1/masters/mills";
 export const millApi = {
-  list:     (search = "") => apiFetch<Paged<MillRow>>(ML_BASE + qs({ search, page: 1, pageSize: LIST_SIZE })),
-  getById:  (id: number) => apiFetch<MillDetailRow>(`${ML_BASE}/${id}`),
-  create:   (dto: { code: string; name: string; ownerName?: string; phone?: string; email?: string; gstNo?: string; paymentTerms?: string; units: MillUnitDto[] }) =>
-              apiFetch<MillDetailRow>(ML_BASE, { method: "POST", body: JSON.stringify(dto) }),
-  update:   (id: number, dto: { code: string; name: string; ownerName?: string; phone?: string; email?: string; gstNo?: string; paymentTerms?: string; units: MillUnitDto[]; isActive: boolean }) =>
-              apiFetch<MillDetailRow>(`${ML_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
-  remove:   (id: number) => apiFetch<void>(`${ML_BASE}/${id}`, { method: "DELETE" }),
-  dropdown: () => apiFetch<MillDropdown[]>(`${ML_BASE}/dropdown`),
+  list:        (search = "") => apiFetch<Paged<MillRow>>(ML_BASE + qs({ search, page: 1, pageSize: LIST_SIZE })),
+  getById:     (id: number) => apiFetch<MillDetailRow>(`${ML_BASE}/${id}`),
+  create:      (dto: { code: string; name: string; ownerName?: string; phone?: string; email?: string; gstNo?: string; paymentTerms?: string; units: MillUnitDto[] }) =>
+                 apiFetch<MillDetailRow>(ML_BASE, { method: "POST", body: JSON.stringify(dto) }),
+  update:      (id: number, dto: { code: string; name: string; ownerName?: string; phone?: string; email?: string; gstNo?: string; paymentTerms?: string; units: MillUnitDto[]; isActive: boolean }) =>
+                 apiFetch<MillDetailRow>(`${ML_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
+  remove:      (id: number) => apiFetch<void>(`${ML_BASE}/${id}`, { method: "DELETE" }),
+  dropdown:    () => apiFetch<MillDropdown[]>(`${ML_BASE}/dropdown`),
+  getContacts: (id: number) => apiFetch<MillContactRow[]>(`${ML_BASE}/${id}/contacts`),
 };
 
 // ── Salesmen ──────────────────────────────────────────────────────────────────
@@ -220,15 +223,16 @@ export interface CustomerDropdown            { id: number; name: string; }
 
 const CU_BASE = "/api/v1/masters/customers";
 export const customerApi = {
-  list:     (search = "") => apiFetch<Paged<CustomerRow>>(CU_BASE + qs({ search, page: 1, pageSize: LIST_SIZE })),
-  getById:  (id: number)  => apiFetch<CustomerDetailRow>(`${CU_BASE}/${id}`),
-  create:   (dto: { name: string; ownerName?: string; phone?: string; email?: string; gstNo?: string; billingAddress?: string; creditLimit: number; creditDays: number; paymentTerms?: string; localityId?: number; contacts: CustomerContactDto[]; deliveryLocations: CustomerDeliveryLocationDto[] }) =>
-              apiFetch<CustomerDetailRow>(CU_BASE, { method: "POST", body: JSON.stringify(dto) }),
-  update:   (id: number, dto: { name: string; ownerName?: string; phone?: string; email?: string; gstNo?: string; billingAddress?: string; creditLimit: number; creditDays: number; paymentTerms?: string; localityId?: number; contacts: CustomerContactDto[]; deliveryLocations: CustomerDeliveryLocationDto[]; isActive: boolean }) =>
-              apiFetch<CustomerDetailRow>(`${CU_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
-  remove:   (id: number) => apiFetch<void>(`${CU_BASE}/${id}`, { method: "DELETE" }),
-  dropdown: () => apiFetch<CustomerDropdown[]>(`${CU_BASE}/dropdown`),
-  forSO:    () => apiFetch<CustomerSODropdown[]>(`${CU_BASE}/for-so`),
+  list:        (search = "") => apiFetch<Paged<CustomerRow>>(CU_BASE + qs({ search, page: 1, pageSize: LIST_SIZE })),
+  getById:     (id: number)  => apiFetch<CustomerDetailRow>(`${CU_BASE}/${id}`),
+  create:      (dto: { name: string; ownerName?: string; phone?: string; email?: string; gstNo?: string; billingAddress?: string; creditLimit: number; creditDays: number; paymentTerms?: string; localityId?: number; contacts: CustomerContactDto[]; deliveryLocations: CustomerDeliveryLocationDto[] }) =>
+                 apiFetch<CustomerDetailRow>(CU_BASE, { method: "POST", body: JSON.stringify(dto) }),
+  update:      (id: number, dto: { name: string; ownerName?: string; phone?: string; email?: string; gstNo?: string; billingAddress?: string; creditLimit: number; creditDays: number; paymentTerms?: string; localityId?: number; contacts: CustomerContactDto[]; deliveryLocations: CustomerDeliveryLocationDto[]; isActive: boolean }) =>
+                 apiFetch<CustomerDetailRow>(`${CU_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
+  remove:      (id: number) => apiFetch<void>(`${CU_BASE}/${id}`, { method: "DELETE" }),
+  dropdown:    () => apiFetch<CustomerDropdown[]>(`${CU_BASE}/dropdown`),
+  forSO:       () => apiFetch<CustomerSODropdown[]>(`${CU_BASE}/for-so`),
+  getContacts: (id: number) => apiFetch<CustomerContactDto[]>(`${CU_BASE}/${id}/contacts`),
 };
 
 export interface CustomerContactSODto          { id: number; name: string; designation?: string; phone?: string; email?: string; isDefault?: boolean; }
@@ -377,15 +381,36 @@ export interface CompanyConfigData {
   insurancePolicyNo?: string;
   insurancePolicyFy?: string;
   insuranceIssuer?:   string;
+  smtpSenderEmail?:   string;
+  smtpSenderName?:    string;
+  smtpConfigured?:    boolean;
   updatedAt?:         string;
   updatedBy?:         string;
+}
+
+export interface SendMailRequest {
+  to:      string[];
+  cc:      string[];
+  subject: string;
+  body:    string;
+}
+
+export interface SendMailResponse {
+  success:     boolean;
+  emailSentAt: string;
 }
 
 const CC_BASE = "/api/v1/company-config";
 export const companyConfigApi = {
   get:    () => apiFetch<CompanyConfigData>(CC_BASE),
-  update: (dto: { insurancePolicyNo?: string; insurancePolicyFy?: string; insuranceIssuer?: string }) =>
-            apiFetch<CompanyConfigData>(CC_BASE, { method: "PUT", body: JSON.stringify(dto) }),
+  update: (dto: {
+    insurancePolicyNo?: string;
+    insurancePolicyFy?: string;
+    insuranceIssuer?:   string;
+    smtpSenderEmail?:   string;
+    smtpSenderName?:    string;
+    smtpAppPassword?:   string | null;
+  }) => apiFetch<CompanyConfigData>(CC_BASE, { method: "PUT", body: JSON.stringify(dto) }),
 };
 
 // ── Items (Materials) ─────────────────────────────────────────────────────────
@@ -527,6 +552,7 @@ export interface SalesOrderRow {
   deliveryMode?: string; deliveryTerms?: string; paymentTerms?: string;
   remarks?: string; insurancePolicyNo?: string;
   totalValue: number;
+  emailSentAt?: string;
   lines: SalesOrderLineDto[];
 }
 
@@ -553,12 +579,14 @@ export interface UpdateSODto extends CreateSODto { status?: string; }
 const SO_BASE = "/api/v1/sales-orders";
 
 export const salesOrderApi = {
-  list:    (p: { status?: string; customerId?: number; dateFrom?: string; dateTo?: string; search?: string; page?: number; pageSize?: number } = {}) =>
-             apiFetch<Paged<SalesOrderRow>>(SO_BASE + qs({ ...p, page: p.page ?? 1, pageSize: p.pageSize ?? 50 })),
-  getById: (id: number) => apiFetch<SalesOrderRow>(`${SO_BASE}/${id}`),
-  create:  (dto: CreateSODto) => apiFetch<SalesOrderRow>(SO_BASE, { method: "POST", body: JSON.stringify(dto) }),
-  update:  (id: number, dto: UpdateSODto) => apiFetch<SalesOrderRow>(`${SO_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
-  remove:  (id: number) => apiFetch<void>(`${SO_BASE}/${id}`, { method: "DELETE" }),
+  list:      (p: { status?: string; customerId?: number; dateFrom?: string; dateTo?: string; search?: string; page?: number; pageSize?: number } = {}) =>
+               apiFetch<Paged<SalesOrderRow>>(SO_BASE + qs({ ...p, page: p.page ?? 1, pageSize: p.pageSize ?? 50 })),
+  getById:   (id: number) => apiFetch<SalesOrderRow>(`${SO_BASE}/${id}`),
+  create:    (dto: CreateSODto) => apiFetch<SalesOrderRow>(SO_BASE, { method: "POST", body: JSON.stringify(dto) }),
+  update:    (id: number, dto: UpdateSODto) => apiFetch<SalesOrderRow>(`${SO_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
+  remove:    (id: number) => apiFetch<void>(`${SO_BASE}/${id}`, { method: "DELETE" }),
+  sendEmail: (id: number, dto: SendMailRequest) =>
+               apiFetch<SendMailResponse>(`${SO_BASE}/${id}/send-email`, { method: "POST", body: JSON.stringify(dto) }),
 };
 
 // ── Purchase Orders ────────────────────────────────────────────────────────────
@@ -586,6 +614,7 @@ export interface PORow {
   status: string; gstPercentage?: number;
   remarks?: string; specialInstructions?: string;
   createdAt: string;
+  emailSentAt?: string;
   items: POItemRow[];
 }
 
@@ -617,8 +646,10 @@ export const poApi = {
   getById: (id: number) => apiFetch<PORow>(`${PO_BASE}/${id}`),
   create:  (dto: CreatePODto) => apiFetch<PORow>(PO_BASE, { method: "POST", body: JSON.stringify(dto) }),
   update:  (id: number, dto: UpdatePODto) => apiFetch<PORow>(`${PO_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
-  approve: (id: number) => apiFetch<void>(`${PO_BASE}/${id}/approve`, { method: "PATCH" }),
-  remove:  (id: number) => apiFetch<void>(`${PO_BASE}/${id}`, { method: "DELETE" }),
+  approve:   (id: number) => apiFetch<void>(`${PO_BASE}/${id}/approve`, { method: "PATCH" }),
+  remove:    (id: number) => apiFetch<void>(`${PO_BASE}/${id}`, { method: "DELETE" }),
+  sendEmail: (id: number, dto: SendMailRequest) =>
+               apiFetch<SendMailResponse>(`${PO_BASE}/${id}/send-email`, { method: "POST", body: JSON.stringify(dto) }),
 };
 
 // ── Mill Tracker ──────────────────────────────────────────────────────────────
@@ -642,7 +673,7 @@ export interface MillTrackerHistoryRow {
 export interface MillTrackerRow {
   id: number; poId: number; poItemId?: number;
   poNumber: string; poDate?: string;
-  millId: number; mill: string;
+  millId: number; mill: string; millAddress?: string;
   materialId?: number; paper?: string; gsm?: number; size?: string;
   orderedQty: number; readyQty: number; dispatchedQty: number; balanceQty: number;
   rate: number; totalAmount: number;
@@ -769,7 +800,11 @@ export interface GrnRow {
   // Warehouse / lot
   warehouseId?: number; warehouseName?: string; binLocation?: string;
   lotNumber?: string; vehicleNumber?: string; lrNumber?: string;
+  dispatchDate?: string;
   condition?: string; qcResult?: string; qualityGrade?: string;
+  itemInvoiceNo?: string; billingRate?: number;
+  packingType?: string; sheetsPerPacket?: number; packetsPerBundle?: number;
+  noOfPackets?: number; noOfBundles?: number;
   linkedSoId?: number; linkedSoNumber?: string; customerName?: string;
   createdBy: string; createdAt: string;
 }
@@ -797,14 +832,23 @@ export interface CreateGrnDto {
   sourceLoadPlanId?: number;
   grnDate: string;
   purchaseInvoiceNumber?: string; millChallanNumber?: string;
+  dispatchDate?: string;
+  itemInvoiceNo?: string;
+  billingRate?: number;
   receivedQty: number; damagedQty: number; shortQty: number;
   receivedWeightMt?: number;
   warehouseId?: number; binLocationId?: number;
   condition?: string; qcResult?: string; qualityGrade?: string;
+  // Packing format
+  packingType: string;        // Sheets | Packets | Bundle
+  sheetsPerPacket?: number;
+  packetsPerBundle?: number;
+  noOfPackets?: number;
+  noOfBundles?: number;
   // Delivery routing
   grnDeliveryMode: string;  // StockIn | DirectToClient | Split
-  directQty: number;        // required for Split; auto-set for DirectToClient
-  directClientId?: number;  // optional override; server auto-resolves from PO if absent
+  directQty: number;
+  directClientId?: number;
   lrNumber?: string; vehicleNumber?: string; driverName?: string;
   freightAmount: number; unloadingCharges: number; invoiceEligible: boolean;
   receivedBy?: string; remarks?: string;

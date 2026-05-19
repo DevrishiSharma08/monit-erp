@@ -11,7 +11,7 @@ import {
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { ActionMenu } from "@/components/ActionMenu";
-import { EmailModal, EmailFormData } from "@/components/EmailModal";
+import { EmailModal, EmailFormData, EmailContact } from "@/components/EmailModal";
 import { Modal } from "@/components/Modal";
 import { SalesOrderForm } from "@/components/forms/SalesOrderForm";
 import { PurchaseOrderForm } from "@/components/forms/PurchaseOrderForm";
@@ -19,7 +19,8 @@ import { cn } from "@/lib/utils";
 import { createPortal } from "react-dom";
 import { useSalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
-import { poApi, PORow, CreatePODto } from "@/lib/api-services";
+import { poApi, PORow, CreatePODto, salesOrderApi, customerApi, millApi } from "@/lib/api-services";
+import { emailSentCache } from "@/lib/emailSentCache";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -27,8 +28,8 @@ function buildEmailData(so: SalesOrder): EmailFormData {
   const customerRecord = mockCustomers.find((c) => c.company === so.customer);
   const totalKg = so.lines.reduce((s, l) => s + ((l as any).weightKg ?? 0), 0);
   return {
-    to:      customerRecord?.email ?? (so as any).customerEmail ?? "",
-    cc:      "",
+    to:      (customerRecord?.email ?? (so as any).customerEmail) ? [customerRecord?.email ?? (so as any).customerEmail] : [],
+    cc:      [],
     subject: `Sales Order ${so.soNumber} Approved — ${so.customer}`,
     body: [
       `Dear ${so.customer},`,
@@ -51,9 +52,10 @@ function buildEmailData(so: SalesOrder): EmailFormData {
 }
 
 function buildPOEmailData(po: PORow): EmailFormData {
+  const totalWeightKg = po.items.reduce((s, i) => s + (i.weightKg ?? 0), 0);
   return {
-    to:      "",
-    cc:      "",
+    to:      [],
+    cc:      [],
     subject: `Purchase Order ${po.poNumber} Approved — ${po.millName}`,
     body: [
       `Dear ${po.millName},`,
@@ -62,7 +64,9 @@ function buildPOEmailData(po: PORow): EmailFormData {
       ``,
       `Order Summary:`,
       `  • Items       : ${po.items.length}`,
-      `  • Total Qty   : ${po.totalQuantity.toLocaleString("en-IN")}`,
+      totalWeightKg > 0
+        ? `  • Total Wt    : ${totalWeightKg.toLocaleString("en-IN")} KG`
+        : `  • Total Qty   : ${po.totalQuantity.toLocaleString("en-IN")}`,
       `  • Total Value : ₹${po.totalValue.toLocaleString("en-IN")}`,
       po.deliveryMode ? `  • Delivery    : ${po.deliveryMode}` : "",
       po.expectedDeliveryDate ? `  • Expected By : ${po.expectedDeliveryDate}` : "",
@@ -499,6 +503,7 @@ export default function ApprovalsPage() {
   const [viewPO,         setViewPO]         = useState<PORow | null>(null);
   const [editPO,         setEditPO]         = useState<PORow | null>(null);
   const [emailPO,        setEmailPO]        = useState<PORow | null>(null);
+  const [emailContacts,  setEmailContacts]  = useState<EmailContact[]>([]);
 
   const loadPendingPOs = useCallback(async () => {
     setPoLoading(true);
@@ -602,10 +607,18 @@ export default function ApprovalsPage() {
     success("SO approved → Pending Allocation.");
   }, [updateSalesOrder, success]);
 
-  const handleApproveAndSend = useCallback((so: SalesOrder) => {
+  const handleApproveAndSend = useCallback(async (so: SalesOrder) => {
     updateSalesOrder(so.id, { status: "Pending Allocation" });
     setSelectedIds((prev) => { const n = new Set(prev); n.delete(so.id); return n; });
     setViewOrder(null);
+    try {
+      const raw = await customerApi.getContacts(parseInt(so.customerId));
+      setEmailContacts(raw.filter((c) => c.email).map((c) => ({
+        name: c.name, email: c.email!, isDefault: c.isDefault ?? false,
+      })));
+    } catch {
+      setEmailContacts([]);
+    }
     setEmailOrder(so);
     success("SO approved → Pending Allocation. Compose email below.");
   }, [updateSalesOrder, success]);
@@ -617,10 +630,16 @@ export default function ApprovalsPage() {
     success(`${count} order${count !== 1 ? "s" : ""} approved → Pending Allocation.`);
   }, [selectedIds, updateSalesOrder, success]);
 
-  const handleSendEmail = useCallback((_data: EmailFormData) => {
-    success("Email sent. (Backend integration pending)");
+  const handleSendEmail = useCallback(async (data: EmailFormData) => {
+    if (!emailOrder) return;
+    await salesOrderApi.sendEmail(parseInt(emailOrder.id), {
+      to: data.to, cc: data.cc, subject: data.subject, body: data.body,
+    });
+    emailSentCache.addSoId(emailOrder.id);
+    success(`Email sent to ${data.to.join(", ")}`);
     setEmailOrder(null);
-  }, [success]);
+    setEmailContacts([]);
+  }, [emailOrder, success]);
 
   // ── PO handlers ───────────────────────────────────────────────────────────
 
@@ -642,6 +661,14 @@ export default function ApprovalsPage() {
       setPendingPOs((prev) => prev.filter((p) => p.id !== po.id));
       setSelectedPOIds((prev) => { const n = new Set(prev); n.delete(po.id); return n; });
       setViewPO(null);
+      try {
+        const raw = await millApi.getContacts(po.millId);
+        setEmailContacts(raw.filter((c) => c.email).map((c) => ({
+          name: c.contactPerson, email: c.email!, isDefault: c.isDefault ?? false,
+        })));
+      } catch {
+        setEmailContacts([]);
+      }
       setEmailPO(po);
       success(`PO ${po.poNumber} approved → Sent to Mill. Compose email below.`);
     } catch {
@@ -662,10 +689,16 @@ export default function ApprovalsPage() {
     }
   }, [selectedPOIds, success, showError]);
 
-  const handleSendPOEmail = useCallback((_data: EmailFormData) => {
-    success("Email sent. (Backend integration pending)");
+  const handleSendPOEmail = useCallback(async (data: EmailFormData) => {
+    if (!emailPO) return;
+    await poApi.sendEmail(emailPO.id, {
+      to: data.to, cc: data.cc, subject: data.subject, body: data.body,
+    });
+    emailSentCache.addPoId(emailPO.id);
+    success(`Email sent to ${data.to.join(", ")}`);
     setEmailPO(null);
-  }, [success]);
+    setEmailContacts([]);
+  }, [emailPO, success]);
 
   const handleEditPOSubmit = useCallback(async (dto: CreatePODto, id?: number) => {
     if (!id) return;
@@ -1141,8 +1174,9 @@ export default function ApprovalsPage() {
         <EmailModal
           title={`Send — ${emailOrder.soNumber}`}
           initialData={buildEmailData(emailOrder)}
+          contacts={emailContacts}
           onSend={handleSendEmail}
-          onClose={() => setEmailOrder(null)}
+          onClose={() => { setEmailOrder(null); setEmailContacts([]); }}
         />
       )}
 
@@ -1178,8 +1212,9 @@ export default function ApprovalsPage() {
         <EmailModal
           title={`Send PO — ${emailPO.poNumber}`}
           initialData={buildPOEmailData(emailPO)}
+          contacts={emailContacts}
           onSend={handleSendPOEmail}
-          onClose={() => setEmailPO(null)}
+          onClose={() => { setEmailPO(null); setEmailContacts([]); }}
         />
       )}
 

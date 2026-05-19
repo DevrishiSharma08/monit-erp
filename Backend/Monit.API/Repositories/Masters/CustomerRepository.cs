@@ -138,6 +138,17 @@ public class CustomerRepository(DbConnectionFactory db) : ICustomerRepository
         await conn.ExecuteAsync("UPDATE masters.CustomerDeliveryLocations SET IsDeleted=1,DeletedAt=GETUTCDATE(),DeletedBy=@By WHERE CustomerId=@Id AND IsDeleted=0", new { Id = id, By = deletedBy });
     }
 
+    public async Task<List<CustomerContactDto>> GetContactsAsync(int customerId)
+    {
+        const string sql = @"
+            SELECT Id, Name, Designation, Phone, Email, IsDefault
+            FROM   masters.CustomerContacts
+            WHERE  CustomerId = @CustomerId AND IsDeleted = 0
+            ORDER  BY IsDefault DESC, Name";
+        using var conn = db.Create();
+        return (await conn.QueryAsync<CustomerContactDto>(sql, new { CustomerId = customerId })).ToList();
+    }
+
     private static async Task InsertContacts(System.Data.IDbConnection conn, int customerId, IEnumerable<CustomerContact> contacts, string createdBy)
     {
         const string sql = "INSERT INTO masters.CustomerContacts (CustomerId,Name,Designation,Phone,Email,IsDefault,CreatedAt,CreatedBy) VALUES (@CustomerId,@Name,@Designation,@Phone,@Email,@IsDefault,GETUTCDATE(),@CreatedBy)";

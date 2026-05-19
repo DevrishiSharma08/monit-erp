@@ -10,7 +10,7 @@ import {
 import {
   PackageCheck, Clock, AlertTriangle, CheckCircle, X, FileText,
   Truck, MapPin, Plus, Printer, Search, MoreVertical, Eye,
-  Pencil, Trash2, CheckCircle2, Ban, Loader2, ArrowRight, Building2,
+  Pencil, Trash2, CheckCircle2, Ban, Loader2, ArrowRight, ChevronDown,
   ShieldAlert, ShieldCheck, EyeOff,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
@@ -163,12 +163,22 @@ function printGRN(grn: GrnDetailRow) {
 
 type DeliveryMode = "StockIn" | "DirectToClient" | "Split";
 
+type PackingType = "Sheets" | "Packets" | "Bundle";
+
 interface ItemFormState {
   receivedQty: number;
   damagedQty: number;
   qcResult: string;
   deliveryMode: DeliveryMode;
   directQty: number;
+  // New fields
+  itemInvoiceNo: string;
+  billingRate: number;
+  packingType: PackingType;
+  sheetsPerPacket: number;
+  packetsPerBundle: number;
+  noOfPackets: number;
+  noOfBundles: number;
 }
 
 interface CreateGRNModalProps {
@@ -212,16 +222,42 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
       qcResult: "Accepted",
       deliveryMode: "StockIn" as DeliveryMode,
       directQty: 0,
+      itemInvoiceNo: "",
+      billingRate: 0,
+      packingType: "Sheets" as PackingType,
+      sheetsPerPacket: 0,
+      packetsPerBundle: 0,
+      noOfPackets: 0,
+      noOfBundles: 0,
     }))
   );
 
   const defaultWarehouseId = warehouses[0]?.id;
+  const [expandedItems, setExpandedItems] = useState<Set<number>>(
+    () => new Set(tlp.items.map((_, i) => i))
+  );
+  const toggleItem = (idx: number) => setExpandedItems((prev) => {
+    const next = new Set(prev);
+    if (next.has(idx)) next.delete(idx); else next.add(idx);
+    return next;
+  });
+
+  const [warehouseText, setWarehouseText] = useState(
+    () => warehouses.find((w) => w.id === defaultWarehouseId)?.name ?? ""
+  );
+  const handleWarehouseChange = (text: string) => {
+    setWarehouseText(text);
+    const match = warehouses.find((w) => w.name.toLowerCase() === text.toLowerCase());
+    set("warehouseId", match?.id as number | undefined);
+  };
+
   const [form, setForm] = useState({
     lrNumber: "",
     vehicleNumber: tlp.truckNumber || "",
     receivedBy: "",
     millChallanNumber: "",
     purchaseInvoiceNumber: "",
+    dispatchDate: "",
     condition: "Good",
     qualityGrade: "A Grade",
     warehouseId: defaultWarehouseId as number | undefined,
@@ -240,18 +276,30 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
       setItemForms((forms) => forms.map((f, i) => {
         if (i !== idx) return f;
         const updated = { ...f, [field]: value };
+
+        // Auto-compute receivedQty from packing fields
+        const packingFields = ["packingType", "sheetsPerPacket", "packetsPerBundle", "noOfPackets", "noOfBundles"];
+        if (packingFields.includes(field)) {
+          const spp  = field === "sheetsPerPacket"  ? (value as number) : updated.sheetsPerPacket;
+          const ppb  = field === "packetsPerBundle" ? (value as number) : updated.packetsPerBundle;
+          const pkts = field === "noOfPackets"      ? (value as number) : updated.noOfPackets;
+          const bnds = field === "noOfBundles"      ? (value as number) : updated.noOfBundles;
+          const type = field === "packingType"      ? (value as PackingType) : updated.packingType;
+          if (type === "Packets" && spp > 0 && pkts > 0)
+            updated.receivedQty = spp * pkts;
+          else if (type === "Bundle" && spp > 0 && ppb > 0 && bnds > 0)
+            updated.receivedQty = spp * ppb * bnds;
+        }
+
         // For DirectToClient, auto-set directQty = good qty
-        if (field === "deliveryMode" && value === "DirectToClient") {
-          updated.directQty = Math.max(0, f.receivedQty - f.damagedQty);
-        }
-        if (field === "deliveryMode" && value === "StockIn") {
+        if (field === "deliveryMode" && value === "DirectToClient")
+          updated.directQty = Math.max(0, updated.receivedQty - updated.damagedQty);
+        if (field === "deliveryMode" && value === "StockIn")
           updated.directQty = 0;
-        }
-        // If receivedQty or damagedQty changes in DirectToClient mode, keep directQty in sync
-        if ((field === "receivedQty" || field === "damagedQty") && f.deliveryMode === "DirectToClient") {
-          const recv = field === "receivedQty" ? (value as number) : f.receivedQty;
-          const dmg  = field === "damagedQty"  ? (value as number) : f.damagedQty;
-          updated.directQty = Math.max(0, recv - dmg);
+
+        // Keep directQty in sync in DirectToClient mode
+        if ((field === "receivedQty" || field === "damagedQty") && updated.deliveryMode === "DirectToClient") {
+          updated.directQty = Math.max(0, updated.receivedQty - updated.damagedQty);
         }
         return updated;
       })),
@@ -269,32 +317,40 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
       .filter((item) => item.trackerId)
       .map((item, idx) => {
         const iForm = itemForms[idx];
-        const goodQty = Math.max(0, iForm.receivedQty - iForm.damagedQty);
+        const goodQty  = Math.max(0, iForm.receivedQty - iForm.damagedQty);
         const shortQty = Math.max(0, item.quantity - iForm.receivedQty - iForm.damagedQty);
         const directQty = iForm.deliveryMode === "DirectToClient" ? goodQty : iForm.directQty;
         return {
-          millTrackerId: item.trackerId!,
-          sourceLoadPlanId: tlp.id,
-          grnDate: today,
+          millTrackerId:         item.trackerId!,
+          sourceLoadPlanId:      tlp.id,
+          grnDate:               today,
           purchaseInvoiceNumber: form.purchaseInvoiceNumber || undefined,
-          millChallanNumber: form.millChallanNumber || undefined,
-          receivedQty: iForm.receivedQty,
-          damagedQty: iForm.damagedQty,
+          millChallanNumber:     form.millChallanNumber || undefined,
+          dispatchDate:          form.dispatchDate || undefined,
+          itemInvoiceNo:         iForm.itemInvoiceNo || undefined,
+          billingRate:           iForm.billingRate > 0 ? iForm.billingRate : undefined,
+          receivedQty:           iForm.receivedQty,
+          damagedQty:            iForm.damagedQty,
           shortQty,
-          grnDeliveryMode: iForm.deliveryMode,
+          packingType:           iForm.packingType,
+          sheetsPerPacket:       iForm.packingType !== "Sheets" ? iForm.sheetsPerPacket : undefined,
+          packetsPerBundle:      iForm.packingType === "Bundle"  ? iForm.packetsPerBundle : undefined,
+          noOfPackets:           iForm.packingType === "Packets" ? iForm.noOfPackets : (iForm.packingType === "Bundle" ? undefined : undefined),
+          noOfBundles:           iForm.packingType === "Bundle"  ? iForm.noOfBundles : undefined,
+          grnDeliveryMode:       iForm.deliveryMode,
           directQty,
-          warehouseId: iForm.deliveryMode !== "DirectToClient" ? form.warehouseId : undefined,
-          condition: form.condition,
-          qcResult: iForm.qcResult,
-          qualityGrade: form.qualityGrade,
-          vehicleNumber: form.vehicleNumber || undefined,
-          lrNumber: form.lrNumber || undefined,
-          driverName: tlp.driverName || undefined,
-          freightAmount: form.freightAmount,
-          unloadingCharges: form.unloadingCharges,
-          invoiceEligible: true,
-          receivedBy: form.receivedBy || undefined,
-          remarks: form.remarks || undefined,
+          warehouseId:           iForm.deliveryMode !== "DirectToClient" ? form.warehouseId : undefined,
+          condition:             form.condition,
+          qcResult:              iForm.qcResult,
+          qualityGrade:          form.qualityGrade,
+          vehicleNumber:         form.vehicleNumber || undefined,
+          lrNumber:              form.lrNumber || undefined,
+          driverName:            tlp.driverName || undefined,
+          freightAmount:         form.freightAmount,
+          unloadingCharges:      form.unloadingCharges,
+          invoiceEligible:       true,
+          receivedBy:            form.receivedBy || undefined,
+          remarks:               form.remarks || undefined,
         };
       });
 
@@ -418,14 +474,15 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
             {/* Section 1: Plan & Transport Reference */}
             <div className="px-6 pt-5">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Plan & Transport Reference</p>
-              <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2 text-xs">
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-xs">
                 {[
-                  { label: "TLP #",      value: tlp.planNumber,                          cls: "font-semibold text-blue-700" },
-                  { label: "Origin",     value: tlp.origin || "—" },
-                  { label: "Load Date",  value: tlp.actualLoadDate || tlp.plannedLoadDate || "—" },
-                  { label: "Truck #",    value: tlp.truckNumber || "—",                   cls: "font-mono" },
-                  { label: "Transporter",value: tlp.transporterName || "—" },
-                  { label: "Driver",     value: tlp.driverName || "—" },
+                  { label: "TLP #",       value: tlp.planNumber,                                        cls: "font-semibold text-blue-700" },
+                  { label: "Origin",      value: tlp.origin || "—" },
+                  { label: "Load Date",   value: tlp.actualLoadDate || tlp.plannedLoadDate || "—" },
+                  { label: "Truck #",     value: tlp.truckNumber || "—",                                cls: "font-mono" },
+                  { label: "Transporter", value: tlp.transporterName || "—" },
+                  { label: "Driver",      value: tlp.driverName || "—" },
+                  { label: "Freight (₹)", value: tlp.freightAmount ? `₹${Number(tlp.freightAmount).toLocaleString()}` : "—" },
                 ].map(({ label, value, cls }) => (
                   <div key={label}>
                     <span className="text-gray-400">{label}</span>
@@ -447,188 +504,29 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
               </div>
             )}
 
-            {/* Section 3: Items table with delivery routing */}
+            {/* Section 3: Receipt Details */}
             <div className="px-6 pt-4">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Items Received — Quantity Verification & Delivery Routing</p>
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-200">
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Material</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">PO #</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-600 whitespace-nowrap">Rate (₹)</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 whitespace-nowrap">Ord.</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-gray-700 whitespace-nowrap">Disp.</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-amber-700 whitespace-nowrap">Recv. *</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-red-600 whitespace-nowrap">Dmg.</th>
-                        <th className="px-3 py-2.5 text-right text-xs font-semibold text-orange-600 whitespace-nowrap">Short</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-indigo-600 whitespace-nowrap">QC</th>
-                        <th className="px-3 py-2.5 text-left text-xs font-semibold text-purple-700 whitespace-nowrap">Delivery</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {tlp.items.map((item, idx) => {
-                        const iForm = itemForms[idx];
-                        const tracker = item.trackerId ? trackerMap[item.trackerId] : undefined;
-                        const orderedQty = tracker?.orderedQty ?? item.quantity;
-                        const rate = tracker?.rate;
-                        const goodQty = Math.max(0, iForm.receivedQty - iForm.damagedQty);
-                        const shortQty = Math.max(0, item.quantity - iForm.receivedQty - iForm.damagedQty);
-                        return (
-                          <tr key={item.id} className="hover:bg-gray-50/60">
-                            <td className="px-3 py-2.5 min-w-[140px]">
-                              <p className="font-semibold text-gray-900 text-xs">{item.paper}</p>
-                              <p className="text-[11px] text-gray-500">{item.gsm}g · {item.size}</p>
-                              {item.deliveryLocation && (
-                                <p className="text-[11px] text-blue-500 flex items-center gap-0.5 mt-0.5">
-                                  <MapPin className="h-2.5 w-2.5 flex-shrink-0" />{item.deliveryLocation}
-                                </p>
-                              )}
-                            </td>
-                            <td className="px-3 py-2.5 whitespace-nowrap"><span className="text-xs font-medium text-blue-600">{item.poNumber || "—"}</span></td>
-                            <td className="px-3 py-2.5 text-right whitespace-nowrap"><span className="text-xs font-semibold text-gray-900">{rate ? `₹${rate.toLocaleString()}` : "—"}</span></td>
-                            <td className="px-3 py-2.5 text-right whitespace-nowrap"><span className="text-xs text-gray-500">{orderedQty.toLocaleString()}</span></td>
-                            <td className="px-3 py-2.5 text-right whitespace-nowrap"><span className="text-xs font-semibold text-gray-800">{item.quantity.toLocaleString()}</span></td>
-                            <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                              <input type="number" value={iForm.receivedQty}
-                                onChange={(e) => setItem(idx, "receivedQty", Math.max(0, +e.target.value || 0))}
-                                className="w-24 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-right text-xs font-semibold text-gray-900 focus:border-amber-500 focus:outline-none"
-                                min={0} max={item.quantity} />
-                            </td>
-                            <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                              <input type="number" value={iForm.damagedQty || ""}
-                                onChange={(e) => setItem(idx, "damagedQty", Math.max(0, +e.target.value || 0))}
-                                className="w-20 rounded-lg border border-red-200 bg-red-50/50 px-2 py-1 text-right text-xs focus:border-red-400 focus:outline-none"
-                                min={0} placeholder="0" />
-                            </td>
-                            <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                              <span className={`text-xs font-bold ${shortQty > 0 ? "text-orange-600" : "text-gray-300"}`}>
-                                {shortQty > 0 ? shortQty.toLocaleString() : "—"}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2.5 whitespace-nowrap">
-                              <select value={iForm.qcResult} onChange={(e) => setItem(idx, "qcResult", e.target.value)}
-                                className={`rounded-md border px-2 py-1 text-xs focus:outline-none ${
-                                  iForm.qcResult === "Accepted" ? "border-green-200 bg-green-50 text-green-700" :
-                                  iForm.qcResult === "Rejected" ? "border-red-200 bg-red-50 text-red-700" :
-                                  iForm.qcResult === "Hold" ? "border-orange-200 bg-orange-50 text-orange-700" :
-                                  "border-yellow-200 bg-yellow-50 text-yellow-700"}`}>
-                                {["Accepted", "Accepted with Remark", "Rejected", "Hold"].map((r) => (
-                                  <option key={r} value={r}>{r}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="px-3 py-2.5 min-w-[180px]">
-                              <div className="space-y-1.5">
-                                <select value={iForm.deliveryMode}
-                                  onChange={(e) => setItem(idx, "deliveryMode", e.target.value as DeliveryMode)}
-                                  className={`w-full rounded-md border px-2 py-1 text-xs focus:outline-none ${
-                                    iForm.deliveryMode === "DirectToClient" ? "border-purple-200 bg-purple-50 text-purple-700" :
-                                    iForm.deliveryMode === "Split" ? "border-indigo-200 bg-indigo-50 text-indigo-700" :
-                                    "border-teal-200 bg-teal-50 text-teal-700"}`}>
-                                  {deliveryModeOptions.map((o) => (
-                                    <option key={o.value} value={o.value}>{o.label}</option>
-                                  ))}
-                                </select>
-                                {iForm.deliveryMode === "Split" && (
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-[10px] text-purple-600 whitespace-nowrap">Direct qty:</span>
-                                    <input type="number" value={iForm.directQty || ""}
-                                      onChange={(e) => setItem(idx, "directQty", Math.max(0, +e.target.value || 0))}
-                                      max={goodQty}
-                                      className="w-full rounded-md border border-purple-300 bg-purple-50 px-2 py-1 text-right text-xs font-semibold text-purple-900 focus:border-purple-500 focus:outline-none"
-                                      placeholder="0" />
-                                  </div>
-                                )}
-                                {iForm.deliveryMode === "Split" && iForm.directQty > 0 && (
-                                  <p className="text-[10px] text-teal-600">
-                                    Stock: {Math.max(0, goodQty - iForm.directQty).toLocaleString()}
-                                  </p>
-                                )}
-                                {iForm.deliveryMode === "DirectToClient" && (
-                                  <p className="text-[10px] text-purple-600">All {goodQty.toLocaleString()} → client</p>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              {itemForms.some((f) => f.qcResult === "Rejected") && (
-                <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 flex items-start gap-2 text-xs text-red-700">
-                  <Ban className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                  Rejected items will create a discrepancy — GRN will be saved with "Discrepancy Raised" status.
-                </div>
-              )}
-              {itemForms.some((f) => f.deliveryMode !== "StockIn") && (
-                <div className="mt-2 rounded-lg border border-purple-200 bg-purple-50 p-3 flex items-start gap-2 text-xs text-purple-700">
-                  <ArrowRight className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                  Direct-to-client quantities will not create a stock lot. Only the "To Stock" portion enters inventory.
-                </div>
-              )}
-            </div>
-
-            {/* Section 4: Mill Documents */}
-            <div className="px-6 pt-4">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Mill Documents</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Mill Challan #</label>
-                  <input type="text" value={form.millChallanNumber} onChange={(e) => set("millChallanNumber", e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none" placeholder="e.g. MC-ITC-001" />
-                </div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Receipt Details</p>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Purchase Invoice #</label>
                   <input type="text" value={form.purchaseInvoiceNumber} onChange={(e) => set("purchaseInvoiceNumber", e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none" placeholder="e.g. INV-2024-001" />
-                </div>
-              </div>
-            </div>
-
-            {/* Section 5: Quality Check */}
-            <div className="px-6 pt-4">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Quality Check — Overall</p>
-              <div className="rounded-xl border border-yellow-100 bg-yellow-50/40 p-4 grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Condition *</label>
-                  <select value={form.condition} onChange={(e) => set("condition", e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-yellow-400 focus:outline-none">
-                    {["Good", "Slight Damage", "Wet", "Torn", "Mixed GSM"].map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none" placeholder="INV-2024-001" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Quality Grade *</label>
-                  <select value={form.qualityGrade} onChange={(e) => set("qualityGrade", e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-yellow-400 focus:outline-none">
-                    {["A Grade", "B Grade", "Rejected"].map((g) => <option key={g} value={g}>{g}</option>)}
-                  </select>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Mill Challan #</label>
+                  <input type="text" value={form.millChallanNumber} onChange={(e) => set("millChallanNumber", e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none" placeholder="MC-ITC-001" />
                 </div>
-              </div>
-            </div>
-
-            {/* Section 6: Transport */}
-            <div className="px-6 pt-4">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Transport Details</p>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">LR Number *</label>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Dispatch Date</label>
+                  <input type="date" value={form.dispatchDate} onChange={(e) => set("dispatchDate", e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">LR Number</label>
                   <input type="text" value={form.lrNumber} onChange={(e) => set("lrNumber", e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" placeholder="e.g. LR-12345" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Vehicle #</label>
-                  <input type="text" value={form.vehicleNumber} onChange={(e) => set("vehicleNumber", e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none" placeholder="MP09AB1234" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Freight (₹)</label>
-                  <input type="number" value={form.freightAmount || ""}
-                    onChange={(e) => set("freightAmount", +e.target.value || 0)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" placeholder="0" />
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" placeholder="LR-12345" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Received By</label>
@@ -638,22 +536,247 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
               </div>
             </div>
 
+            {/* Section 4: Items — card layout */}
+            <div className="px-6 pt-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Items Received — Verification & Routing</p>
+              <div className="space-y-3">
+                {tlp.items.map((item, idx) => {
+                  const iForm = itemForms[idx];
+                  const tracker = item.trackerId ? trackerMap[item.trackerId] : undefined;
+                  const orderedQty = tracker?.orderedQty ?? item.quantity;
+                  const poRate = tracker?.rate;
+                  const goodQty = Math.max(0, iForm.receivedQty - iForm.damagedQty);
+                  const shortQty = Math.max(0, item.quantity - iForm.receivedQty - iForm.damagedQty);
+                  const rateDiff = iForm.billingRate > 0 && poRate ? iForm.billingRate - poRate : null;
+                  return (
+                    <div key={item.id} className="rounded-xl border border-gray-200 overflow-hidden">
+                      {/* Card header — clickable to collapse */}
+                      <button
+                        type="button"
+                        onClick={() => toggleItem(idx)}
+                        className="w-full bg-gray-50 border-b border-gray-200 px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-left hover:bg-gray-100 transition-colors"
+                      >
+                        <div>
+                          <span className="font-semibold text-sm text-gray-900">{item.paper}</span>
+                          <span className="text-xs text-gray-500 ml-2">{item.gsm}g · {item.size}</span>
+                        </div>
+                        {item.poNumber && <span className="text-xs text-blue-600 font-medium">{item.poNumber}</span>}
+                        {item.deliveryLocation && (
+                          <span className="text-xs text-blue-500 flex items-center gap-0.5">
+                            <MapPin className="h-3 w-3" />{item.deliveryLocation}
+                          </span>
+                        )}
+                        <div className="ml-auto flex items-center gap-4 text-xs text-gray-500">
+                          <span>Ordered: <strong className="text-gray-800">{orderedQty.toLocaleString()}</strong></span>
+                          <span>Dispatched: <strong className="text-gray-800">{item.quantity.toLocaleString()}</strong></span>
+                          <span className="text-amber-700 font-semibold">Received: {iForm.receivedQty.toLocaleString()}</span>
+                          <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform flex-shrink-0 ${expandedItems.has(idx) ? "rotate-0" : "-rotate-90"}`} />
+                        </div>
+                      </button>
+
+                      {/* Card body — collapsible */}
+                      {expandedItems.has(idx) && <div className="p-4 space-y-4">
+
+                        {/* Packing format */}
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-2">Packing Format</label>
+                          <div className="flex flex-wrap gap-3 items-center">
+                            <div className="flex gap-1.5">
+                              {(["Sheets", "Packets", "Bundle"] as PackingType[]).map((pt) => (
+                                <button key={pt} type="button"
+                                  onClick={() => setItem(idx, "packingType", pt)}
+                                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold border transition-colors ${
+                                    iForm.packingType === pt
+                                      ? "bg-blue-600 text-white border-blue-600"
+                                      : "bg-white text-gray-600 border-gray-300 hover:border-blue-400"
+                                  }`}>
+                                  {pt}
+                                </button>
+                              ))}
+                            </div>
+                            {iForm.packingType === "Sheets" && (
+                              <div className="flex items-center gap-2">
+                                <input type="number" value={iForm.receivedQty}
+                                  onChange={(e) => setItem(idx, "receivedQty", Math.max(0, +e.target.value || 0))}
+                                  className="w-28 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-right text-xs font-semibold text-gray-900 focus:border-amber-500 focus:outline-none"
+                                  min={0} max={item.quantity} />
+                                <span className="text-xs text-gray-500">sheets</span>
+                              </div>
+                            )}
+                            {iForm.packingType === "Packets" && (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <input type="number" value={iForm.sheetsPerPacket || ""}
+                                  onChange={(e) => setItem(idx, "sheetsPerPacket", Math.max(0, +e.target.value || 0))}
+                                  className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-xs focus:border-blue-500 focus:outline-none"
+                                  placeholder="sht/pkt" />
+                                <span className="text-xs text-gray-400">sht/pkt ×</span>
+                                <input type="number" value={iForm.noOfPackets || ""}
+                                  onChange={(e) => setItem(idx, "noOfPackets", Math.max(0, +e.target.value || 0))}
+                                  className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-xs focus:border-blue-500 focus:outline-none"
+                                  placeholder="pkts" />
+                                <span className="text-xs text-gray-400">pkts</span>
+                                {iForm.sheetsPerPacket > 0 && iForm.noOfPackets > 0 && (
+                                  <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
+                                    = {(iForm.sheetsPerPacket * iForm.noOfPackets).toLocaleString()} sheets
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {iForm.packingType === "Bundle" && (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <input type="number" value={iForm.sheetsPerPacket || ""}
+                                  onChange={(e) => setItem(idx, "sheetsPerPacket", Math.max(0, +e.target.value || 0))}
+                                  className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-xs focus:border-blue-500 focus:outline-none"
+                                  placeholder="sht/pkt" />
+                                <span className="text-xs text-gray-400">sht/pkt ×</span>
+                                <input type="number" value={iForm.packetsPerBundle || ""}
+                                  onChange={(e) => setItem(idx, "packetsPerBundle", Math.max(0, +e.target.value || 0))}
+                                  className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-xs focus:border-blue-500 focus:outline-none"
+                                  placeholder="pkt/bnd" />
+                                <span className="text-xs text-gray-400">pkt/bnd ×</span>
+                                <input type="number" value={iForm.noOfBundles || ""}
+                                  onChange={(e) => setItem(idx, "noOfBundles", Math.max(0, +e.target.value || 0))}
+                                  className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-xs focus:border-blue-500 focus:outline-none"
+                                  placeholder="bndls" />
+                                <span className="text-xs text-gray-400">bndls</span>
+                                {iForm.sheetsPerPacket > 0 && iForm.packetsPerBundle > 0 && iForm.noOfBundles > 0 && (
+                                  <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
+                                    = {(iForm.sheetsPerPacket * iForm.packetsPerBundle * iForm.noOfBundles).toLocaleString()} sheets
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Invoice & billing rate */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Item Invoice No</label>
+                            <input type="text" value={iForm.itemInvoiceNo}
+                              onChange={(e) => setItem(idx, "itemInvoiceNo", e.target.value)}
+                              className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs font-mono focus:border-blue-500 focus:outline-none"
+                              placeholder="INV-001" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">PO Rate (₹)</label>
+                            <div className="w-full rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs font-semibold text-gray-700">
+                              {poRate ? `₹${poRate.toLocaleString()}` : "—"}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Billing Rate (₹)</label>
+                            <input type="number" value={iForm.billingRate || ""}
+                              onChange={(e) => setItem(idx, "billingRate", Math.max(0, +e.target.value || 0))}
+                              className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-500 focus:outline-none"
+                              placeholder="0.00" step="0.01" />
+                          </div>
+                          <div className="flex items-end pb-0.5">
+                            {rateDiff !== null && (
+                              <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold border ${
+                                rateDiff > 0 ? "bg-red-50 text-red-700 border-red-200" :
+                                rateDiff < 0 ? "bg-green-50 text-green-700 border-green-200" :
+                                "bg-gray-50 text-gray-500 border-gray-200"
+                              }`}>
+                                {rateDiff > 0 ? "▲" : rateDiff < 0 ? "▼" : "="} ₹{Math.abs(rateDiff).toFixed(2)} {rateDiff > 0 ? "over" : rateDiff < 0 ? "under" : "match"}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Damaged / Short / QC / Delivery */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Damaged Qty</label>
+                            <input type="number" value={iForm.damagedQty || ""}
+                              onChange={(e) => setItem(idx, "damagedQty", Math.max(0, +e.target.value || 0))}
+                              className="w-full rounded-lg border border-red-200 bg-red-50/50 px-2 py-1.5 text-xs focus:border-red-400 focus:outline-none"
+                              min={0} placeholder="0" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Short Qty</label>
+                            <div className={`w-full rounded-lg border px-2 py-1.5 text-xs font-semibold ${shortQty > 0 ? "border-orange-200 bg-orange-50 text-orange-700" : "border-gray-200 bg-gray-50 text-gray-400"}`}>
+                              {shortQty > 0 ? shortQty.toLocaleString() : "—"}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">QC Result</label>
+                            <select value={iForm.qcResult} onChange={(e) => setItem(idx, "qcResult", e.target.value)}
+                              className={`w-full rounded-lg border px-2 py-1.5 text-xs focus:outline-none ${
+                                iForm.qcResult === "Accepted" ? "border-green-200 bg-green-50 text-green-700" :
+                                iForm.qcResult === "Rejected" ? "border-red-200 bg-red-50 text-red-700" :
+                                iForm.qcResult === "Hold" ? "border-orange-200 bg-orange-50 text-orange-700" :
+                                "border-yellow-200 bg-yellow-50 text-yellow-700"}`}>
+                              {["Accepted", "Accepted with Remark", "Rejected", "Hold"].map((r) => (
+                                <option key={r} value={r}>{r}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Delivery Routing</label>
+                            <select value={iForm.deliveryMode}
+                              onChange={(e) => setItem(idx, "deliveryMode", e.target.value as DeliveryMode)}
+                              className={`w-full rounded-lg border px-2 py-1.5 text-xs focus:outline-none ${
+                                iForm.deliveryMode === "DirectToClient" ? "border-purple-200 bg-purple-50 text-purple-700" :
+                                iForm.deliveryMode === "Split" ? "border-indigo-200 bg-indigo-50 text-indigo-700" :
+                                "border-teal-200 bg-teal-50 text-teal-700"}`}>
+                              {deliveryModeOptions.map((o) => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Split qty */}
+                        {iForm.deliveryMode === "Split" && (
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-purple-600 font-medium whitespace-nowrap">Direct qty:</span>
+                            <input type="number" value={iForm.directQty || ""}
+                              onChange={(e) => setItem(idx, "directQty", Math.max(0, +e.target.value || 0))}
+                              max={goodQty}
+                              className="w-28 rounded-lg border border-purple-300 bg-purple-50 px-2 py-1.5 text-right text-xs font-semibold text-purple-900 focus:border-purple-500 focus:outline-none"
+                              placeholder="0" />
+                            <span className="text-xs text-teal-600">Stock: {Math.max(0, goodQty - iForm.directQty).toLocaleString()}</span>
+                          </div>
+                        )}
+                        {iForm.deliveryMode === "DirectToClient" && (
+                          <p className="text-xs text-purple-600 font-medium">All {goodQty.toLocaleString()} sheets → client</p>
+                        )}
+                      </div>}
+                    </div>
+                  );
+                })}
+              </div>
+              {itemForms.some((f) => f.qcResult === "Rejected") && (
+                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 flex items-start gap-2 text-xs text-red-700">
+                  <Ban className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                  Rejected items will create a discrepancy — GRN will be saved with "Discrepancy Raised" status.
+                </div>
+              )}
+            </div>
+
             {/* Section 7: Warehouse & Remarks */}
             <div className="px-6 pt-4 pb-6">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Warehouse *
+                    Warehouse
                     {itemForms.every((f) => f.deliveryMode === "DirectToClient") && (
-                      <span className="ml-1 text-purple-500">(not required — all direct to client)</span>
+                      <span className="ml-1 text-purple-500">(not required — all direct)</span>
                     )}
                   </label>
-                  <select value={form.warehouseId ?? ""} onChange={(e) => set("warehouseId", +e.target.value || undefined)}
+                  <input
+                    type="text"
+                    list="wh-datalist"
+                    value={warehouseText}
+                    onChange={(e) => handleWarehouseChange(e.target.value)}
                     disabled={itemForms.every((f) => f.deliveryMode === "DirectToClient")}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400">
-                    <option value="">— Select Warehouse —</option>
-                    {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-                  </select>
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
+                    placeholder="Search or type warehouse…"
+                  />
+                  <datalist id="wh-datalist">
+                    {warehouses.map((w) => <option key={w.id} value={w.name} />)}
+                  </datalist>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Remarks</label>
@@ -690,7 +813,7 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
               <div className="flex gap-3">
                 <button onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
                 <button onClick={() => setConfirming(true)}
-                  disabled={!form.lrNumber.trim() || tlp.items.some((i) => !i.trackerId)}
+                  disabled={tlp.items.some((i) => !i.trackerId)}
                   className="rounded-lg bg-amber-500 px-5 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
                   Review & Save{tlp.items.length > 1 ? ` (${tlp.items.length} items)` : ""}
                 </button>

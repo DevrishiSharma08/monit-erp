@@ -8,7 +8,7 @@
 | **Date**            | 2026-02-19                                                    |
 | **Prepared For**    | Monit Paper Sales Agency / Monit Paper Associates, Indore, MP |
 | **Prepared By**     | Parmeshwar / Development Team                                 |
-| **Status**          | In Development — Phase 1 Frontend Complete                    |
+| **Status**          | In Development — Phase 1 Backend Integration In Progress      |
 
 ---
 
@@ -1245,22 +1245,26 @@ The following activities are standard in the paper trading industry and are inco
 
 ---
 
-## Appendix F — Frontend Implementation Status (Phase 1)
+## Appendix F — Implementation Status
 
-**Phase 1 — Admin Panel Frontend Prototype: Complete (as of 2026-02-19)**
+**Phase 1 Frontend — Complete (2026-02-19)**
+**Phase 1 Backend Integration — In Progress (as of 2026-05-19)**
 
-All major modules have been implemented as functional frontend prototypes using TypeScript mock data (`/data/mockData.ts`). Backend API integration is Phase 2.
+Frontend prototype is complete. Backend API integration has begun — procurement + sales order flow is live.
 
 ### F.1 Tech Stack
 
-| Layer     | Technology                  |
-|-----------|-----------------------------|
-| Framework | Next.js 16 (App Router)     |
-| Language  | TypeScript                  |
-| Styling   | Tailwind CSS v4             |
-| Charts    | Recharts                    |
-| Icons     | Lucide React                |
-| Data      | Mock data — backend pending |
+| Layer     | Technology                                  |
+|-----------|---------------------------------------------|
+| Framework | Next.js 16 (App Router)                     |
+| Language  | TypeScript                                  |
+| Styling   | Tailwind CSS v4                             |
+| Charts    | Recharts                                    |
+| Icons     | Lucide React                                |
+| Data      | Hybrid — API (`lib/api-services.ts`) + mock |
+| Backend   | .NET 8 Web API, Dapper, SQL Server 2022     |
+| Email     | MailKit 4.9.0 (SMTP via Gmail App Password) |
+| PDF       | QuestPDF 2024.12.0 (Community)              |
 
 ### F.2 Implemented Pages & Routes
 
@@ -1355,16 +1359,25 @@ All report pages include: search/filter bar, column visibility toggle, and CSV e
 | `components/DataGrid.tsx`            | Reusable table with sort, filter, column toggle, CSV export     |
 | `components/reports/ReportPageLayout.tsx` | Report page wrapper — search, filters, column toggle, CSV  |
 
-### F.4 Phase 2 — Pending (Backend Integration)
+### F.4 Backend Integration Status
 
-| Item                              | Description                                                   |
-|-----------------------------------|---------------------------------------------------------------|
-| REST / GraphQL API                | Backend API connecting all modules to a real database         |
-| Authentication & Session          | JWT-based login, role-based route protection                  |
-| Tally Sync Bridge                 | Real-time or near-real-time sync with Tally ERP               |
-| Customer-Facing App               | Mobile app + AI chatbot (WhatsApp + in-app)                   |
-| Planning Engine Integration       | Carton optimization API hookup                                |
-| Real-time Notifications           | WebSocket / push notifications for order/dispatch events      |
+| Module / Feature                  | Status        | Notes                                                        |
+|-----------------------------------|---------------|--------------------------------------------------------------|
+| Sales Orders (SO)                 | ✅ Live       | Create, edit, approve, list, email with PDF attachment       |
+| Purchase Orders (PO)              | ✅ Live       | Create, edit, approve, list, email with PDF attachment       |
+| Approvals page                    | ✅ Live       | Approve + Send for both SO and PO with real email dispatch   |
+| Mill Tracker                      | ✅ Live       | Status updates connected to PO backend                       |
+| Email dispatch (MailKit)          | ✅ Live       | SMTP via Gmail App Password; PDF auto-attached               |
+| PDF generation (QuestPDF)         | ✅ Live       | SO and PO PDFs; shows base rate, "Confirmed" status          |
+| Company Config / SMTP Settings    | ✅ Live       | `system.CompanyConfig` — insurance + SMTP in one table       |
+| Customer Master                   | ✅ Live       | Contacts API used for email TO pre-fill                      |
+| Mill Master                       | ✅ Live       | Contacts API used for email TO pre-fill                      |
+| Authentication & Session          | 🔲 Pending   | JWT-based login, role-based route protection                  |
+| GRN / Inventory                   | 🔲 Pending   | Backend scripts exist; frontend integration not started       |
+| Dispatch / Logistics              | 🔲 Pending   | Backend scripts exist; frontend integration not started       |
+| Tally Sync Bridge                 | 🔲 Future    | Phase 2/3 scope                                              |
+| Customer-Facing App               | 🔲 Future    | Phase 3 scope                                                |
+| Real-time Notifications           | 🔲 Future    | Phase 3 scope                                                |
 | Excel/PDF Import-Export           | Mill readiness uploads, invoice PDF generation                |
 | E-Way Bill & GST Compliance       | API integration for e-invoice and e-way bill generation       |
 

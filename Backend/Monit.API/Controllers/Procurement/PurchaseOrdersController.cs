@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Monit.API.Common.Response;
+using Monit.API.Models.DTOs.Mail;
 using Monit.API.Models.DTOs.Procurement;
 using Monit.API.Services.Interfaces;
 
@@ -50,4 +51,9 @@ public class PurchaseOrdersController(IPurchaseOrderService svc) : ControllerBas
         await svc.DeleteAsync(id, CurrentUser);
         return Ok(ApiResponse.Ok("Purchase order deleted successfully."));
     }
+
+    [HttpPost("{id:int}/send-email")]
+    public async Task<IActionResult> SendEmail(int id, [FromBody] SendMailRequestDto dto)
+        => Ok(ApiResponse<SendMailResponseDto>.Ok(
+            await svc.SendEmailAsync(id, dto), "Email sent successfully."));
 }

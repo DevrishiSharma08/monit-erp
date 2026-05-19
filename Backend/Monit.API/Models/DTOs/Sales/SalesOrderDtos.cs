@@ -52,6 +52,7 @@ public class SalesOrderListDto
     public string?  Remarks              { get; set; }
     public string?  InsurancePolicyNo    { get; set; }
     public decimal  TotalValue           { get; set; }
+    public string?  EmailSentAt          { get; set; }
     public List<SalesOrderLineDto> Lines { get; set; } = [];
 }
 

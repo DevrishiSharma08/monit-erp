@@ -3,12 +3,12 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   stockLotApi, StockLotRow, StockLotDetailRow, UpdateStockLotDto,
-  warehouseApi, WarehouseDropdown,
+  warehouseApi, WarehouseDropdown, WarehouseBinDto,
 } from "@/lib/api-services";
 import {
   Package, PackageCheck, PackageMinus, AlertTriangle, X,
   MoreVertical, Eye, Pencil, Trash2, Printer, CheckCircle2,
-  MapPin, Loader2, RefreshCw,
+  MapPin, Loader2, RefreshCw, Plus, Minus, Warehouse,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
@@ -57,7 +57,7 @@ function printStockLot(lot: StockLotDetailRow) {
     <div><div class="co">MONIT PAPER AGENCY</div>
     <div class="co-sub">Paper Trading · Indore, Madhya Pradesh</div>
     <div class="co-sub">GST: 23XXXXX0000X1Z5 · Ph: +91-XXXXXXXXXX</div></div>
-    <div class="gt"><h2>STOCK LOT RECORD</h2><div class="num">${lot.lotNumber}</div>
+    <div class="gt"><h2>STOCK LOCATION RECORD</h2><div class="num">${lot.lotNumber}</div>
       <span class="badge">${lot.status}</span></div>
   </div>
   ${hasChain ? `<div class="sec"><div class="sec-t">Flow Chain</div>
@@ -150,7 +150,8 @@ function ViewStockLotModal({
   if (!lot) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-6">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50">
+      <div className="flex min-h-full items-center justify-center p-4">
       <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
 
         {/* Header */}
@@ -209,25 +210,61 @@ function ViewStockLotModal({
             </div>
           )}
 
-          {/* Lot Details */}
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Lot Details</p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {[
-                { label: "Lot Number",    value: lot.lotNumber,          mono: true },
-                { label: "Received Date", value: lot.grnDate },
-                { label: "GRN #",         value: lot.grnNumber,          blue: true },
-                { label: "FIFO Seq",      value: `#${lot.fifoSequence}` },
-                { label: "Warehouse",     value: lot.warehouseName || "—" },
-                { label: "Bin Location",  value: lot.binLocation || "—", mono: true },
-                { label: "Mill",          value: lot.millName },
-                { label: "Material",      value: `${lot.paper} · ${lot.gsm}g · ${lot.size || ""}` },
-              ].map(({ label, value, blue, mono }) => (
-                <div key={label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                  <p className="text-[10px] text-gray-400">{label}</p>
-                  <p className={`text-xs font-semibold mt-0.5 ${blue ? "text-blue-700" : "text-gray-900"} ${mono ? "font-mono" : ""}`}>{value}</p>
+          {/* Lot Details + Storage Location side by side */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+            {/* Lot Details — 2/3 width */}
+            <div className="lg:col-span-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Lot Details</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {[
+                  { label: "Lot Number",    value: lot.lotNumber,          mono: true },
+                  { label: "Received Date", value: lot.grnDate },
+                  { label: "GRN #",         value: lot.grnNumber,          blue: true },
+                  { label: "FIFO Seq",      value: `#${lot.fifoSequence}` },
+                  { label: "Mill",          value: lot.millName },
+                  { label: "Material",      value: `${lot.paper} · ${lot.gsm}g · ${lot.size || ""}` },
+                ].map(({ label, value, blue, mono }) => (
+                  <div key={label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                    <p className="text-[10px] text-gray-400">{label}</p>
+                    <p className={`text-xs font-semibold mt-0.5 ${blue ? "text-blue-700" : "text-gray-900"} ${mono ? "font-mono" : ""}`}>{value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Storage Location — 1/3 width */}
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Storage Location</p>
+              {lot.warehouseName || lot.binLocation ? (
+                <div className="h-full rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 flex-shrink-0">
+                      <Warehouse className="h-4 w-4 text-indigo-500" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-indigo-400 font-semibold uppercase">Warehouse</p>
+                      <p className="text-sm font-bold text-indigo-900">{lot.warehouseName || "—"}</p>
+                    </div>
+                  </div>
+                  {lot.binLocation && (
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 flex-shrink-0">
+                        <MapPin className="h-4 w-4 text-indigo-500" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-indigo-400 font-semibold uppercase">Bin</p>
+                        <p className="text-sm font-bold text-indigo-700 font-mono">{lot.binLocation}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ))}
+              ) : (
+                <div className="h-full rounded-xl border border-amber-100 bg-amber-50 p-3 flex items-center gap-2 text-xs text-amber-700">
+                  <MapPin className="h-4 w-4 text-amber-400 flex-shrink-0" />
+                  <span>No bin assigned. Use "Assign Location".</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -338,59 +375,38 @@ function ViewStockLotModal({
             <button onClick={() => printStockLot(lot)} className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
               <Printer className="h-3.5 w-3.5" /> Print
             </button>
-            <button onClick={onEdit} className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100">
-              <Pencil className="h-3.5 w-3.5" /> Edit
+            <button onClick={onEdit} className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
+              <MapPin className="h-3.5 w-3.5" /> Assign Location
             </button>
             <button onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Close</button>
           </div>
         </div>
+      </div>
       </div>
     </div>,
     document.body
   );
 }
 
-// ─── Edit Modal ───────────────────────────────────────────────────────────────
+// ─── Edit Modal (qty / quality adjustment only) ───────────────────────────────
 
 function EditStockLotModal({
   lot,
-  warehouses,
   onSave,
   onClose,
 }: {
   lot: StockLotRow;
-  warehouses: WarehouseDropdown[];
   onSave: (dto: UpdateStockLotDto) => Promise<void>;
   onClose: () => void;
 }) {
   const [currentQty, setCurrentQty] = useState(lot.currentQty);
-  const [warehouseId, setWarehouseId] = useState<number | undefined>(lot.warehouseId);
-  const [bins, setBins] = useState<{ id: number; name: string }[]>([]);
-  const [binLocationId, setBinLocationId] = useState<number | undefined>(undefined);
   const [saving, setSaving] = useState(false);
-
-  // Load bins for selected warehouse
-  useEffect(() => {
-    if (!warehouseId) { setBins([]); return; }
-    warehouseApi.getById(warehouseId).then((wh) => {
-      const flatBins = wh.bins.flatMap((b) =>
-        b.id != null ? [{ id: b.id, name: b.name }] : []
-      );
-      setBins(flatBins);
-    }).catch(() => setBins([]));
-  }, [warehouseId]);
-
   const newStatus = currentQty === 0 ? "Exhausted" : lot.allocatedQty > 0 ? "Allocated" : "Available";
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      const dto: UpdateStockLotDto = {
-        currentQty: currentQty !== lot.currentQty ? currentQty : undefined,
-        warehouseId: warehouseId !== lot.warehouseId ? warehouseId : undefined,
-        binLocationId: binLocationId ?? undefined,
-      };
-      await onSave(dto);
+      await onSave({ currentQty: currentQty !== lot.currentQty ? currentQty : undefined });
     } finally {
       setSaving(false);
     }
@@ -401,66 +417,291 @@ function EditStockLotModal({
       <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <div>
-            <h2 className="text-base font-bold text-gray-900">Edit Lot</h2>
+            <h2 className="text-base font-bold text-gray-900">Adjust Quantity</h2>
             <p className="text-xs text-gray-500 mt-0.5 font-mono">{lot.lotNumber}</p>
           </div>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400"><X className="h-5 w-5" /></button>
         </div>
-        <div className="p-5 space-y-4">
-
-          {/* Qty adjustment */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Current Qty (Physical Count)</label>
-            <input
-              type="number"
-              min={0}
-              value={currentQty}
-              onChange={(e) => setCurrentQty(Math.max(0, parseFloat(e.target.value) || 0))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-            />
-            <div className="mt-1.5 flex items-center gap-3 text-xs text-gray-400">
-              <span>Allocated: <span className="font-semibold text-orange-600">{lot.allocatedQty.toLocaleString()}</span></span>
-              <span>→ Available: <span className="font-semibold text-green-600">{Math.max(0, currentQty - lot.allocatedQty).toLocaleString()}</span></span>
-              <span>→ Status: <span className={`font-semibold ${newStatus === "Exhausted" ? "text-gray-500" : newStatus === "Allocated" ? "text-orange-600" : "text-green-600"}`}>{newStatus}</span></span>
-            </div>
+        <div className="p-5">
+          <label className="block text-xs font-medium text-gray-700 mb-1">Current Qty (Physical Count)</label>
+          <input
+            type="number" min={0} value={currentQty}
+            onChange={(e) => setCurrentQty(Math.max(0, parseFloat(e.target.value) || 0))}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+          />
+          <div className="mt-2 flex items-center gap-3 text-xs text-gray-400">
+            <span>Allocated: <span className="font-semibold text-orange-600">{lot.allocatedQty.toLocaleString()}</span></span>
+            <span>→ Available: <span className="font-semibold text-green-600">{Math.max(0, currentQty - lot.allocatedQty).toLocaleString()}</span></span>
+            <span>→ <span className={`font-semibold ${newStatus === "Exhausted" ? "text-gray-500" : newStatus === "Allocated" ? "text-orange-600" : "text-green-600"}`}>{newStatus}</span></span>
           </div>
-
-          {/* Warehouse */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Warehouse</label>
-            <select
-              value={warehouseId ?? ""}
-              onChange={(e) => { setWarehouseId(e.target.value ? parseInt(e.target.value) : undefined); setBinLocationId(undefined); }}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-            >
-              <option value="">Select warehouse</option>
-              {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
-          </div>
-
-          {/* Bin */}
-          {bins.length > 0 && (
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Bin Location</label>
-              <select
-                value={binLocationId ?? ""}
-                onChange={(e) => setBinLocationId(e.target.value ? parseInt(e.target.value) : undefined)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none"
-              >
-                <option value="">{lot.binLocation ? `Current: ${lot.binLocation}` : "Select bin"}</option>
-                {bins.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            </div>
-          )}
         </div>
-
         <div className="flex justify-end gap-3 border-t border-gray-100 px-6 py-4 bg-gray-50 rounded-b-2xl">
           <button onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
           <button onClick={handleSave} disabled={saving}
             className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60 transition-colors flex items-center gap-2">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            Save Changes
+            Save
           </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ─── Assign Bin Modal ─────────────────────────────────────────────────────────
+
+interface BinAssignRow {
+  warehouseId: number | undefined;
+  binId: number | undefined;
+  rackId: number | undefined;
+  qty: number;
+}
+
+function AssignBinModal({
+  lot, warehouses, onSave, onClose,
+}: {
+  lot: StockLotRow;
+  warehouses: WarehouseDropdown[];
+  onSave: (dto: UpdateStockLotDto) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<BinAssignRow[]>([{
+    warehouseId: lot.warehouseId ?? warehouses[0]?.id,
+    binId: undefined,
+    rackId: undefined,
+    qty: lot.currentQty,
+  }]);
+  const [warehouseCache, setWarehouseCache] = useState<Record<number, WarehouseBinDto[]>>({});
+  const [saving, setSaving] = useState(false);
+  const [warnMode, setWarnMode] = useState(false);
+
+  const loadWarehouse = useCallback(async (wid: number) => {
+    if (warehouseCache[wid]) return;
+    try {
+      const wh = await warehouseApi.getById(wid);
+      setWarehouseCache((prev) => ({ ...prev, [wid]: wh.bins }));
+    } catch {}
+  }, [warehouseCache]);
+
+  useEffect(() => {
+    const initWid = lot.warehouseId ?? warehouses[0]?.id;
+    if (initWid) loadWarehouse(initWid);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const totalPhysical = lot.currentQty;
+  const totalPlaced   = rows.reduce((s, r) => s + (r.qty || 0), 0);
+  const remaining     = totalPhysical - totalPlaced;
+  const pct           = totalPhysical > 0 ? Math.min(100, (totalPlaced / totalPhysical) * 100) : 0;
+  const overPlaced    = totalPlaced > totalPhysical;
+
+  const updateRow = useCallback((idx: number, field: keyof BinAssignRow, value: number | undefined) => {
+    setRows((prev) => prev.map((r, i) => {
+      if (i !== idx) return r;
+      const u = { ...r, [field]: value };
+      if (field === "warehouseId") { u.binId = undefined; u.rackId = undefined; }
+      if (field === "binId")       { u.rackId = undefined; }
+      return u;
+    }));
+    if (field === "warehouseId" && typeof value === "number") loadWarehouse(value);
+  }, [loadWarehouse]);
+
+  const addRow = () => {
+    const rem = Math.max(0, remaining);
+    const wid = warehouses[0]?.id;
+    setRows((prev) => [...prev, { warehouseId: wid, binId: undefined, rackId: undefined, qty: rem }]);
+    if (wid) loadWarehouse(wid);
+  };
+
+  const handleSave = async (confirmed = false) => {
+    if (overPlaced) return;
+    if (remaining > 0 && !confirmed) { setWarnMode(true); return; }
+    setSaving(true);
+    try {
+      const primary = rows[0];
+      await onSave({ warehouseId: primary.warehouseId, binLocationId: primary.binId });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-6">
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-100">
+              <MapPin className="h-4 w-4 text-indigo-600" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-gray-900">Assign Bin Location</h2>
+              <p className="text-xs text-gray-500 mt-0.5 font-mono">{lot.lotNumber} · {lot.paper} · {lot.gsm}g · {lot.size}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400"><X className="h-5 w-5" /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+
+          {/* Physical qty summary */}
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
+            <div className="flex items-start justify-between mb-2.5">
+              <div>
+                <p className="text-[10px] font-semibold text-indigo-500 uppercase tracking-wider">Total Physical Quantity</p>
+                <p className="text-2xl font-black text-indigo-900 mt-0.5">
+                  {totalPhysical.toLocaleString()}
+                  <span className="text-sm font-semibold text-indigo-400 ml-1">sheets</span>
+                </p>
+              </div>
+              <div className="text-right">
+                <p className={`text-lg font-bold ${overPlaced ? "text-red-600" : remaining === 0 ? "text-green-600" : "text-amber-600"}`}>
+                  {totalPlaced.toLocaleString()} placed
+                </p>
+                <p className={`text-xs mt-0.5 ${overPlaced ? "text-red-500" : remaining === 0 ? "text-green-500" : "text-gray-400"}`}>
+                  {overPlaced
+                    ? `▲ ${(totalPlaced - totalPhysical).toLocaleString()} over limit`
+                    : remaining > 0
+                    ? `${remaining.toLocaleString()} unassigned`
+                    : "Fully assigned ✓"}
+                </p>
+              </div>
+            </div>
+            <div className="h-2.5 rounded-full bg-indigo-100 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-300 ${overPlaced ? "bg-red-500" : remaining === 0 ? "bg-green-500" : "bg-indigo-500"}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <p className="text-[10px] text-indigo-400 mt-1.5">{pct.toFixed(0)}% assigned · {rows.length} location{rows.length !== 1 ? "s" : ""}</p>
+          </div>
+
+          {/* Assignment rows */}
+          <div className="space-y-2">
+            {rows.map((row, idx) => {
+              const bins = row.warehouseId ? (warehouseCache[row.warehouseId] ?? []) : [];
+              const selectedBin = bins.find((b) => b.id === row.binId);
+              const racks = selectedBin?.racks.filter((r) => r.isActive) ?? [];
+              const colSpan = racks.length > 0 ? "" : "sm:col-span-2";
+              return (
+                <div key={idx} className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-500 text-[10px] font-bold text-white flex-shrink-0">{idx + 1}</span>
+                    <span className="text-xs font-semibold text-gray-600">Location {idx + 1}</span>
+                    {rows.length > 1 && (
+                      <button
+                        onClick={() => setRows((prev) => prev.filter((_, i) => i !== idx))}
+                        className="ml-auto rounded-lg p-1 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                      >
+                        <Minus className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className={colSpan}>
+                      <label className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Warehouse</label>
+                      <select
+                        value={row.warehouseId ?? ""}
+                        onChange={(e) => updateRow(idx, "warehouseId", e.target.value ? parseInt(e.target.value) : undefined)}
+                        className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs focus:border-indigo-400 focus:outline-none"
+                      >
+                        <option value="">Select…</option>
+                        {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Bin</label>
+                      <select
+                        value={row.binId ?? ""}
+                        onChange={(e) => updateRow(idx, "binId", e.target.value ? parseInt(e.target.value) : undefined)}
+                        disabled={bins.length === 0}
+                        className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs font-mono focus:border-indigo-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-400"
+                      >
+                        <option value="">{bins.length === 0 ? "No bins" : "Select…"}</option>
+                        {bins.map((b) => <option key={b.id} value={b.id!}>{b.name}</option>)}
+                      </select>
+                    </div>
+                    {racks.length > 0 && (
+                      <div>
+                        <label className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Rack <span className="normal-case font-normal">(optional)</span></label>
+                        <select
+                          value={row.rackId ?? ""}
+                          onChange={(e) => updateRow(idx, "rackId", e.target.value ? parseInt(e.target.value) : undefined)}
+                          className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs font-mono focus:border-indigo-400 focus:outline-none"
+                        >
+                          <option value="">None</option>
+                          {racks.map((r) => <option key={r.id} value={r.id!}>{r.name}</option>)}
+                        </select>
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Qty (sheets)</label>
+                      <input
+                        type="number" min={0}
+                        value={row.qty || ""}
+                        onChange={(e) => {
+                          const n = parseInt(e.target.value);
+                          setRows((prev) => prev.map((r, i) => i === idx ? { ...r, qty: isNaN(n) ? 0 : Math.max(0, n) } : r));
+                        }}
+                        className={`w-full rounded-lg border px-2 py-1.5 text-xs text-right font-semibold focus:outline-none ${
+                          overPlaced ? "border-red-300 bg-red-50 focus:border-red-400" : "border-gray-300 bg-white focus:border-indigo-400"
+                        }`}
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Add location button */}
+          {!overPlaced && remaining > 0 && (
+            <button
+              onClick={addRow}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-200 py-2.5 text-xs font-semibold text-indigo-500 hover:border-indigo-400 hover:bg-indigo-50 transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add Location
+            </button>
+          )}
+
+          {/* Validation feedback */}
+          {overPlaced && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 font-medium">
+              Placed qty ({totalPlaced.toLocaleString()}) exceeds physical qty ({totalPhysical.toLocaleString()}). Reduce before saving.
+            </div>
+          )}
+          {warnMode && !overPlaced && remaining > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 space-y-1">
+              <p className="font-semibold">⚠ {remaining.toLocaleString()} sheets unassigned</p>
+              <p className="text-amber-600">Not all physical quantity has a bin. You can still save — unassigned stock remains in staging.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t border-gray-100 px-5 py-4 bg-gray-50 rounded-b-2xl">
+          <p className="text-xs text-gray-400">
+            {remaining === 0 && !overPlaced ? "✓ All quantity assigned" : overPlaced ? "Fix over-placed qty" : `${remaining.toLocaleString()} sheets unassigned`}
+          </p>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+            {warnMode && remaining > 0 ? (
+              <button onClick={() => handleSave(true)} disabled={saving || overPlaced}
+                className="rounded-lg bg-amber-500 px-5 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50 flex items-center gap-2">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                Save Anyway
+              </button>
+            ) : (
+              <button onClick={() => handleSave(false)} disabled={saving || overPlaced}
+                className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                Save Location
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>,
@@ -470,8 +711,8 @@ function EditStockLotModal({
 
 // ─── Row Actions ──────────────────────────────────────────────────────────────
 
-function RowActions({ onView, onEdit, onPrint, onDelete }: {
-  onView: () => void; onEdit: () => void; onPrint: () => void; onDelete: () => void;
+function RowActions({ onView, onEdit, onAssignBin, onPrint, onDelete }: {
+  onView: () => void; onEdit: () => void; onAssignBin: () => void; onPrint: () => void; onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, right: 0 });
@@ -508,10 +749,11 @@ function RowActions({ onView, onEdit, onPrint, onDelete }: {
         <div ref={menuRef} style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 9999 }}
           className="w-44 rounded-xl border border-gray-200 bg-white shadow-xl py-1">
           {[
-            { label: "View Details", icon: Eye, fn: onView },
-            { label: "Edit Lot",     icon: Pencil, fn: onEdit },
-            { label: "Print",        icon: Printer, fn: onPrint },
-            { label: "Delete",       icon: Trash2, fn: onDelete, red: true },
+            { label: "View Details",    icon: Eye,     fn: onView },
+            { label: "Assign Location", icon: MapPin,  fn: onAssignBin },
+            { label: "Adjust Qty",      icon: Pencil,  fn: onEdit },
+            { label: "Print",           icon: Printer, fn: onPrint },
+            { label: "Delete",          icon: Trash2,  fn: onDelete, red: true },
           ].map(({ label, icon: Icon, fn, red }) => (
             <button key={label} onClick={action(fn)}
               className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-sm transition-colors hover:bg-gray-50 ${red ? "text-red-600 hover:bg-red-50" : "text-gray-700"}`}>
@@ -537,6 +779,7 @@ export default function StockLotsPage() {
 
   const [viewId, setViewId] = useState<number | null>(null);
   const [editLot, setEditLot] = useState<StockLotRow | null>(null);
+  const [binAssignLot, setBinAssignLot] = useState<StockLotRow | null>(null);
   const [showPendingBin, setShowPendingBin] = useState(false);
 
   // ── Load data ──────────────────────────────────────────────────────────────
@@ -739,6 +982,7 @@ export default function StockLotsPage() {
         return (
           <RowActions
             onView={() => setViewId(lot.id)}
+            onAssignBin={() => setBinAssignLot(lot)}
             onEdit={() => setEditLot(lot)}
             onPrint={() => handlePrintRow(lot.id)}
             onDelete={async () => { if (confirm(`Delete lot ${lot.lotNumber}?`)) await handleDelete(lot.id); }}
@@ -873,9 +1117,9 @@ export default function StockLotsPage() {
                         <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium border ${getStatusColor(lot.status)}`}>{lot.status}</span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button onClick={() => setEditLot(lot)}
+                        <button onClick={() => setBinAssignLot(lot)}
                           className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
-                          <Pencil className="h-3 w-3" /> Assign Bin
+                          <MapPin className="h-3 w-3" /> Assign Bin
                         </button>
                       </td>
                     </tr>
@@ -905,10 +1149,10 @@ export default function StockLotsPage() {
             enableColumnVisibility={true}
             initialPageSize={pageSize}
             onRowClick={(lot) => setViewId(lot.id)}
-            emptyMessage="No stock lots found. Stock lots are created automatically when a GRN is processed with QC Accepted."
+            emptyMessage="No stock locations found. Stock entries are created automatically when a GRN is processed."
           />
           <div className="flex items-center justify-between px-1 pt-2 text-xs text-gray-400">
-            <span>{total.toLocaleString()} total lots</span>
+            <span>{total.toLocaleString()} total entries</span>
             <button onClick={() => load(page)} className="flex items-center gap-1 hover:text-gray-600">
               <RefreshCw className="h-3 w-3" /> Refresh
             </button>
@@ -922,20 +1166,33 @@ export default function StockLotsPage() {
           lotId={viewId}
           onEdit={() => {
             const lot = lots.find((l) => l.id === viewId);
-            if (lot) { setEditLot(lot); setViewId(null); }
+            if (lot) { setBinAssignLot(lot); setViewId(null); }
           }}
           onDelete={() => handleDelete(viewId)}
           onClose={() => setViewId(null)}
         />
       )}
 
-      {/* Edit Modal */}
+      {/* Qty Adjust Modal */}
       {editLot && (
         <EditStockLotModal
           lot={editLot}
-          warehouses={warehouses}
           onSave={handleEdit}
           onClose={() => setEditLot(null)}
+        />
+      )}
+
+      {/* Bin Assignment Modal */}
+      {binAssignLot && (
+        <AssignBinModal
+          lot={binAssignLot}
+          warehouses={warehouses}
+          onSave={async (dto) => {
+            await stockLotApi.update(binAssignLot.id, dto);
+            setBinAssignLot(null);
+            load(page);
+          }}
+          onClose={() => setBinAssignLot(null)}
         />
       )}
     </div>

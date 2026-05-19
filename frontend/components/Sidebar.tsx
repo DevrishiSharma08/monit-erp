@@ -50,7 +50,7 @@ const NAV_ADMIN: TopItem[] = [
   { type: "leaf", name: "Mill Order Tracker", href: "/mill-tracker",    icon: Factory        },
   { type: "leaf", name: "Truck Load Planner", href: "/truck-load-plan", icon: Truck          },
   { type: "leaf", name: "GRN",                href: "/grn",             icon: ClipboardCheck },
-  { type: "leaf", name: "Stock Lots",         href: "/stock-lots",      icon: Package        },
+  { type: "leaf", name: "Stock Location",      href: "/stock-lots",      icon: Package        },
   {
     type: "section",
     name: "Masters",

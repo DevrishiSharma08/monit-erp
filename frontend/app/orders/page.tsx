@@ -10,7 +10,9 @@ import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { SalesOrderForm } from "@/components/forms/SalesOrderForm";
 import { Modal } from "@/components/Modal";
-import { EmailModal, EmailFormData } from "@/components/EmailModal";
+import { EmailModal, EmailContact, EmailFormData } from "@/components/EmailModal";
+import { salesOrderApi, customerApi } from "@/lib/api-services";
+import { emailSentCache } from "@/lib/emailSentCache";
 import { useSalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
 import { cn } from "@/lib/utils";
@@ -276,9 +278,10 @@ export default function OrdersPage() {
   const [editingOrder, setEditingOrder] = useState<SalesOrder | undefined>();
   const [viewOrder, setViewOrder]       = useState<SalesOrder | null>(null);
   const [emailOrder, setEmailOrder]     = useState<SalesOrder | null>(null);
+  const [emailContacts, setEmailContacts] = useState<EmailContact[]>([]);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
-  const [emailSentIds, setEmailSentIds] = useState<Set<string>>(new Set());
+  const [emailSentIds, setEmailSentIds] = useState<Set<string>>(() => emailSentCache.getSoIds());
 
   const displayOrders = useMemo(
     () => statusFilter ? salesOrders.filter(o => o.status === statusFilter) : salesOrders,
@@ -314,22 +317,47 @@ export default function OrdersPage() {
   const handleNewSO = () => { setEditingOrder(undefined); setShowForm(true); };
   const handleEdit  = (order: SalesOrder) => { setEditingOrder(order); setViewOrder(null); setShowForm(true); };
 
-  const buildEmailData = (so: SalesOrder) => {
-    const lines = so.lines.map((l, i) =>
-      `  ${i + 1}. ${l.materialCode || l.materialId} — Qty: ${l.orderedQty} — ₹${l.rate}/- — Amt: ₹${l.amount.toLocaleString("en-IN")}`
-    ).join("\n");
+  const openEmailModal = async (so: SalesOrder) => {
+    setEmailOrder(so);
+    try {
+      const raw = await customerApi.getContacts(parseInt(so.customerId));
+      setEmailContacts(raw.filter((c) => c.email).map((c) => ({
+        name:      c.name,
+        email:     c.email!,
+        isDefault: c.isDefault ?? false,
+      })));
+    } catch {
+      setEmailContacts([]);
+    }
+  };
+
+  const buildEmailData = (so: SalesOrder): EmailFormData => {
+    const lines = so.lines.map((l, i) => {
+      const qty = l.weightKg && l.weightKg > 0
+        ? `${l.weightKg.toLocaleString("en-IN")} KG`
+        : `${l.orderedQty.toLocaleString("en-IN")} ${l.unit || ""}`.trim();
+      return `  ${i + 1}. ${l.materialCode || l.materialId} — ${qty} — ₹${l.rate.toLocaleString("en-IN")}/- — Amt: ₹${l.amount.toLocaleString("en-IN")}`;
+    }).join("\n");
+    // Pre-select the default contact email as the initial TO
+    const defaultEmail = so.customerEmail ?? "";
     return {
-      to: so.customerEmail ?? "",
-      cc: "",
+      to:      defaultEmail ? [defaultEmail] : [],
+      cc:      [],
       subject: `Sales Order Confirmed — ${so.soNumber}`,
-      body: `Dear ${so.customer},\n\nThank you for your order. Please find the details below:\n\nOrder No : ${so.soNumber}\nDate     : ${so.orderDate}\nSalesman : ${so.salesman}\nPayment  : ${so.paymentTerms}\n\nItems:\n${lines}\n\nTotal Value: ₹${so.totalValue.toLocaleString("en-IN")}\n\nFor any queries, please contact us.\n\nRegards,\nMonit Paper Agency`,
+      body:    `Dear ${so.customer},\n\nThank you for your order. Please find the details below:\n\nOrder No : ${so.soNumber}\nDate     : ${so.orderDate}\nSalesman : ${so.salesman}\nPayment  : ${so.paymentTerms}\n\nItems:\n${lines}\n\nTotal Value: ₹${so.totalValue.toLocaleString("en-IN")}\n\nFor any queries, please contact us.\n\nRegards,\nMonit Paper Agency`,
     };
   };
 
-  const handleSendEmail = (_data: EmailFormData) => {
-    if (emailOrder) setEmailSentIds(prev => new Set([...prev, emailOrder.id]));
-    success("Email sent. (Backend integration pending)");
+  const handleSendEmail = async (data: EmailFormData) => {
+    if (!emailOrder) return;
+    await salesOrderApi.sendEmail(parseInt(emailOrder.id), {
+      to: data.to, cc: data.cc, subject: data.subject, body: data.body,
+    });
+    emailSentCache.addSoId(emailOrder.id);
+    setEmailSentIds((prev) => new Set([...prev, emailOrder.id]));
+    success(`Email sent to ${data.to.join(", ")}`);
     setEmailOrder(null);
+    setEmailContacts([]);
   };
 
   const handleSuccess = (soNumber: string, isUpdate: boolean) => {
@@ -442,7 +470,7 @@ export default function OrdersPage() {
             onView={() => setViewOrder(so)}
             onEdit={() => handleEdit(so)}
             onDelete={() => setDeleteConfirmId(so.id)}
-            onSend={() => setEmailOrder(so)}
+            onSend={() => openEmailModal(so)}
             emailSent={emailSentIds.has(so.id)}
           />
         );
@@ -605,7 +633,7 @@ export default function OrdersPage() {
         <ViewSOModal
           so={viewOrder}
           onEdit={() => { handleEdit(viewOrder); setViewOrder(null); }}
-          onSend={() => { setEmailOrder(viewOrder); setViewOrder(null); }}
+          onSend={() => { openEmailModal(viewOrder); setViewOrder(null); }}
           onClose={() => setViewOrder(null)}
           emailSent={emailSentIds.has(viewOrder.id)}
         />
@@ -616,8 +644,9 @@ export default function OrdersPage() {
         <EmailModal
           title={`Send — ${emailOrder.soNumber}`}
           initialData={buildEmailData(emailOrder)}
+          contacts={emailContacts}
           onSend={handleSendEmail}
-          onClose={() => setEmailOrder(null)}
+          onClose={() => { setEmailOrder(null); setEmailContacts([]); }}
         />
       )}
     </div>

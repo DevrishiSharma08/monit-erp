@@ -12,4 +12,5 @@ public interface IMillService
     Task                           DeleteAsync(int id, string deletedBy);
     Task<byte[]>                   ExportAsync(MillFilterRequest filter, string format);
     Task<List<MillDropdownDto>>    GetDropdownAsync();
+    Task<List<MillContactDto>>     GetContactsAsync(int millId);
 }

@@ -31,7 +31,8 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
             so.DeliveryMode,
             so.TotalValue,
             so.Remarks,
-            so.InsurancePolicyNo
+            so.InsurancePolicyNo,
+            CONVERT(NVARCHAR(20), so.EmailSentAt, 120) AS EmailSentAt
         FROM   sales.SalesOrders          so
         JOIN   masters.Customers           c  ON c.Id  = so.CustomerId
         LEFT JOIN masters.Salesmen         s  ON s.Id  = so.SalesmanId
@@ -260,6 +261,16 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
         await conn.ExecuteAsync(
             "UPDATE sales.SalesOrderLines SET IsDeleted=1,DeletedAt=GETUTCDATE(),DeletedBy=@By WHERE SOId=@Id AND IsDeleted=0",
             new { Id = id, By = deletedBy });
+    }
+
+    // ── MarkEmailSent ─────────────────────────────────────────────────────────
+
+    public async Task MarkEmailSentAsync(int id)
+    {
+        using var conn = db.Create();
+        await conn.ExecuteAsync(
+            "UPDATE sales.SalesOrders SET EmailSentAt = GETUTCDATE() WHERE Id = @Id AND IsDeleted = 0",
+            new { Id = id });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

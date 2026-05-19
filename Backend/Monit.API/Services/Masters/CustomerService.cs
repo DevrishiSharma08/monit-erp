@@ -55,6 +55,9 @@ public class CustomerService(
         await repo.SoftDeleteAsync(id, deletedBy);
     }
 
+    public Task<List<CustomerContactDto>> GetContactsAsync(int customerId)
+        => repo.GetContactsAsync(customerId);
+
     public async Task<byte[]> ExportAsync(CustomerFilterRequest filter, string format)
     {
         var data    = await repo.GetAllForExportAsync(filter);

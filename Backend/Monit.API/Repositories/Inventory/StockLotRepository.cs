@@ -45,6 +45,12 @@ public class StockLotRepository(DbConnectionFactory db) : IStockLotRepository
             g.LinkedSOId,
             so.SONumber                                                        AS LinkedSoNumber,
             ISNULL(mt.CustomerName, cust.Name)                                AS CustomerName,
+            -- Packing (inherited from GRN)
+            sl.PackingType,
+            sl.SheetsPerPacket,
+            sl.PacketsPerBundle,
+            sl.NoOfPackets,
+            sl.NoOfBundles,
             -- Audit
             sl.CreatedBy,
             sl.CreatedAt
@@ -152,6 +158,12 @@ public class StockLotRepository(DbConnectionFactory db) : IStockLotRepository
                 -- Billing mode
                 ISNULL(po.BillingMode, 'Normal')                                  AS BillingMode,
                 ISNULL(mt.CustomerName, cust.Name)                                AS EffectiveClientName,
+                -- Packing
+                sl.PackingType,
+                sl.SheetsPerPacket,
+                sl.PacketsPerBundle,
+                sl.NoOfPackets,
+                sl.NoOfBundles,
                 -- Audit
                 sl.CreatedBy,
                 sl.CreatedAt
