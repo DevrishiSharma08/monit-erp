@@ -18,14 +18,16 @@ public class JwtService(AppConfig config) : IJwtService
         var key   = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config.JwtSecret));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Name,           user.Username),
-            new Claim(ClaimTypes.Role,           user.Role),
-            new Claim("name",                    user.Name),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            new(ClaimTypes.NameIdentifier,      user.Id.ToString()),
+            new(ClaimTypes.Name,                user.Username),
+            new(ClaimTypes.Role,                user.Role),
+            new("name",                         user.Name),
+            new(JwtRegisteredClaimNames.Jti,    Guid.NewGuid().ToString()),
         };
+        if (!string.IsNullOrWhiteSpace(user.CustomerName))
+            claims.Add(new Claim("customerName", user.CustomerName));
 
         var token = new JwtSecurityToken(
             issuer:             config.JwtIssuer,

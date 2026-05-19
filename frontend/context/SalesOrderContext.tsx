@@ -27,6 +27,9 @@ export interface SOLine {
   status: string;
   allocatedQty: number;
   pendingQty: number;
+  stockAllocated?: number;
+  purchaseAllocated?: number;
+  transitAllocated?: number;
 }
 
 export interface SalesOrder {
@@ -89,7 +92,7 @@ function toSO(r: SalesOrderRow): SalesOrder {
       size:             l.size,
       unit:             l.unit,
       orderedQty:       l.orderedQty,
-      weightKg:         l.orderedQty,
+      weightKg:         undefined,
       qty:              l.qty,
       rate:             l.rate,
       discount:         l.discount,
@@ -125,13 +128,13 @@ export function SalesOrderProvider({ children }: { children: ReactNode }) {
   const reload = useCallback(() => setTick(t => t + 1), []);
 
   useEffect(() => {
-    let cancelled = false;
+    let stale = false;
     setLoading(true);
     salesOrderApi.list({ pageSize: 200 })
-      .then(res => { if (!cancelled) setSalesOrders(res.items.map(toSO)); })
+      .then(res  => { if (!stale) setSalesOrders(res.items.map(toSO)); })
       .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => { stale = true; };
   }, [tick]);
 
   const addSalesOrder = useCallback((so: SalesOrder) =>

@@ -304,7 +304,7 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
           size: l.size,
           unit: l.unit ?? "KG",
           qty:      l.qty,
-          weightKg: l.weightKg ?? l.orderedQty,
+          weightKg: l.weightKg,
           rate:      l.rate,
           discount:  l.discount ?? 0,
           finalPrice: l.finalPrice ?? l.rate - (l.discount ?? 0),

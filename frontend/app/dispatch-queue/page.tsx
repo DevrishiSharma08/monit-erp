@@ -54,7 +54,7 @@ export default function DispatchQueuePage() {
         so.lines
           .filter((line) => (line.stockAllocated ?? 0) > 0 && line.status !== "Dispatched" && line.status !== "Delivered")
           .forEach((line) => {
-            const deliveryDate = new Date(line.requiredDeliveryDate);
+            const deliveryDate = new Date(line.requiredDeliveryDate ?? today);
             const daysUntilDelivery = Math.ceil((deliveryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
             const priority: DispatchItem["priority"] =
               daysUntilDelivery <= 0 ? "Urgent" : daysUntilDelivery <= 3 ? "High" : "Normal";
@@ -67,7 +67,7 @@ export default function DispatchQueuePage() {
               lineNumber: line.lineNumber,
               customer: so.customer,
               orderDate: so.orderDate,
-              expectedDelivery: line.requiredDeliveryDate,
+              expectedDelivery: line.requiredDeliveryDate ?? "",
               paper: line.materialCode || "",
               gsm: line.gsm || 0,
               size: line.size || "",

@@ -1,61 +1,17 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ShoppingCart, ShoppingBag, ClipboardCheck, Package,
-  ArrowRight, CheckCircle2,
+  ArrowRight, CheckCircle2, Loader2,
 } from "lucide-react";
-import {
-  mockSalesOrders, mockPurchaseOrders, mockGRNs,
-  mockStockLots, mockMillTrackers,
-} from "@/data/mockData";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell,
 } from "recharts";
-
-// ─── Data ─────────────────────────────────────────────────────────────────────
-
-function getDashboardData() {
-  const openSOs = mockSalesOrders.filter(
-    (s) => !["Completed", "Closed", "Cancelled"].includes(s.status)
-  );
-  const openSOValue = openSOs.reduce((s, o) => s + o.totalValue, 0);
-
-  const openPOs = mockPurchaseOrders.filter(
-    (p) => !["Received", "Cancelled"].includes(p.status)
-  );
-  const openPOValue = openPOs.reduce((s, p) => s + p.totalValue, 0);
-
-  const pendingGRNs = mockGRNs.filter(
-    (g) => g.status === "Draft" || g.status === "QC Pending"
-  );
-
-  const availableStock = mockStockLots.filter((l) => l.status === "Available");
-  const stockQty = availableStock.reduce((s, l) => s + l.currentQty, 0);
-
-  const trackers = mockMillTrackers;
-  const readyTrackers = trackers.filter(
-    (t) => t.productionStatus === "Ready" || t.productionStatus === "Dispatched"
-  );
-
-  const soStatusMap = new Map<string, number>();
-  mockSalesOrders.forEach((s) => soStatusMap.set(s.status, (soStatusMap.get(s.status) || 0) + 1));
-  const soChart = Array.from(soStatusMap.entries())
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
-
-  const poStatusMap = new Map<string, number>();
-  mockPurchaseOrders.forEach((p) => poStatusMap.set(p.status, (poStatusMap.get(p.status) || 0) + 1));
-  const poChart = Array.from(poStatusMap.entries())
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
-
-  return {
-    openSOs, openSOValue, openPOs, openPOValue,
-    pendingGRNs, availableStock, stockQty,
-    trackers, readyTrackers, soChart, poChart,
-  };
-}
+import {
+  dashboardApi, DashboardSummary, DashboardOrderRow, DashboardMillTrackerRow,
+} from "@/lib/api-services";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -64,7 +20,7 @@ const fmtL = (n: number) =>
 
 const STATUS_CLS: Record<string, string> = {
   Draft:                  "bg-gray-100 text-gray-500",
-  "Pending Allocation":     "bg-amber-100 text-amber-700",
+  "Pending Allocation":   "bg-amber-100 text-amber-700",
   "Partially Allocated":  "bg-blue-100 text-blue-700",
   "Fully Allocated":      "bg-green-100 text-green-700",
   "In Dispatch":          "bg-purple-100 text-purple-700",
@@ -78,15 +34,17 @@ const STATUS_CLS: Record<string, string> = {
   Completed:              "bg-gray-100 text-gray-500",
   "Order Placed":         "bg-gray-100 text-gray-500",
   "In Production":        "bg-blue-100 text-blue-700",
+  "QC Pending":           "bg-amber-100 text-amber-700",
+  Approved:               "bg-green-100 text-green-700",
 };
 
 const SO_COLORS: Record<string, string> = {
-  "Pending Allocation":     "#f59e0b",
-  "Partially Allocated":  "#3b82f6",
-  "Fully Allocated":      "#10b981",
-  "In Dispatch":          "#8b5cf6",
-  Completed:              "#9ca3af",
-  Draft:                  "#d1d5db",
+  "Pending Allocation":  "#f59e0b",
+  "Partially Allocated": "#3b82f6",
+  "Fully Allocated":     "#10b981",
+  "In Dispatch":         "#8b5cf6",
+  Completed:             "#9ca3af",
+  Draft:                 "#d1d5db",
 };
 
 const PO_COLORS: Record<string, string> = {
@@ -107,9 +65,7 @@ function Badge({ s }: { s: string }) {
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
-function KpiCard({
-  title, value, sub, icon: Icon, iconBg, iconColor, accent, href, urgent,
-}: {
+function KpiCard({ title, value, sub, icon: Icon, iconBg, iconColor, accent, href, urgent }: {
   title: string; value: string; sub?: string; urgent?: boolean;
   icon: React.ElementType; iconBg: string; iconColor: string; accent: string; href: string;
 }) {
@@ -121,9 +77,7 @@ function KpiCard({
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{title}</p>
           <p className="mt-0.5 text-[22px] font-extrabold tabular-nums leading-tight text-gray-900">{value}</p>
-          {sub && (
-            <p className={`text-[11px] font-medium ${urgent ? "text-rose-500" : "text-gray-400"}`}>{sub}</p>
-          )}
+          {sub && <p className={`text-[11px] font-medium ${urgent ? "text-rose-500" : "text-gray-400"}`}>{sub}</p>}
         </div>
         <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${iconBg}`}>
           <Icon className={`h-[18px] w-[18px] ${iconColor}`} strokeWidth={2} />
@@ -167,8 +121,6 @@ function PipelineBar({ counts }: { counts: number[] }) {
   );
 }
 
-// ─── Section Card wrapper ─────────────────────────────────────────────────────
-
 function CardHeader({ title, href }: { title: string; href: string }) {
   return (
     <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5 border-b border-gray-50">
@@ -180,17 +132,13 @@ function CardHeader({ title, href }: { title: string; href: string }) {
   );
 }
 
-// ─── Mill tracker row ─────────────────────────────────────────────────────────
-
-function MillRow({ t }: { t: typeof mockMillTrackers[0] }) {
+function MillRow({ t }: { t: DashboardMillTrackerRow }) {
   const pct = t.productionProgress ?? 0;
   const bar = pct >= 100 ? "bg-emerald-400" : pct >= 60 ? "bg-blue-400" : pct > 0 ? "bg-amber-400" : "bg-gray-200";
   return (
     <div className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-semibold text-gray-800 truncate">
-          {t.paper.split("/").slice(1).join(" · ")}
-        </p>
+        <p className="text-xs font-semibold text-gray-800 truncate">{t.material || "—"}</p>
         <p className="text-[10px] text-gray-400 mt-0.5 truncate">{t.mill} · {t.orderedQty.toLocaleString()} kg</p>
       </div>
       <div className="w-24 flex-shrink-0">
@@ -208,8 +156,6 @@ function MillRow({ t }: { t: typeof mockMillTrackers[0] }) {
   );
 }
 
-// ─── Mini chart tooltip ───────────────────────────────────────────────────────
-
 function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number }[]; label?: string }) {
   if (!active || !payload?.length) return null;
   return (
@@ -220,22 +166,60 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
   );
 }
 
+function OrderRow({ o }: { o: DashboardOrderRow }) {
+  return (
+    <div className="flex items-center justify-between py-2">
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-gray-800">{o.number}</p>
+        <p className="text-[11px] text-gray-400 truncate">{o.party}</p>
+      </div>
+      <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
+        <Badge s={o.status} />
+        <span className="text-[11px] font-bold text-gray-600">{fmtL(o.totalValue)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+
+function Skeleton({ className }: { className?: string }) {
+  return <div className={`animate-pulse rounded bg-gray-100 ${className}`} />;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function ProcurementDashboard() {
-  const {
-    openSOs, openSOValue, openPOs, openPOValue,
-    pendingGRNs, availableStock, stockQty,
-    trackers, readyTrackers, soChart, poChart,
-  } = getDashboardData();
+export default function Dashboard() {
+  const [data,    setData]    = useState<DashboardSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
 
-  const recentSOs = [...mockSalesOrders]
-    .sort((a, b) => b.orderDate.localeCompare(a.orderDate))
-    .slice(0, 6);
+  useEffect(() => {
+    dashboardApi.summary()
+      .then(setData)
+      .catch((e) => setError(e?.message ?? "Failed to load dashboard"))
+      .finally(() => setLoading(false));
+  }, []);
 
-  const recentPOs = [...mockPurchaseOrders]
-    .sort((a, b) => b.orderDate.localeCompare(a.orderDate))
-    .slice(0, 6);
+  if (loading) return (
+    <div className="space-y-4 pb-8">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20" />)}
+      </div>
+      <Skeleton className="h-16" />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-52" />)}
+      </div>
+    </div>
+  );
+
+  if (error) return (
+    <div className="flex h-40 items-center justify-center rounded-xl border border-red-100 bg-red-50">
+      <p className="text-sm text-red-600">{error}</p>
+    </div>
+  );
+
+  if (!data) return null;
 
   return (
     <div className="space-y-4 pb-8">
@@ -243,28 +227,31 @@ export default function ProcurementDashboard() {
       {/* KPI Row */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard
-          title="Open Sales Orders" value={String(openSOs.length)} sub={fmtL(openSOValue)}
+          title="Open Sales Orders" value={String(data.openSoCount)} sub={fmtL(data.openSoValue)}
           icon={ShoppingCart} iconBg="bg-blue-50" iconColor="text-blue-600"
           accent="bg-blue-500" href="/orders" />
         <KpiCard
-          title="Open Purchase Orders" value={String(openPOs.length)} sub={fmtL(openPOValue)}
+          title="Open Purchase Orders" value={String(data.openPoCount)} sub={fmtL(data.openPoValue)}
           icon={ShoppingBag} iconBg="bg-violet-50" iconColor="text-violet-600"
           accent="bg-violet-500" href="/purchase-orders" />
         <KpiCard
-          title="Pending GRNs" value={String(pendingGRNs.length)}
-          sub={pendingGRNs.length ? "Awaiting QC / approval" : "All clear"} urgent={pendingGRNs.length > 0}
-          icon={ClipboardCheck} iconBg={pendingGRNs.length ? "bg-amber-50" : "bg-emerald-50"}
-          iconColor={pendingGRNs.length ? "text-amber-600" : "text-emerald-600"}
-          accent={pendingGRNs.length ? "bg-amber-400" : "bg-emerald-400"} href="/grn" />
+          title="Pending GRNs" value={String(data.pendingGrnCount)}
+          sub={data.pendingGrnCount ? "Awaiting QC / approval" : "All clear"} urgent={data.pendingGrnCount > 0}
+          icon={ClipboardCheck} iconBg={data.pendingGrnCount ? "bg-amber-50" : "bg-emerald-50"}
+          iconColor={data.pendingGrnCount ? "text-amber-600" : "text-emerald-600"}
+          accent={data.pendingGrnCount ? "bg-amber-400" : "bg-emerald-400"} href="/grn" />
         <KpiCard
-          title="Stock Available" value={`${stockQty.toLocaleString()} kg`}
-          sub={`${availableStock.length} lots`}
+          title="Stock Available" value={`${data.availableStockQty.toLocaleString()} kg`}
+          sub={`${data.availableStockLots} lots`}
           icon={Package} iconBg="bg-emerald-50" iconColor="text-emerald-600"
           accent="bg-emerald-500" href="/stock-lots" />
       </div>
 
       {/* Pipeline */}
-      <PipelineBar counts={[openSOs.length, openPOs.length, trackers.length, pendingGRNs.length, availableStock.length]} />
+      <PipelineBar counts={[
+        data.openSoCount, data.openPoCount,
+        data.millTrackerTotal, data.pendingGrnCount, data.availableStockLots,
+      ]} />
 
       {/* Recent activity — 3 columns */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -273,18 +260,9 @@ export default function ProcurementDashboard() {
         <div className="rounded-xl border border-gray-100 bg-white shadow-sm">
           <CardHeader title="Recent Sales Orders" href="/orders" />
           <div className="px-4 py-0.5 divide-y divide-gray-50">
-            {recentSOs.map((so) => (
-              <div key={so.id} className="flex items-center justify-between py-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-gray-800">{so.soNumber}</p>
-                  <p className="text-[11px] text-gray-400 truncate">{so.customer}</p>
-                </div>
-                <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
-                  <Badge s={so.status} />
-                  <span className="text-[11px] font-bold text-gray-600">{fmtL(so.totalValue)}</span>
-                </div>
-              </div>
-            ))}
+            {data.recentSalesOrders.length === 0
+              ? <p className="py-6 text-center text-xs text-gray-400">No sales orders yet</p>
+              : data.recentSalesOrders.map((o) => <OrderRow key={o.id} o={o} />)}
           </div>
         </div>
 
@@ -292,18 +270,9 @@ export default function ProcurementDashboard() {
         <div className="rounded-xl border border-gray-100 bg-white shadow-sm">
           <CardHeader title="Recent Purchase Orders" href="/purchase-orders" />
           <div className="px-4 py-0.5 divide-y divide-gray-50">
-            {recentPOs.map((po) => (
-              <div key={po.id} className="flex items-center justify-between py-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-gray-800">{po.poNumber}</p>
-                  <p className="text-[11px] text-gray-400 truncate">{po.mill}</p>
-                </div>
-                <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
-                  <Badge s={po.status} />
-                  <span className="text-[11px] font-bold text-gray-600">{fmtL(po.totalValue)}</span>
-                </div>
-              </div>
-            ))}
+            {data.recentPurchaseOrders.length === 0
+              ? <p className="py-6 text-center text-xs text-gray-400">No purchase orders yet</p>
+              : data.recentPurchaseOrders.map((o) => <OrderRow key={o.id} o={o} />)}
           </div>
         </div>
 
@@ -314,54 +283,60 @@ export default function ProcurementDashboard() {
             <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-1.5 mb-2.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
               <span className="text-xs text-gray-500">
-                <span className="font-bold text-emerald-600">{readyTrackers.length}</span> ready &middot;&nbsp;
-                <span className="font-bold text-amber-600">{trackers.length - readyTrackers.length}</span> in progress
+                <span className="font-bold text-emerald-600">{data.millTrackerReady}</span> ready &middot;&nbsp;
+                <span className="font-bold text-amber-600">{data.millTrackerTotal - data.millTrackerReady}</span> in progress
               </span>
             </div>
-            {trackers.slice(0, 6).map((t) => <MillRow key={t.id} t={t} />)}
+            {data.millTrackers.length === 0
+              ? <p className="py-4 text-center text-xs text-gray-400">No active mill orders</p>
+              : data.millTrackers.map((t) => <MillRow key={t.id} t={t} />)}
           </div>
         </div>
       </div>
 
       {/* Status distribution charts */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {(data.soStatusBreakdown.length > 0 || data.poStatusBreakdown.length > 0) && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
 
-        {/* SO status horizontal bar */}
-        <div className="rounded-xl border border-gray-100 bg-white px-4 pt-3.5 pb-3 shadow-sm">
-          <p className="text-sm font-bold text-gray-800 mb-1">Sales Order — Status Breakdown</p>
-          <p className="text-[11px] text-gray-400 mb-3">{mockSalesOrders.length} orders total</p>
-          <ResponsiveContainer width="100%" height={soChart.length * 28 + 16}>
-            <BarChart data={soChart} layout="vertical" barSize={13} margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
-              <XAxis type="number" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTooltip />} cursor={{ fill: "#f9fafb" }} />
-              <Bar dataKey="value" name="Orders" radius={[0, 4, 4, 0]}>
-                {soChart.map((entry) => (
-                  <Cell key={entry.name} fill={SO_COLORS[entry.name] ?? "#94a3b8"} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+          <div className="rounded-xl border border-gray-100 bg-white px-4 pt-3.5 pb-3 shadow-sm">
+            <p className="text-sm font-bold text-gray-800 mb-1">Sales Order — Status Breakdown</p>
+            <p className="text-[11px] text-gray-400 mb-3">
+              {data.soStatusBreakdown.reduce((s, i) => s + i.value, 0)} orders total
+            </p>
+            <ResponsiveContainer width="100%" height={data.soStatusBreakdown.length * 28 + 16}>
+              <BarChart data={data.soStatusBreakdown} layout="vertical" barSize={13} margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
+                <XAxis type="number" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: "#f9fafb" }} />
+                <Bar dataKey="value" name="Orders" radius={[0, 4, 4, 0]}>
+                  {data.soStatusBreakdown.map((e) => (
+                    <Cell key={e.name} fill={SO_COLORS[e.name] ?? "#94a3b8"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
 
-        {/* PO status horizontal bar */}
-        <div className="rounded-xl border border-gray-100 bg-white px-4 pt-3.5 pb-3 shadow-sm">
-          <p className="text-sm font-bold text-gray-800 mb-1">Purchase Order — Status Breakdown</p>
-          <p className="text-[11px] text-gray-400 mb-3">{mockPurchaseOrders.length} orders total</p>
-          <ResponsiveContainer width="100%" height={poChart.length * 28 + 16}>
-            <BarChart data={poChart} layout="vertical" barSize={13} margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
-              <XAxis type="number" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTooltip />} cursor={{ fill: "#f9fafb" }} />
-              <Bar dataKey="value" name="Orders" radius={[0, 4, 4, 0]}>
-                {poChart.map((entry) => (
-                  <Cell key={entry.name} fill={PO_COLORS[entry.name] ?? "#94a3b8"} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="rounded-xl border border-gray-100 bg-white px-4 pt-3.5 pb-3 shadow-sm">
+            <p className="text-sm font-bold text-gray-800 mb-1">Purchase Order — Status Breakdown</p>
+            <p className="text-[11px] text-gray-400 mb-3">
+              {data.poStatusBreakdown.reduce((s, i) => s + i.value, 0)} orders total
+            </p>
+            <ResponsiveContainer width="100%" height={data.poStatusBreakdown.length * 28 + 16}>
+              <BarChart data={data.poStatusBreakdown} layout="vertical" barSize={13} margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
+                <XAxis type="number" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: "#f9fafb" }} />
+                <Bar dataKey="value" name="Orders" radius={[0, 4, 4, 0]}>
+                  {data.poStatusBreakdown.map((e) => (
+                    <Cell key={e.name} fill={PO_COLORS[e.name] ?? "#94a3b8"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

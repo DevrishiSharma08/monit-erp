@@ -23,6 +23,7 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
             cc.Email                                        AS CustomerEmail,
             COALESCE(s.Name, so.SalesmanName)               AS Salesman,
             dp.Name                                         AS DeliveryParty,
+            dp.Address                                      AS DeliveryPartyAddress,
             CONVERT(NVARCHAR(10), so.OrderDate, 23)         AS OrderDate,
             CONVERT(NVARCHAR(10), so.RequiredDeliveryDate, 23) AS RequiredDeliveryDate,
             so.Status,
@@ -57,8 +58,8 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
             sol.DeliveryAddress,
             CONVERT(NVARCHAR(10), sol.DeliveryDate, 23) AS RequiredDeliveryDate,
             ISNULL(sol.LineStatus, 'Pending Allocation') AS Status,
-            sol.AllocatedQty,
-            sol.PendingQty
+            ISNULL(sol.AllocatedQty, 0) AS AllocatedQty,
+            ISNULL(sol.PendingQty,   0) AS PendingQty
         FROM   sales.SalesOrderLines sol
         WHERE  sol.IsDeleted = 0";
 
@@ -122,8 +123,6 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
         var so = await conn.QueryFirstOrDefaultAsync<SalesOrderListDto>(sql, new { Id = id });
         if (so == null) return null;
         await AttachLines(conn, [so]);
-        // populate DeliveryPartyAddress from first line
-        so.DeliveryPartyAddress = so.Lines.FirstOrDefault()?.DeliveryAddress;
         return so;
     }
 
@@ -238,12 +237,18 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
                 UpdatedBy           = updatedBy
             }, tx);
 
-            // replace all lines — hard-delete so the unique (SOId, LineNumber) constraint isn't blocked by soft-deleted rows
+            // Snapshot existing allocations before wiping lines (UPDLOCK prevents concurrent allocation updates)
+            var existingAllocs = (await conn.QueryAsync(
+                "SELECT LineNumber, ISNULL(AllocatedQty,0) AS AllocatedQty FROM sales.SalesOrderLines WITH (UPDLOCK) WHERE SOId=@Id AND IsDeleted=0",
+                new { Id = id }, tx))
+                .ToDictionary(r => (int)r.LineNumber, r => (decimal)r.AllocatedQty);
+
+            // Hard-delete so the unique (SOId, LineNumber) constraint isn't blocked by soft-deleted rows
             await conn.ExecuteAsync(
                 "DELETE FROM sales.SalesOrderLines WHERE SOId=@Id",
                 new { Id = id }, tx);
 
-            await InsertLinesAsync(conn, tx, id, dto.Lines, updatedBy);
+            await InsertLinesAsync(conn, tx, id, dto.Lines, updatedBy, existingAllocs);
             tx.Commit();
         }
         catch { tx.Rollback(); throw; }
@@ -297,14 +302,12 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
         }
 
         foreach (var so in orders)
-        {
-            so.Lines             = mapped.TryGetValue(so.Id, out var ls) ? ls : [];
-            so.DeliveryPartyAddress = so.Lines.FirstOrDefault()?.DeliveryAddress;
-        }
+            so.Lines = mapped.TryGetValue(so.Id, out var ls) ? ls : [];
     }
 
     private async Task InsertLinesAsync(System.Data.IDbConnection conn, System.Data.IDbTransaction tx,
-        int soId, List<UpsertSalesOrderLineDto> lines, string createdBy)
+        int soId, List<UpsertSalesOrderLineDto> lines, string createdBy,
+        Dictionary<int, decimal>? existingAllocs = null)
     {
         const string sql = @"
             INSERT INTO sales.SalesOrderLines
@@ -315,10 +318,13 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
             VALUES (@SOId, @LineNumber, @MaterialId, @Description, @GSM, @Size, @Unit,
                     @Quantity, @Qty, @Rate, @Discount, @FinalPrice, @Amount,
                     @DeliveryDate, @DeliveryAddress, 'Pending Allocation',
-                    0, @Quantity, GETUTCDATE(), @CreatedBy)";
+                    @AllocatedQty, @PendingQty, GETUTCDATE(), @CreatedBy)";
 
         foreach (var line in lines)
         {
+            var allocQty = existingAllocs?.TryGetValue(line.LineNumber, out var a) == true ? a : 0m;
+            var pendQty  = Math.Max(0m, line.OrderedQty - allocQty);
+
             await conn.ExecuteAsync(sql, new
             {
                 SOId         = soId,
@@ -336,6 +342,8 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
                 line.Amount,
                 DeliveryDate = ParseDateNullable(line.RequiredDeliveryDate),
                 line.DeliveryAddress,
+                AllocatedQty = allocQty,
+                PendingQty   = pendQty,
                 CreatedBy    = createdBy
             }, tx);
         }
@@ -347,15 +355,24 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
         var year = DateTime.UtcNow.Year;
         var sql = @"
             DECLARE @Num INT; DECLARE @Prefix NVARCHAR(10) = 'SO'; DECLARE @Padding INT = 4;
-            UPDATE system.NumberSequences WITH (UPDLOCK)
+            UPDATE system.NumberSequences WITH (UPDLOCK, ROWLOCK)
             SET @Num = LastNumber + 1, @Prefix = Prefix, @Padding = Padding,
                 LastNumber = LastNumber + 1, UpdatedAt = GETUTCDATE(), UpdatedBy = @User
             WHERE Module = 'SO' AND [Year] = @Year;
             IF @@ROWCOUNT = 0
             BEGIN
-                INSERT INTO system.NumberSequences (Module,[Year],LastNumber,Prefix,Padding,CreatedBy)
-                VALUES ('SO',@Year,1,'SO',4,@User);
-                SET @Num = 1;
+                BEGIN TRY
+                    INSERT INTO system.NumberSequences (Module,[Year],LastNumber,Prefix,Padding,CreatedBy)
+                    VALUES ('SO',@Year,1,'SO',4,@User);
+                    SET @Num = 1;
+                END TRY
+                BEGIN CATCH
+                    -- Another concurrent transaction inserted first; retry the UPDATE
+                    UPDATE system.NumberSequences WITH (UPDLOCK, ROWLOCK)
+                    SET @Num = LastNumber + 1, @Prefix = Prefix, @Padding = Padding,
+                        LastNumber = LastNumber + 1, UpdatedAt = GETUTCDATE(), UpdatedBy = @User
+                    WHERE Module = 'SO' AND [Year] = @Year;
+                END CATCH
             END;
             SELECT @Prefix + '-' + CAST(@Year AS NVARCHAR(4)) + '-' +
                    RIGHT(REPLICATE('0',@Padding) + CAST(@Num AS NVARCHAR(10)), @Padding);";

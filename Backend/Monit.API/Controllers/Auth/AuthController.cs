@@ -38,7 +38,8 @@ public class AuthController(IAuthService authService) : ControllerBase
     [Authorize]
     public async Task<IActionResult> Logout()
     {
-        var userId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+        if (!TryGetUserId(out var userId))
+            return Unauthorized(ApiResponse<object>.Fail("Invalid token claims."));
         await authService.LogoutAsync(userId, Response);
         return Ok(ApiResponse.Ok("Logged out successfully."));
     }
@@ -48,7 +49,8 @@ public class AuthController(IAuthService authService) : ControllerBase
     [Authorize]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest dto)
     {
-        var userId = int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+        if (!TryGetUserId(out var userId))
+            return Unauthorized(ApiResponse<object>.Fail("Invalid token claims."));
         await authService.ChangePasswordAsync(userId, dto);
         return Ok(ApiResponse.Ok("Password changed successfully."));
     }
@@ -58,13 +60,18 @@ public class AuthController(IAuthService authService) : ControllerBase
     [Authorize]
     public IActionResult Me()
     {
-        var info = new UserInfo(
-            int.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value),
-            User.FindFirst(System.Security.Claims.ClaimTypes.Name)!.Value,
-            User.FindFirst("name")!.Value,
-            User.FindFirst(System.Security.Claims.ClaimTypes.Role)!.Value,
-            null
-        );
-        return Ok(ApiResponse<UserInfo>.Ok(info));
+        if (!TryGetUserId(out var userId)) return Unauthorized(ApiResponse<object>.Fail("Invalid token claims."));
+        var username    = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? "";
+        var displayName = User.FindFirst("name")?.Value ?? "";
+        var role        = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
+        var customer    = User.FindFirst("customerName")?.Value;
+        return Ok(ApiResponse<UserInfo>.Ok(new UserInfo(userId, username, displayName, role, customer)));
+    }
+
+    private bool TryGetUserId(out int userId)
+    {
+        userId = 0;
+        var raw = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        return raw != null && int.TryParse(raw, out userId);
     }
 }

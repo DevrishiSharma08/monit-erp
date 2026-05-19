@@ -54,8 +54,14 @@ export function ConfirmDialog({
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    if (isOpen) document.addEventListener("keydown", handleEsc);
-    return () => document.removeEventListener("keydown", handleEsc);
+    if (isOpen) {
+      document.addEventListener("keydown", handleEsc);
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      document.removeEventListener("keydown", handleEsc);
+      document.body.style.overflow = "unset";
+    };
   }, [isOpen, onClose]);
 
   if (!isOpen || !mounted) return null;
@@ -63,9 +69,9 @@ export function ConfirmDialog({
   const { icon: Icon, iconBg, iconColor, btnClass } = variantMap[variant];
 
   return createPortal(
-    <div className="animate-backdrop-in fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm">
+    <div className="animate-backdrop-in fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 bg-white/10">
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="animate-modal-in relative z-10 w-full max-w-sm rounded-2xl bg-white shadow-2xl">
+      <div className="animate-modal-in relative z-10 w-full max-w-sm rounded-xl sm:rounded-2xl bg-white shadow-2xl">
         <button
           onClick={onClose}
           className="absolute right-4 top-4 rounded-lg p-1 text-gray-400 hover:bg-gray-100 transition-colors"

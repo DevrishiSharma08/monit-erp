@@ -13,6 +13,7 @@ import {
   localityApi, LocalityDropdown,
 } from "@/lib/api-services";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
 const inputCls  = "w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100";
 const labelCls  = "block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1";
@@ -24,7 +25,10 @@ type LocationDraft = { label: string; address: string; isDefault: boolean; };
 function emptyContact():  ContactDraft  { return { name: "", designation: "", phone: "", email: "", isDefault: false }; }
 function emptyLocation(): LocationDraft { return { label: "", address: "", isDefault: false }; }
 
+const MASKED = "••••••••";
+
 export default function CustomerMasterPage() {
+  const { canViewContacts } = useAuth();
   const [data,          setData]          = useState<CustomerRow[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [saving,        setSaving]        = useState(false);
@@ -190,7 +194,9 @@ export default function CustomerMasterPage() {
     {
       id: "phone", accessorKey: "phone", header: "Phone",
       filterType: "text", enableSorting: false, defaultVisible: true, size: 130,
-      cell: (info) => <span className="text-gray-600 text-sm">{(info.getValue() as string | undefined) ?? "—"}</span>,
+      cell: (info) => canViewContacts
+        ? <span className="text-gray-600 text-sm">{(info.getValue() as string | undefined) ?? "—"}</span>
+        : <span className="text-gray-300 select-none tracking-widest">{MASKED}</span>,
     },
     {
       id: "gstNo", accessorKey: "gstNo", header: "GST No",
@@ -490,8 +496,8 @@ export default function CustomerMasterPage() {
                 {[
                   ["Name",         viewItem.name],
                   ["Owner",        viewItem.ownerName ?? "—"],
-                  ["Phone",        viewItem.phone ?? "—"],
-                  ["Email",        viewItem.email ?? "—"],
+                  ["Phone",        canViewContacts ? (viewItem.phone ?? "—") : MASKED],
+                  ["Email",        canViewContacts ? (viewItem.email ?? "—") : MASKED],
                   ["GST No.",      viewItem.gstNo ?? "—"],
                   ["Credit Limit", `₹${viewItem.creditLimit.toLocaleString("en-IN")}`],
                   ["Credit Days",  `${viewItem.creditDays} days`],
@@ -526,7 +532,9 @@ export default function CustomerMasterPage() {
                           <span className="ml-2 rounded-full bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 text-[10px] font-medium">Default</span>
                         )}
                       </p>
-                      <p className="text-xs text-gray-500">{[c.phone, c.email].filter(Boolean).join("  ·  ") || "—"}</p>
+                      <p className="text-xs text-gray-500">
+                        {canViewContacts ? ([c.phone, c.email].filter(Boolean).join("  ·  ") || "—") : MASKED}
+                      </p>
                     </div>
                   </div>
                 ))}

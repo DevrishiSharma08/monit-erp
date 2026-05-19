@@ -1,3 +1,4 @@
+using BCrypt.Net;
 using Monit.API.Common.Helpers;
 using Monit.API.Common.Middleware;
 using Monit.API.Common.Response;
@@ -9,10 +10,11 @@ using Monit.API.Services.Interfaces;
 namespace Monit.API.Services.Auth;
 
 public class UserManagementService(
-    IUserRepository userRepo,
-    IRoleRepository roleRepo,
-    IExportService  exportService,
-    AppConfig       appConfig) : IUserManagementService
+    IUserRepository  userRepo,
+    IRoleRepository  roleRepo,
+    IAuthRepository  authRepo,
+    IExportService   exportService,
+    AppConfig        appConfig) : IUserManagementService
 {
     public Task<PagedResult<UserListDto>> GetAllAsync(UserFilterRequest f) => userRepo.GetAllAsync(f);
     public Task<List<UserDropdownDto>>    GetDropdownAsync()                => userRepo.GetDropdownAsync();
@@ -34,7 +36,7 @@ public class UserManagementService(
         var id = await userRepo.CreateAsync(new User
         {
             Username     = dto.Username.Trim().ToLower(),
-            Password     = dto.Password,
+            Password     = BCrypt.Net.BCrypt.HashPassword(dto.Password),
             Name         = dto.Name.Trim(),
             Email        = dto.Email?.Trim().ToLower(),
             RoleId       = dto.RoleId,
@@ -87,7 +89,8 @@ public class UserManagementService(
         await GetByIdAsync(id); // ensure exists
         if (string.IsNullOrWhiteSpace(dto.NewPassword))
             throw new ValidationException("New password cannot be empty.");
-        await userRepo.UpdatePasswordAsync(id, dto.NewPassword, updatedBy);
+        await userRepo.UpdatePasswordAsync(id, BCrypt.Net.BCrypt.HashPassword(dto.NewPassword), updatedBy);
+        await authRepo.RevokeRefreshTokenAsync(id);
     }
 
     public async Task DeleteAsync(int id, string deletedBy)

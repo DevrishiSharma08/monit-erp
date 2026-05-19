@@ -42,6 +42,12 @@ public class GrnService(IGrnRepository repo) : IGrnService
         // 2. How much has already been received for this tracker?
         var prevQty = await repo.GetPreviouslyReceivedQtyAsync(dto.MillTrackerId);
 
+        if (dto.ReceivedQty <= 0)
+            throw new ArgumentException("ReceivedQty must be greater than zero.");
+        if (prevQty + dto.ReceivedQty > ctx.OrderedQty)
+            throw new InvalidOperationException(
+                $"Cannot receive {dto.ReceivedQty:N3} MT — only {ctx.OrderedQty - prevQty:N3} MT remaining against this tracker.");
+
         // 3. Compute delivery routing split
         var (deliveryMode, stockQty, directQty, directClientId) =
             ComputeDeliveryRouting(dto, ctx);

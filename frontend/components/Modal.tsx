@@ -15,12 +15,14 @@ interface ModalProps {
   subtitle?: string;
 }
 
+// On mobile every modal is full-width (minus 8px margin).
+// The size prop only activates from the sm breakpoint (640px) upward.
 const sizeMap: Record<string, string> = {
-  sm:    "max-w-md",
-  md:    "max-w-xl",
-  lg:    "max-w-2xl",
-  xl:    "max-w-4xl",
-  "2xl": "max-w-5xl",
+  sm:    "sm:max-w-md",
+  md:    "sm:max-w-xl",
+  lg:    "sm:max-w-2xl",
+  xl:    "sm:max-w-2xl lg:max-w-4xl",
+  "2xl": "sm:max-w-3xl lg:max-w-5xl",
 };
 
 export function Modal({ isOpen, onClose, title, children, size = "md", footer, subtitle }: ModalProps) {
@@ -51,7 +53,7 @@ export function Modal({ isOpen, onClose, title, children, size = "md", footer, s
    */
   return createPortal(
     <div
-      className="animate-backdrop-in fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm"
+      className="animate-backdrop-in fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4 bg-white/10"
       aria-modal="true"
       role="dialog"
     >
@@ -61,13 +63,14 @@ export function Modal({ isOpen, onClose, title, children, size = "md", footer, s
       {/* Modal card — auto-sizes to content, never exceeds viewport */}
       <div
         className={cn(
-          "animate-modal-in relative z-10 flex w-full flex-col rounded-2xl bg-white shadow-2xl",
-          "max-h-[calc(100vh-2rem)]",
+          "animate-modal-in relative z-10 flex w-full flex-col bg-white shadow-2xl",
+          "rounded-xl sm:rounded-2xl",
+          "max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)]",
           sizeMap[size]
         )}
       >
         {/* Fixed header — always visible even when content scrolls */}
-        <div className="flex flex-shrink-0 items-center justify-between rounded-t-2xl border-b border-gray-100 bg-white px-6 py-4">
+        <div className="flex flex-shrink-0 items-center justify-between rounded-t-xl sm:rounded-t-2xl border-b border-gray-100 bg-white px-4 sm:px-6 py-4">
           <div>
             <h2 className="truncate pr-4 text-base font-bold text-gray-900">{title}</h2>
             {subtitle && <p className="mt-0.5 text-xs text-gray-500">{subtitle}</p>}
@@ -82,13 +85,13 @@ export function Modal({ isOpen, onClose, title, children, size = "md", footer, s
         </div>
 
         {/* Scrollable body — gray background fills any space after form content */}
-        <div className="min-h-0 flex-1 overflow-y-auto bg-gray-100 px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-gray-100 px-4 sm:px-6 py-4 sm:py-5">
           {children}
         </div>
 
         {/* Optional sticky footer */}
         {footer && (
-          <div className="flex flex-shrink-0 items-center justify-end gap-3 rounded-b-2xl border-t border-gray-100 bg-white px-6 py-4 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
+          <div className="flex flex-shrink-0 items-center justify-end gap-3 rounded-b-xl sm:rounded-b-2xl border-t border-gray-100 bg-white px-4 sm:px-6 py-4 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
             {footer}
           </div>
         )}

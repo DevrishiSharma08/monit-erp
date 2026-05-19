@@ -19,12 +19,14 @@ export interface AuthUser {
   name:         string;
   role:         string;
   customerName: string | null;
+  permissions:  string[];
 }
 
 interface LoginApiResponse {
   accessToken: string;
   tokenType:   string;
   expiresAt:   string;
+  permissions: string[];
   user: {
     id:           number;
     username:     string;
@@ -34,18 +36,20 @@ interface LoginApiResponse {
   };
 }
 
-
 interface AuthContextValue {
-  user:         AuthUser | null;
-  isLoading:    boolean;
-  login:        (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
-  logout:       () => Promise<void>;
-  isAdmin:      boolean;
-  isSalesman:   boolean;
-  isCustomer:   boolean;
-  isPlanner:    boolean;
-  isAccountant: boolean;
-  hasRole:      (roles: string[]) => boolean;
+  user:           AuthUser | null;
+  isLoading:      boolean;
+  login:          (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
+  logout:         () => Promise<void>;
+  isAdmin:        boolean;
+  isSalesman:     boolean;
+  isCustomer:     boolean;
+  isPlanner:      boolean;
+  isAccountant:   boolean;
+  hasRole:        (roles: string[]) => boolean;
+  hasPermission:  (perm: string) => boolean;
+  canViewCosts:   boolean;
+  canViewContacts: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -81,6 +85,9 @@ function clearUser(): void {
   try { localStorage.removeItem(USER_KEY); } catch { /* ignore */ }
 }
 
+// Admin and Manager always have full data access regardless of permission flags
+const FULL_ACCESS_ROLES = ["Admin", "Manager"];
+
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -88,18 +95,15 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser]         = useState<AuthUser | null>(null);
+  const [user, setUser]           = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router   = useRouter();
   const pathname = usePathname();
 
-  // On mount: restore session via HttpOnly refresh-token cookie
   useEffect(() => {
     let cancelled = false;
 
     async function tryRestore() {
-      // Share the same deduped refresh promise as any concurrent API 401-retries,
-      // preventing double-rotation of the refresh token on a fresh page load.
       const newToken = await refreshOnce();
       if (cancelled) return;
       if (newToken) {
@@ -107,11 +111,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (cached) {
           setUser(cached);
         } else {
-          // Cookie valid but no cached user — force re-login for clean state
           setAccessToken(null);
         }
       } else {
-        clearUser(); // setAccessToken(null) already done inside refreshOnce
+        clearUser();
       }
       notifyAuthSettled();
       setIsLoading(false);
@@ -121,7 +124,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, []);
 
-  // Route guard
   useEffect(() => {
     if (isLoading) return;
     const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
@@ -142,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name:         data.user.name,
           role:         data.user.role,
           customerName: data.user.customerName,
+          permissions:  data.permissions ?? [],
         };
 
         setAccessToken(data.accessToken);
@@ -175,17 +178,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user]
   );
 
+  const hasPermission = useCallback(
+    (perm: string): boolean => {
+      if (!user) return false;
+      if (FULL_ACCESS_ROLES.includes(user.role)) return true;
+      return user.permissions.includes("*") || user.permissions.includes(perm);
+    },
+    [user]
+  );
+
+  const canViewCosts    = hasPermission("finance.view_costs");
+  const canViewContacts = hasPermission("clients.view_contacts");
+
   const value: AuthContextValue = {
     user,
     isLoading,
     login,
     logout,
-    isAdmin:      user?.role === "Admin",
-    isSalesman:   user?.role === "Salesman",
-    isCustomer:   user?.role === "Customer",
-    isPlanner:    user?.role === "Planner",
-    isAccountant: user?.role === "Accountant",
+    isAdmin:        user?.role === "Admin",
+    isSalesman:     user?.role === "Salesman",
+    isCustomer:     user?.role === "Customer",
+    isPlanner:      user?.role === "Planner",
+    isAccountant:   user?.role === "Accountant",
     hasRole,
+    hasPermission,
+    canViewCosts,
+    canViewContacts,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

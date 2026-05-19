@@ -1,9 +1,8 @@
 ﻿"use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { MillOrderTracker, PartialDelivery, TruckLoadPlan } from "@/data/mockData";
-import { usePurchaseOrder } from "@/context/PurchaseOrderContext";
-import { millTrackerApi, MillTrackerRow, MillTrackerBatchRow, BulkImportRowInput, BulkImportResultDto } from "@/lib/api-services";
+import { MillOrderTracker, PartialDelivery } from "@/types/paper-domain";
+import { millTrackerApi, MillTrackerRow, MillTrackerBatchRow, BulkImportRowInput, BulkImportResultDto, truckLoadPlanApi } from "@/lib/api-services";
 import * as XLSX from "xlsx";
 import { useToast } from "@/context/ToastContext";
 import {
@@ -139,7 +138,6 @@ function mapTrackerRow(r: MillTrackerRow): MillOrderTracker {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function MillTrackerPage() {
-  const { addTruckLoadPlan } = usePurchaseOrder();
   const { success } = useToast();
 
   // ── API data ────────────────────────────────────────────────────────────────
@@ -799,32 +797,27 @@ export default function MillTrackerPage() {
               const latestBatch = batches.slice(-1)[0];
               const dispatchQty = batches.reduce((s, b) => s + b.qty, 0) || (data.readyQty ?? editingTracker.readyQty);
               const today       = new Date().toISOString().split("T")[0];
-              addTruckLoadPlan({
-                id: `tlp_${Date.now()}`,
-                planNumber: `TLP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-                planDate: today,
-                truckNumber: latestBatch?.truckNumber,
-                origin: editingTracker.mill,
-                deliveryMode: (editingTracker.deliveryMode as TruckLoadPlan["deliveryMode"]) ?? "To Godown",
-                plannedLoadDate: latestBatch?.date || today,
+              truckLoadPlanApi.create({
+                truckNumber:         latestBatch?.truckNumber,
+                origin:              editingTracker.mill,
+                deliveryMode:        editingTracker.deliveryMode ?? "To Godown",
+                plannedLoadDate:     latestBatch?.date || today,
                 plannedDeliveryDate: editingTracker.expectedDelivery,
-                actualLoadDate: latestBatch?.date || today,
-                status: "In Transit",
+                millInvoiceNo:       latestBatch?.millInvoiceNo,
                 items: [{
-                  id: `item_${Date.now()}`,
-                  trackerSourceId: editingTracker.id,
-                  poNumber: editingTracker.poNumber,
-                  soNumber: editingTracker.soNumber,
-                  paper: editingTracker.paper,
-                  gsm: editingTracker.gsm,
-                  size: editingTracker.size,
-                  quantity: dispatchQty,
-                  loadOrder: 1,
-                  customerName: editingTracker.customerName,
+                  trackerId:        editingTracker.id ? Number(editingTracker.id) : undefined,
+                  poNumber:         editingTracker.poNumber,
+                  soNumber:         editingTracker.soNumber,
+                  paper:            editingTracker.paper,
+                  gsm:              editingTracker.gsm,
+                  size:             editingTracker.size,
+                  quantity:         dispatchQty,
+                  loadOrder:        1,
+                  customerName:     editingTracker.customerName,
                   deliveryLocation: editingTracker.customerName || "Monit Godown, Indore",
                 }],
-              });
-              success("Dispatched! GRN entry created for verification.");
+              }).catch(console.error);
+              success("Dispatched! Truck load plan created.");
             } else {
               success("Mill tracker updated.");
             }

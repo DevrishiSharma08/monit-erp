@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useRef, useCallback, useEffect } from "react";
-import { TruckLoadPlan, TruckLoadPlanItem, MillOrderTracker } from "@/data/mockData";
+import { TruckLoadPlan, TruckLoadPlanItem, MillOrderTracker } from "@/types/paper-domain";
 import {
   Truck, Clock, CheckCircle2, Plus, Package, AlertCircle,
   MoreVertical, Eye, EyeOff, Trash2, Printer, RefreshCw, X, Weight,

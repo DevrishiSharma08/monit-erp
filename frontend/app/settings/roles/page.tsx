@@ -1,97 +1,17 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
-import { Search, Save, Copy, ChevronDown, X } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import {
+  Save, Plus, Pencil, Trash2, ChevronDown, ChevronUp,
+  Shield, AlertTriangle, Loader2, CheckCircle2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Modal } from "@/components/Modal";
+import { roleApi, RoleListRow, RoleDetailRow, PermissionGroup } from "@/lib/api-services";
+import { ApiError } from "@/lib/api";
 
-// ─── Users + Roles (mirrors User Management data) ─────────────────────────────
-
-const ALL_USERS = [
-  { id: "1", name: "System Admin",  role: "Admin"             },
-  { id: "2", name: "Bhumika",       role: "Manager"           },
-  { id: "3", name: "Amit Gupta",    role: "Planner"           },
-  { id: "4", name: "Ishwar",        role: "Warehouse Manager" },
-  { id: "5", name: "Ramesh Kumar",  role: "Salesman"          },
-  { id: "6", name: "Priya Patel",   role: "Salesman"          },
-  { id: "7", name: "Sunita Verma",  role: "Accountant"        },
-];
-
-// ─── System Pages ──────────────────────────────────────────────────────────────
-
-const PAGE_GROUPS = [
-  { group: "Main",        pages: ["Dashboard"] },
-  { group: "Sales",       pages: ["Sales Order"] },
-  { group: "Procurement", pages: ["Purchase Order", "Mill Order Tracker"] },
-  { group: "Logistics",   pages: ["Truck Load Planner", "GRN", "Stock Lots"] },
-  { group: "Masters",     pages: ["Material Master", "Category Master", "Customer Master", "Mill Master", "Salesman Master", "Warehouse Master", "Transporter Master", "Rate Master"] },
-  { group: "Settings",    pages: ["User Management", "Permissions"] },
-];
-
-const ALL_PAGES = PAGE_GROUPS.flatMap((g) => g.pages);
-
-// ─── Types ─────────────────────────────────────────────────────────────────────
-
-interface PagePerm { view: boolean; edit: boolean; delete: boolean; print: boolean; }
-type UserPerms = Record<string, PagePerm>;
-
-function emptyPerms(): UserPerms {
-  const result: UserPerms = {};
-  ALL_PAGES.forEach((p) => { result[p] = { view: false, edit: false, delete: false, print: false }; });
-  return result;
-}
-
-function adminPerms(): UserPerms {
-  const result: UserPerms = {};
-  ALL_PAGES.forEach((p) => { result[p] = { view: true, edit: true, delete: true, print: true }; });
-  return result;
-}
-
-function managerPerms(): UserPerms {
-  const p = emptyPerms();
-  ["Dashboard","Sales Order","Purchase Order","Mill Order Tracker","Truck Load Planner","GRN","Stock Lots",
-   "Material Master","Category Master","Customer Master","Mill Master","Salesman Master"].forEach((pg) => {
-    p[pg] = { view: true, edit: true, delete: false, print: true };
-  });
-  return p;
-}
-
-function salesmanPerms(): UserPerms {
-  const p = emptyPerms();
-  ["Dashboard","Sales Order","Customer Master"].forEach((pg) => {
-    p[pg] = { view: true, edit: false, delete: false, print: true };
-  });
-  return p;
-}
-
-const INITIAL_ALL_PERMS: Record<string, UserPerms> = {
-  "1": adminPerms(),
-  "2": managerPerms(),
-  "3": (() => {
-    const p = emptyPerms();
-    ["Dashboard","Purchase Order","Mill Order Tracker","Truck Load Planner","GRN","Stock Lots","Material Master"].forEach((pg) => {
-      p[pg] = { view: true, edit: true, delete: false, print: true };
-    });
-    return p;
-  })(),
-  "4": (() => {
-    const p = emptyPerms();
-    ["Dashboard","GRN","Stock Lots","Material Master","Warehouse Master"].forEach((pg) => {
-      p[pg] = { view: true, edit: true, delete: false, print: false };
-    });
-    return p;
-  })(),
-  "5": salesmanPerms(),
-  "6": salesmanPerms(),
-  "7": (() => {
-    const p = emptyPerms();
-    ["Dashboard","Sales Order","Purchase Order"].forEach((pg) => {
-      p[pg] = { view: true, edit: false, delete: false, print: true };
-    });
-    return p;
-  })(),
-};
-
-// ─── Helpers ───────────────────────────────────────────────────────────────────
+const inputCls  = "w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100";
+const labelCls  = "block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1";
 
 const ROLE_COLORS: Record<string, string> = {
   Admin:              "bg-blue-50 text-blue-700 border-blue-200",
@@ -100,333 +20,377 @@ const ROLE_COLORS: Record<string, string> = {
   Accountant:         "bg-amber-50 text-amber-700 border-amber-200",
   Planner:            "bg-indigo-50 text-indigo-700 border-indigo-200",
   "Warehouse Manager":"bg-orange-50 text-orange-700 border-orange-200",
-  Driver:             "bg-gray-50 text-gray-600 border-gray-200",
 };
 
-// ─── User Search Dropdown ──────────────────────────────────────────────────────
-
-function UserSearchDropdown({
-  value, onChange, placeholder, excludeId,
-}: {
-  value: string;
-  onChange: (id: string) => void;
-  placeholder: string;
-  excludeId?: string;
-}) {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  const selectedUser = ALL_USERS.find((u) => u.id === value);
-
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  const filtered = useMemo(() =>
-    ALL_USERS.filter((u) =>
-      u.id !== excludeId &&
-      (u.name.toLowerCase().includes(query.toLowerCase()) ||
-       u.role.toLowerCase().includes(query.toLowerCase()))
-    ), [query, excludeId]);
-
-  return (
-    <div ref={ref} className="relative">
-      <div
-        className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 cursor-pointer hover:border-blue-400 transition-colors"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Search className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-        {selectedUser ? (
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="text-sm font-medium text-gray-800 truncate">{selectedUser.name}</span>
-            <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium flex-shrink-0",
-              ROLE_COLORS[selectedUser.role] ?? "bg-gray-50 text-gray-600 border-gray-200")}>
-              {selectedUser.role}
-            </span>
-          </div>
-        ) : (
-          <span className="text-sm text-gray-400 flex-1">{placeholder}</span>
-        )}
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {selectedUser && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onChange(""); setQuery(""); }}
-              className="rounded p-0.5 hover:bg-gray-100 text-gray-400"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          )}
-          <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
-        </div>
-      </div>
-
-      {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-xl border border-gray-100 bg-white shadow-lg">
-          <div className="p-2 border-b border-gray-50">
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Type to filter..."
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400"
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-          <div className="max-h-52 overflow-y-auto py-1">
-            {filtered.length === 0 ? (
-              <p className="px-3 py-3 text-xs text-gray-400 text-center">No users found</p>
-            ) : (
-              filtered.map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => { onChange(u.id); setOpen(false); setQuery(""); }}
-                  className={cn(
-                    "flex w-full items-center gap-2.5 px-3 py-2.5 hover:bg-gray-50 transition-colors text-left",
-                    value === u.id && "bg-blue-50"
-                  )}
-                >
-                  <span className="text-sm font-medium text-gray-800 flex-1">{u.name}</span>
-                  <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium flex-shrink-0",
-                    ROLE_COLORS[u.role] ?? "bg-gray-50 text-gray-600 border-gray-200")}>
-                    {u.role}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+function fmtDate(d: string) {
+  const dt = new Date(d);
+  return `${dt.getDate().toString().padStart(2,"0")}/${(dt.getMonth()+1).toString().padStart(2,"0")}/${dt.getFullYear()}`;
 }
-
-// ─── Checkbox ──────────────────────────────────────────────────────────────────
 
 function Cb({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
-    <input
-      type="checkbox"
-      checked={checked}
-      onChange={onChange}
-      className="h-4 w-4 rounded border-gray-300 text-blue-500 cursor-pointer accent-blue-500"
-    />
+    <input type="checkbox" checked={checked} onChange={onChange}
+      className="h-4 w-4 rounded border-gray-300 accent-blue-500 cursor-pointer" />
   );
 }
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
-export default function PermissionsPage() {
-  const [allPerms, setAllPerms] = useState<Record<string, UserPerms>>(INITIAL_ALL_PERMS);
-  const [selectedUser, setSelectedUser] = useState("");
-  const [copyFromUser, setCopyFromUser] = useState("");
-  const [saved, setSaved] = useState(false);
+export default function RolesPermissionsPage() {
+  const [roles,       setRoles]       = useState<RoleListRow[]>([]);
+  const [permGroups,  setPermGroups]  = useState<PermissionGroup[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState<string | null>(null);
 
-  const user = ALL_USERS.find((u) => u.id === selectedUser);
-  const perms: UserPerms = selectedUser ? (allPerms[selectedUser] ?? emptyPerms()) : emptyPerms();
+  // selected role detail
+  const [selectedId,  setSelectedId]  = useState<number | null>(null);
+  const [detail,      setDetail]      = useState<RoleDetailRow | null>(null);
+  const [perms,       setPerms]       = useState<string[]>([]);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [saving,      setSaving]      = useState(false);
+  const [saved,       setSaved]       = useState(false);
 
-  function setPerm(page: string, field: keyof PagePerm, val: boolean) {
-    if (!selectedUser) return;
-    setAllPerms((prev) => ({
-      ...prev,
-      [selectedUser]: {
-        ...(prev[selectedUser] ?? emptyPerms()),
-        [page]: { ...(prev[selectedUser]?.[page] ?? { view: false, edit: false, delete: false, print: false }), [field]: val },
-      },
-    }));
+  // add/edit modal
+  const [showModal,   setShowModal]   = useState(false);
+  const [editRole,    setEditRole]    = useState<RoleListRow | null>(null);
+  const [rName,       setRName]       = useState("");
+  const [rDesc,       setRDesc]       = useState("");
+  const [rActive,     setRActive]     = useState(true);
+  const [modalSaving, setModalSaving] = useState(false);
+
+  // delete
+  const [deleteId,    setDeleteId]    = useState<number | null>(null);
+
+  // collapsed groups
+  const [collapsed,   setCollapsed]   = useState<Record<string, boolean>>({});
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const [r, pg] = await Promise.all([roleApi.list(), roleApi.permissions()]);
+      setRoles(r.items);
+      setPermGroups(pg);
+    } catch (e) { setError(e instanceof ApiError ? e.message : "Failed to load"); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function selectRole(id: number) {
+    if (id === selectedId) { setSelectedId(null); setDetail(null); return; }
+    setSelectedId(id); setLoadingDetail(true); setSaved(false);
+    try {
+      const d = await roleApi.getById(id);
+      setDetail(d);
+      setPerms(d.permissions ?? []);
+    } catch { setError("Failed to load role details"); }
+    finally { setLoadingDetail(false); }
   }
 
-  function setAllForPage(page: string, val: boolean) {
-    if (!selectedUser) return;
-    setAllPerms((prev) => ({
-      ...prev,
-      [selectedUser]: {
-        ...(prev[selectedUser] ?? emptyPerms()),
-        [page]: { view: val, edit: val, delete: val, print: val },
-      },
-    }));
+  function togglePerm(p: string) {
+    setPerms((prev) => prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]);
   }
 
-  function isAllForPage(page: string) {
-    const p = perms[page];
-    return p?.view && p?.edit && p?.delete && p?.print;
+  function toggleGroup(group: PermissionGroup, enable: boolean) {
+    if (enable) {
+      setPerms((prev) => [...new Set([...prev, ...group.permissions])]);
+    } else {
+      setPerms((prev) => prev.filter((p) => !group.permissions.includes(p)));
+    }
   }
 
-  function handleCopyFrom() {
-    if (!selectedUser || !copyFromUser) return;
-    const source = allPerms[copyFromUser] ?? emptyPerms();
-    setAllPerms((prev) => ({ ...prev, [selectedUser]: { ...source } }));
-    setCopyFromUser("");
+  function isGroupAll(group: PermissionGroup) {
+    return group.permissions.every((p) => perms.includes(p));
   }
 
-  function handleSave() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  async function handleSavePerms() {
+    if (!detail) return;
+    setSaving(true); setSaved(false);
+    try {
+      await roleApi.update(detail.id, {
+        name: detail.name,
+        description: detail.description,
+        permissions: perms,
+        isActive: detail.isActive,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+      setRoles((prev) => prev.map((r) => r.id === detail.id ? { ...r } : r));
+    } catch (e) { setError(e instanceof ApiError ? e.message : "Save failed"); }
+    finally { setSaving(false); }
+  }
+
+  function openAdd() {
+    setEditRole(null); setRName(""); setRDesc(""); setRActive(true);
+    setShowModal(true);
+  }
+
+  function openEdit(r: RoleListRow, e: React.MouseEvent) {
+    e.stopPropagation();
+    setEditRole(r); setRName(r.name); setRDesc(r.description ?? ""); setRActive(r.isActive);
+    setShowModal(true);
+  }
+
+  async function handleModalSave() {
+    if (!rName.trim()) return;
+    setModalSaving(true);
+    try {
+      if (editRole) {
+        const updated = await roleApi.update(editRole.id, {
+          name: rName.trim(), description: rDesc.trim() || undefined,
+          permissions: detail?.id === editRole.id ? perms : [],
+          isActive: rActive,
+        });
+        setRoles((prev) => prev.map((r) => r.id === editRole.id ? { ...r, name: updated.name, description: updated.description, isActive: updated.isActive } : r));
+        if (detail?.id === editRole.id) setDetail((d) => d ? { ...d, name: updated.name } : d);
+      } else {
+        const created = await roleApi.create({ name: rName.trim(), description: rDesc.trim() || undefined, permissions: [] });
+        setRoles((prev) => [...prev, created]);
+      }
+      setShowModal(false);
+    } catch (e) { setError(e instanceof ApiError ? e.message : "Save failed"); }
+    finally { setModalSaving(false); }
+  }
+
+  async function handleDelete(id: number) {
+    try {
+      await roleApi.remove(id);
+      setRoles((prev) => prev.filter((r) => r.id !== id));
+      if (selectedId === id) { setSelectedId(null); setDetail(null); }
+    } catch (e) { setError(e instanceof ApiError ? e.message : "Delete failed"); }
+    finally { setDeleteId(null); }
   }
 
   return (
     <div className="space-y-5 pb-24">
-      {/* Search + Copy bar */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex-1 min-w-[220px] max-w-xs">
-          <UserSearchDropdown
-            value={selectedUser}
-            onChange={(id) => { setSelectedUser(id); setCopyFromUser(""); }}
-            placeholder="Search user to edit permissions…"
-          />
+
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0" /> {error}
+          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">✕</button>
         </div>
-        <div className="flex items-center gap-2 flex-1 min-w-[220px] max-w-xs">
-          <Copy className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-          <div className="flex-1">
-            <UserSearchDropdown
-              value={copyFromUser}
-              onChange={setCopyFromUser}
-              placeholder="Copy permissions from…"
-              excludeId={selectedUser}
-            />
-          </div>
-          {copyFromUser && (
-            <button
-              onClick={handleCopyFrom}
-              disabled={!selectedUser}
-              className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-40 whitespace-nowrap flex-shrink-0"
-            >
-              Apply
+      )}
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[300px_1fr]">
+
+        {/* ── Role List ────────────────────────────────────────────────────── */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-gray-800">Roles</p>
+            <button onClick={openAdd}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-600 shadow-sm">
+              <Plus className="h-3.5 w-3.5" /> Add Role
             </button>
+          </div>
+
+          {loading ? (
+            <div className="space-y-2">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="h-14 animate-pulse rounded-xl bg-gray-100" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {roles.map((r) => (
+                <div key={r.id}
+                  onClick={() => selectRole(r.id)}
+                  className={cn(
+                    "group flex items-center gap-3 rounded-xl border px-4 py-3 cursor-pointer transition-all",
+                    selectedId === r.id
+                      ? "border-blue-200 bg-blue-50 shadow-sm"
+                      : "border-gray-100 bg-white hover:border-blue-100 hover:bg-gray-50"
+                  )}>
+                  <Shield className={cn("h-4 w-4 flex-shrink-0", selectedId === r.id ? "text-blue-500" : "text-gray-400")} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{r.name}</p>
+                    <p className="text-[11px] text-gray-400">{r.userCount} user{r.userCount !== 1 ? "s" : ""} · {fmtDate(r.createdAt)}</p>
+                  </div>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                    <button onClick={(e) => openEdit(r, e)}
+                      className="rounded p-1 hover:bg-blue-100 text-gray-400 hover:text-blue-600">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    {r.name !== "Admin" && r.userCount === 0 && (
+                      <button onClick={(e) => { e.stopPropagation(); setDeleteId(r.id); }}
+                        className="rounded p-1 hover:bg-red-100 text-gray-400 hover:text-red-600">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {roles.length === 0 && (
+                <p className="text-center text-sm text-gray-400 py-8">No roles yet</p>
+              )}
+            </div>
           )}
         </div>
-        <button
-          onClick={handleSave}
-          disabled={!selectedUser}
-          className={cn(
-            "ml-auto flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all shadow-sm",
-            saved
-              ? "bg-green-500 text-white"
-              : "bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-40"
+
+        {/* ── Permission Editor ─────────────────────────────────────────────── */}
+        <div>
+          {!selectedId && (
+            <div className="flex h-48 items-center justify-center rounded-xl border-2 border-dashed border-gray-200">
+              <div className="text-center">
+                <Shield className="mx-auto h-8 w-8 text-gray-300 mb-2" />
+                <p className="text-sm font-medium text-gray-500">Select a role to manage permissions</p>
+              </div>
+            </div>
           )}
-        >
-          <Save className="h-4 w-4" />
-          {saved ? "Saved!" : "Save Permissions"}
-        </button>
+
+          {selectedId && loadingDetail && (
+            <div className="flex h-48 items-center justify-center rounded-xl border border-gray-100 bg-white">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-400" />
+            </div>
+          )}
+
+          {selectedId && detail && !loadingDetail && (
+            <div className="rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-3.5 bg-blue-50 border-b border-blue-100">
+                <div className="flex items-center gap-2.5">
+                  <p className="text-sm font-semibold text-gray-800">
+                    Permissions for: <span className="text-blue-700">{detail.name}</span>
+                  </p>
+                  <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                    ROLE_COLORS[detail.name] ?? "bg-gray-50 text-gray-600 border-gray-200")}>
+                    {detail.name}
+                  </span>
+                </div>
+                <button onClick={handleSavePerms} disabled={saving}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium transition-all shadow-sm",
+                    saved ? "bg-green-500 text-white"
+                           : "bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60"
+                  )}>
+                  {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
+                   : saved ? <><CheckCircle2 className="h-4 w-4" /> Saved</>
+                           : <><Save className="h-4 w-4" /> Save Permissions</>}
+                </button>
+              </div>
+
+              {/* Admin wildcard note */}
+              {perms.includes("*") && (
+                <div className="flex items-center gap-2 px-5 py-2.5 bg-amber-50 border-b border-amber-100 text-xs text-amber-700">
+                  <Shield className="h-3.5 w-3.5 flex-shrink-0" />
+                  This role has <strong>full access (*)</strong> — all permissions are granted automatically.
+                </div>
+              )}
+
+              {/* Permission groups */}
+              <div className="divide-y divide-gray-50">
+                {permGroups.map((group) => {
+                  const allOn    = isGroupAll(group);
+                  const isCollapsed = collapsed[group.group];
+                  return (
+                    <div key={group.group}>
+                      {/* Group header */}
+                      <div className="flex items-center gap-3 px-5 py-2.5 bg-gray-50/70">
+                        <button onClick={() => setCollapsed((c) => ({ ...c, [group.group]: !c[group.group] }))}
+                          className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-gray-400 hover:text-gray-600">
+                          {isCollapsed ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+                          {group.group}
+                        </button>
+                        <label className="ml-auto flex items-center gap-2 cursor-pointer select-none">
+                          <span className="text-[11px] text-gray-400">All</span>
+                          <div
+                            onClick={() => toggleGroup(group, !allOn)}
+                            className={cn("relative h-5 w-9 rounded-full transition-colors cursor-pointer",
+                              allOn ? "bg-blue-500" : "bg-gray-200")}>
+                            <div className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
+                              allOn ? "translate-x-4" : "translate-x-0.5")} />
+                          </div>
+                        </label>
+                      </div>
+
+                      {/* Permission rows */}
+                      {!isCollapsed && (
+                        <div className="px-5 py-2 space-y-2.5">
+                          {group.permissions.map((p) => (
+                            <label key={p} className="flex items-center gap-3 cursor-pointer group/perm">
+                              <Cb checked={perms.includes(p) || perms.includes("*")} onChange={() => togglePerm(p)} />
+                              <span className="text-sm font-mono text-gray-700 group-hover/perm:text-blue-600 transition-colors">{p}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50/40">
+                <p className="text-xs text-gray-400">
+                  {perms.length} permission{perms.length !== 1 ? "s" : ""} selected
+                </p>
+                <button onClick={handleSavePerms} disabled={saving}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium transition-all shadow-sm",
+                    saved ? "bg-green-500 text-white"
+                           : "bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-60"
+                  )}>
+                  {saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
+                   : saved ? <><CheckCircle2 className="h-4 w-4" /> Saved</>
+                           : <><Save className="h-4 w-4" /> Save</>}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* No user selected */}
-      {!selectedUser && (
-        <div className="rounded-xl border-2 border-dashed border-gray-200 py-16 text-center">
-          <Search className="mx-auto h-8 w-8 text-gray-300 mb-3" />
-          <p className="text-sm font-medium text-gray-500">Search and select a user to manage permissions</p>
-          <p className="text-xs text-gray-400 mt-1">You can also copy permissions from another user</p>
-        </div>
-      )}
-
-      {/* Permissions Table */}
-      {selectedUser && user && (
-        <div className="rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
-          {/* Selected user header */}
-          <div className="flex items-center gap-3 px-5 py-3.5 bg-blue-50 border-b border-blue-100">
-            <p className="text-sm font-semibold text-gray-800">
-              Editing permissions for: <span className="text-blue-700">{user.name}</span>
-            </p>
-            <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium",
-              ROLE_COLORS[user.role] ?? "bg-gray-50 text-gray-600 border-gray-200")}>
-              {user.role}
-            </span>
-          </div>
-
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-left border-b border-gray-100">
-                <th className="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 w-[40%]">Page / Module</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 text-center">View</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 text-center">Edit</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 text-center">Delete</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 text-center">Print</th>
-                <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 text-center">All</th>
-              </tr>
-            </thead>
-            <tbody>
-              {PAGE_GROUPS.map((group) => (
-                <>
-                  {/* Group header row */}
-                  <tr key={`group-${group.group}`} className="bg-gray-50/70">
-                    <td colSpan={6} className="px-5 py-2">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                        {group.group}
-                      </span>
-                    </td>
-                  </tr>
-
-                  {/* Page rows */}
-                  {group.pages.map((page, idx) => {
-                    const p = perms[page] ?? { view: false, edit: false, delete: false, print: false };
-                    const allOn = isAllForPage(page);
-                    return (
-                      <tr
-                        key={page}
-                        className={cn(
-                          "border-b border-gray-50 hover:bg-blue-50/30 transition-colors",
-                          idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"
-                        )}
-                      >
-                        <td className="px-5 py-3 text-sm font-medium text-gray-700">{page}</td>
-                        <td className="px-4 py-3 text-center">
-                          <Cb checked={p.view} onChange={() => setPerm(page, "view", !p.view)} />
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <Cb checked={p.edit} onChange={() => setPerm(page, "edit", !p.edit)} />
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <Cb checked={p.delete} onChange={() => setPerm(page, "delete", !p.delete)} />
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <Cb checked={p.print} onChange={() => setPerm(page, "print", !p.print)} />
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                            <div
-                              onClick={() => setAllForPage(page, !allOn)}
-                              className={cn(
-                                "relative h-5 w-9 rounded-full transition-colors cursor-pointer",
-                                allOn ? "bg-blue-500" : "bg-gray-200"
-                              )}
-                            >
-                              <div className={cn(
-                                "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
-                                allOn ? "translate-x-4" : "translate-x-0.5"
-                              )} />
-                            </div>
-                          </label>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </>
-              ))}
-            </tbody>
-          </table>
-
-          {/* Footer save */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-t border-gray-100 bg-gray-50">
-            <p className="text-xs text-gray-400">
-              Changes will take effect when {user.name} next logs in
-            </p>
-            <button
-              onClick={handleSave}
-              className={cn(
-                "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all shadow-sm",
-                saved ? "bg-green-500 text-white" : "bg-blue-500 text-white hover:bg-blue-600"
-              )}
-            >
-              <Save className="h-4 w-4" />
-              {saved ? "Saved!" : "Save Permissions"}
+      {/* Add / Edit Role Modal */}
+      <Modal isOpen={showModal} onClose={() => setShowModal(false)}
+        title={editRole ? "Edit Role" : "Add New Role"} size="sm"
+        footer={
+          <>
+            <button onClick={() => setShowModal(false)} disabled={modalSaving}
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
+            <button onClick={handleModalSave} disabled={modalSaving || !rName.trim()}
+              className="flex items-center gap-2 rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-60">
+              {modalSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {editRole ? "Save Changes" : "Add Role"}
             </button>
+          </>
+        }>
+        <div className="rounded-xl bg-white p-4 shadow-sm space-y-3.5">
+          <div>
+            <label className={labelCls}>Role Name *</label>
+            <input value={rName} onChange={(e) => setRName(e.target.value)} placeholder="e.g. Manager" className={inputCls} />
           </div>
+          <div>
+            <label className={labelCls}>Description</label>
+            <input value={rDesc} onChange={(e) => setRDesc(e.target.value)} placeholder="Optional description" className={inputCls} />
+          </div>
+          {editRole && (
+            <div className="flex items-center gap-3">
+              <label className={labelCls + " mb-0"}>Active</label>
+              <button type="button" onClick={() => setRActive((v) => !v)}
+                className={cn("relative h-5 w-9 rounded-full transition-colors cursor-pointer", rActive ? "bg-blue-500" : "bg-gray-200")}>
+                <div className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform", rActive ? "translate-x-4" : "translate-x-0.5")} />
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </Modal>
+
+      {/* Delete Modal */}
+      <Modal isOpen={!!deleteId} onClose={() => setDeleteId(null)} title="Delete Role" size="sm"
+        footer={
+          <>
+            <button onClick={() => setDeleteId(null)}
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
+            <button onClick={() => handleDelete(deleteId!)}
+              className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600">Delete</button>
+          </>
+        }>
+        <div className="rounded-xl bg-white p-4 shadow-sm flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-gray-600">
+            Delete <span className="font-semibold">{roles.find((r) => r.id === deleteId)?.name}</span>? This cannot be undone.
+          </p>
+        </div>
+      </Modal>
     </div>
   );
 }

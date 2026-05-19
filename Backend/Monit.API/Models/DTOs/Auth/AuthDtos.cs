@@ -3,10 +3,11 @@ namespace Monit.API.Models.DTOs.Auth;
 public record LoginRequest(string Username, string Password);
 
 public record LoginResponse(
-    string AccessToken,
-    string TokenType,
-    DateTime ExpiresAt,
-    UserInfo User
+    string       AccessToken,
+    string       TokenType,
+    DateTime     ExpiresAt,
+    UserInfo     User,
+    List<string> Permissions
 );
 
 public record UserInfo(
@@ -18,8 +19,8 @@ public record UserInfo(
 );
 
 public record RefreshResponse(
-    string AccessToken,
-    string TokenType,
+    string   AccessToken,
+    string   TokenType,
     DateTime ExpiresAt
 );
 

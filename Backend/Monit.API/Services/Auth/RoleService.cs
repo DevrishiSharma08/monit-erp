@@ -88,5 +88,6 @@ public class RoleService(IRoleRepository repo) : IRoleService
         new() { Group = "Logistics",   Permissions = ["logistics.read", "logistics.write"] },
         new() { Group = "Reports",     Permissions = ["reports.read"] },
         new() { Group = "Users",       Permissions = ["users.read", "users.write", "users.delete"] },
+        new() { Group = "Data Access", Permissions = ["finance.view_costs", "clients.view_contacts"] },
     ];
 }

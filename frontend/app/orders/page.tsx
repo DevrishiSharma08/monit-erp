@@ -13,6 +13,7 @@ import { Modal } from "@/components/Modal";
 import { EmailModal, EmailFormData } from "@/components/EmailModal";
 import { useSalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import { createPortal } from "react-dom";
 import { useRef, useEffect } from "react";
@@ -111,7 +112,7 @@ function RowActions({
 
 // ─── View SO Modal ────────────────────────────────────────────────────────────
 
-function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrder; onEdit: () => void; onSend?: () => void; onClose: () => void; emailSent?: boolean }) {
+function ViewSOModal({ so, onEdit, onSend, onClose, emailSent, canViewCosts }: { so: SalesOrder; onEdit: () => void; onSend?: () => void; onClose: () => void; emailSent?: boolean; canViewCosts: boolean }) {
   const statusCls = SO_STATUS_COLORS[so.status] ?? "bg-gray-100 text-gray-600";
 
   return createPortal(
@@ -175,9 +176,9 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">#</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">Material</th>
                     <th className="px-3 py-2 text-right font-semibold text-gray-600">Qty / Weight</th>
-                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Rate</th>
-                    <th className="px-3 py-2 text-right font-semibold text-gray-500">Disc %</th>
-                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>
+                    {canViewCosts && <th className="px-3 py-2 text-right font-semibold text-gray-600">Rate</th>}
+                    {canViewCosts && <th className="px-3 py-2 text-right font-semibold text-gray-500">Disc %</th>}
+                    {canViewCosts && <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>}
                     <th className="px-3 py-2 text-left font-semibold text-gray-500">Req. Date</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-500">Status</th>
                   </tr>
@@ -202,13 +203,9 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
                           <span>{(line.weightKg ?? line.orderedQty).toLocaleString()} KG</span>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-right text-gray-700">₹{line.rate.toLocaleString("en-IN")}</td>
-                      <td className="px-3 py-2.5 text-right text-gray-500">
-                        {line.discount && line.discount > 0 ? `${line.discount}%` : "—"}
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-bold text-gray-900">
-                        ₹{line.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                      </td>
+                      {canViewCosts && <td className="px-3 py-2.5 text-right text-gray-700">₹{line.rate.toLocaleString("en-IN")}</td>}
+                      {canViewCosts && <td className="px-3 py-2.5 text-right text-gray-500">{line.discount && line.discount > 0 ? `${line.discount}%` : "—"}</td>}
+                      {canViewCosts && <td className="px-3 py-2.5 text-right font-bold text-gray-900">₹{line.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</td>}
                       <td className="px-3 py-2.5 text-gray-600">{line.requiredDeliveryDate}</td>
                       <td className="px-3 py-2.5">
                         <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
@@ -219,15 +216,17 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="bg-blue-50 border-t-2 border-blue-200">
-                    <td colSpan={5} className="px-3 py-2.5 text-right text-xs font-semibold text-blue-700">
-                      Order Total
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-sm font-black text-blue-800">
-                      ₹{so.totalValue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                    </td>
-                    <td colSpan={2} />
-                  </tr>
+                  {canViewCosts && (
+                    <tr className="bg-blue-50 border-t-2 border-blue-200">
+                      <td colSpan={5} className="px-3 py-2.5 text-right text-xs font-semibold text-blue-700">
+                        Order Total
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-sm font-black text-blue-800">
+                        ₹{so.totalValue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </td>
+                      <td colSpan={2} />
+                    </tr>
+                  )}
                 </tfoot>
               </table>
             </div>
@@ -270,6 +269,7 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
 
 export default function OrdersPage() {
   const { success } = useToast();
+  const { canViewCosts } = useAuth();
   const { salesOrders, reload, deleteSalesOrder } = useSalesOrder();
 
   const [showForm, setShowForm]         = useState(false);
@@ -411,12 +411,12 @@ export default function OrdersPage() {
     },
     {
       id: "totalValue", accessorKey: "totalValue", header: "Amount",
-      filterType: "none", enableSorting: true, defaultVisible: true, size: 130,
-      cell: (info) => (
+      filterType: "none", enableSorting: true, defaultVisible: canViewCosts, size: 130,
+      cell: (info) => canViewCosts ? (
         <span className="font-semibold text-gray-900">
           ₹{(info.getValue() as number).toLocaleString("en-IN", { minimumFractionDigits: 0 })}
         </span>
-      ),
+      ) : <span className="text-gray-300 select-none">••••••</span>,
     },
     {
       id: "status", accessorKey: "status", header: "Status",
@@ -608,6 +608,7 @@ export default function OrdersPage() {
           onSend={() => { setEmailOrder(viewOrder); setViewOrder(null); }}
           onClose={() => setViewOrder(null)}
           emailSent={emailSentIds.has(viewOrder.id)}
+          canViewCosts={canViewCosts}
         />
       )}
 

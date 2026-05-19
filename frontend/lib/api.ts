@@ -108,17 +108,17 @@ export function notifyAuthSettled(): void {
 
 // ─── Public ───────────────────────────────────────────────────────────────────
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function apiFetch<T>(path: string, options: RequestInit = {}, _retried = false): Promise<T> {
   if (!path.startsWith("/api/v1/auth/")) {
     await _authSettlePromise;
   }
   try {
     return await doFetch<T>(path, options);
   } catch (err) {
-    if (err instanceof ApiError && err.status === 401) {
+    if (err instanceof ApiError && err.status === 401 && !_retried) {
       const newToken = await refreshOnce();
       if (!newToken) throw err;
-      return doFetch<T>(path, options, newToken);
+      return apiFetch<T>(path, options, true);
     }
     throw err;
   }

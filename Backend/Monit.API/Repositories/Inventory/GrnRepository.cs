@@ -297,8 +297,6 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
         GrnComputedValues cv,
         string createdBy)
     {
-        var balance = ctx.OrderedQty - cv.PrevQty - dto.ReceivedQty;
-
         const string sql = @"
             INSERT INTO inventory.GRNs (
                 GRNNumber, GRNDate, [Status],
@@ -336,6 +334,26 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
                 GETUTCDATE(), @CreatedBy
             )";
 
+        using var conn = db.Create();
+        // db.Create() already opens the connection; begin a transaction so
+        // UPDLOCK on the prevQty read is held until the INSERT commits.
+        using var tx = conn.BeginTransaction();
+
+        // Re-read prevQty under UPDLOCK+HOLDLOCK so concurrent GRN creates
+        // queue here instead of both reading the same value and both succeeding.
+        var lockedPrevQty = await conn.ExecuteScalarAsync<decimal>(
+            "SELECT ISNULL(SUM(ReceivedQty), 0) FROM inventory.GRNs WITH (UPDLOCK, HOLDLOCK) WHERE MillTrackerId = @TrackerId AND IsDeleted = 0",
+            new { TrackerId = dto.MillTrackerId }, tx);
+
+        if (lockedPrevQty + dto.ReceivedQty > ctx.OrderedQty)
+        {
+            tx.Rollback();
+            throw new InvalidOperationException(
+                $"Cannot receive {dto.ReceivedQty:N3} MT — only {ctx.OrderedQty - lockedPrevQty:N3} MT remaining (concurrent check).");
+        }
+
+        var balance = Math.Max(0, ctx.OrderedQty - lockedPrevQty - dto.ReceivedQty);
+
         var p = new DynamicParameters();
         p.Add("GrnNumber",             cv.GrnNumber);
         p.Add("GrnDate",               dto.GrnDate);
@@ -349,11 +367,11 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
         p.Add("Gsm",                   ctx.Gsm);
         p.Add("Size",                  ctx.Size);
         p.Add("OrderedQty",            ctx.OrderedQty);
-        p.Add("PrevQty",               cv.PrevQty);
+        p.Add("PrevQty",               lockedPrevQty);
         p.Add("ReceivedQty",           dto.ReceivedQty);
         p.Add("ShortQty",              dto.ShortQty);
         p.Add("DamagedQty",            dto.DamagedQty);
-        p.Add("Balance",               balance < 0 ? 0 : balance);
+        p.Add("Balance",               balance);
         p.Add("ReceivedWeightMt",      dto.ReceivedWeightMt);
         p.Add("WarehouseId",           dto.WarehouseId);
         p.Add("BinLocationId",         dto.BinLocationId);
@@ -379,8 +397,8 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
         p.Add("DirectClientName",      cv.DirectClientName);
         p.Add("CreatedBy",             createdBy);
 
-        using var conn = db.Create();
-        var newId = await conn.ExecuteScalarAsync<int>(sql, p);
+        var newId = await conn.ExecuteScalarAsync<int>(sql, p, tx);
+        tx.Commit();
         return (await GetByIdAsync(newId))!;
     }
 

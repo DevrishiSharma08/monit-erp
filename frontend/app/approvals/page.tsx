@@ -2,9 +2,6 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import {
-  SalesOrder, SalesOrderLine, mockCustomers,
-} from "@/data/mockData";
-import {
   ThumbsUp, Clock, IndianRupee, Eye, Mail, X, Check, Package,
   ShoppingCart, Pencil, Factory,
 } from "lucide-react";
@@ -17,17 +14,16 @@ import { SalesOrderForm } from "@/components/forms/SalesOrderForm";
 import { PurchaseOrderForm } from "@/components/forms/PurchaseOrderForm";
 import { cn } from "@/lib/utils";
 import { createPortal } from "react-dom";
-import { useSalesOrder } from "@/context/SalesOrderContext";
+import { useSalesOrder, SalesOrder, SOLine } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
 import { poApi, PORow, CreatePODto } from "@/lib/api-services";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildEmailData(so: SalesOrder): EmailFormData {
-  const customerRecord = mockCustomers.find((c) => c.company === so.customer);
   const totalKg = so.lines.reduce((s, l) => s + ((l as any).weightKg ?? 0), 0);
   return {
-    to:      customerRecord?.email ?? (so as any).customerEmail ?? "",
+    to:      so.customerEmail ?? "",
     cc:      "",
     subject: `Sales Order ${so.soNumber} Approved — ${so.customer}`,
     body: [
@@ -474,7 +470,7 @@ function POApprovalViewModal({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ApprovalsPage() {
-  const { salesOrders, updateSalesOrder } = useSalesOrder();
+  const { salesOrders, updateSalesOrder, reload } = useSalesOrder();
   const { success, error: showError } = useToast();
 
   // ── Tab state ─────────────────────────────────────────────────────────────
@@ -490,7 +486,7 @@ export default function ApprovalsPage() {
   const [viewOrder,    setViewOrder]    = useState<SalesOrder | null>(null);
   const [emailOrder,   setEmailOrder]   = useState<SalesOrder | null>(null);
   const [showForm,     setShowForm]     = useState(false);
-  const [editingOrder, setEditingOrder] = useState<Partial<SalesOrder> | undefined>();
+  const [editingOrder, setEditingOrder] = useState<SalesOrder | undefined>();
 
   // ── PO state ──────────────────────────────────────────────────────────────
   const [pendingPOs,     setPendingPOs]     = useState<PORow[]>([]);
@@ -586,14 +582,12 @@ export default function ApprovalsPage() {
     setShowForm(true);
   }, []);
 
-  const handleSubmit = useCallback((data: Partial<SalesOrder>) => {
-    if (data.id) {
-      updateSalesOrder(data.id, data);
-      success("Sales order updated.");
-    }
+  const handleFormSuccess = useCallback((_soNumber: string, _isUpdate: boolean) => {
+    reload();
+    success("Sales order updated.");
     setShowForm(false);
     setEditingOrder(undefined);
-  }, [updateSalesOrder, success]);
+  }, [reload, success]);
 
   const handleApprove = useCallback((id: string) => {
     updateSalesOrder(id, { status: "Pending Allocation" });
@@ -724,7 +718,7 @@ export default function ApprovalsPage() {
       id: "lines", accessorKey: "lines", header: "Items",
       filterType: "none", enableSorting: false, defaultVisible: true, size: 260,
       cell: (info) => {
-        const lines = info.getValue() as SalesOrderLine[];
+        const lines = info.getValue() as SOLine[];
         const preview = lines.slice(0, 2);
         return (
           <div className="space-y-1 py-0.5">
@@ -1130,7 +1124,7 @@ export default function ApprovalsPage() {
         >
           <SalesOrderForm
             initialData={editingOrder}
-            onSubmit={handleSubmit}
+            onSuccess={handleFormSuccess}
             onCancel={() => { setShowForm(false); setEditingOrder(undefined); }}
           />
         </Modal>

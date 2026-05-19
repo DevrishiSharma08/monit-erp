@@ -504,6 +504,34 @@ export const roleApi = {
   permissions: () => apiFetch<PermissionGroup[]>(`${RL_BASE}/permissions`),
 };
 
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+export interface DashboardOrderRow {
+  id: number; number: string; party: string;
+  status: string; totalValue: number; orderDate: string;
+}
+export interface DashboardMillTrackerRow {
+  id: number; material: string; mill: string;
+  orderedQty: number; productionStatus: string; productionProgress: number;
+}
+export interface DashboardStatusItem { name: string; value: number; }
+export interface DashboardSummary {
+  openSoCount: number; openSoValue: number;
+  openPoCount: number; openPoValue: number;
+  pendingGrnCount: number;
+  availableStockLots: number; availableStockQty: number;
+  millTrackerTotal: number; millTrackerReady: number;
+  recentSalesOrders: DashboardOrderRow[];
+  recentPurchaseOrders: DashboardOrderRow[];
+  millTrackers: DashboardMillTrackerRow[];
+  soStatusBreakdown: DashboardStatusItem[];
+  poStatusBreakdown: DashboardStatusItem[];
+}
+
+export const dashboardApi = {
+  summary: () => apiFetch<DashboardSummary>("/api/v1/dashboard/summary"),
+};
+
 // ── Sales Orders ──────────────────────────────────────────────────────────────
 
 export interface SalesOrderLineDto {

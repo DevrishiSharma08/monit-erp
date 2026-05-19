@@ -31,8 +31,8 @@ export function EmailModal({ title, initialData, onSend, onClose }: EmailModalPr
       setForm((p) => ({ ...p, [field]: e.target.value }));
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-white/10 p-2 sm:p-4">
+      <div className="w-full sm:max-w-lg rounded-xl sm:rounded-2xl bg-white shadow-2xl flex flex-col max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)]">
 
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5 flex-shrink-0">

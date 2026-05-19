@@ -15,4 +15,6 @@ public class User : BaseEntity
     public DateTime? LastLoginAt        { get; set; }
     public string?   RefreshToken       { get; set; }
     public DateTime? RefreshTokenExpiry { get; set; }
+    // Joined from auth.Roles — not a DB column on Users
+    public string?   RolePermissions    { get; set; }
 }
