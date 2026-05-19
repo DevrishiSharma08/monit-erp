@@ -55,6 +55,7 @@ public class PurchaseOrderListDto
     public string?  Remarks               { get; set; }
     public string?  SpecialInstructions   { get; set; }
     public DateTime CreatedAt             { get; set; }
+    public string?  EmailSentAt           { get; set; }
     public List<PurchaseOrderItemDto> Items { get; set; } = [];
 }
 

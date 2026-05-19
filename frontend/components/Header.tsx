@@ -28,7 +28,7 @@ const pageNames: Record<string, string> = {
   "/tally-export": "Tally Export",
   "/payments": "Payments",
   "/bin-locations": "Bin Locations",
-  "/stock-lots": "Stock Lots (FIFO)",
+  "/stock-lots": "Stock Location",
   "/reports": "Reports",
   "/reports/sales-performance": "Sales & Performance",
   "/reports/mill-supply": "Mill & Supply",

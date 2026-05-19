@@ -84,4 +84,8 @@ public class MillsController(IMillService millService) : ControllerBase
         var fileName = $"Mills_{DateTime.Now:yyyyMMdd_HHmm}.{ext}";
         return File(bytes, contentType, fileName);
     }
+
+    [HttpGet("{id:int}/contacts")]
+    public async Task<IActionResult> GetContacts(int id)
+        => Ok(ApiResponse<List<MillContactDto>>.Ok(await millService.GetContactsAsync(id)));
 }

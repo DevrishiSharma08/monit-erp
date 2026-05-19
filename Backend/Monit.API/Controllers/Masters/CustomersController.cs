@@ -65,4 +65,8 @@ public class CustomersController(ICustomerService svc) : ControllerBase
         };
         return File(bytes, ct, $"Customers_{DateTime.Now:yyyyMMdd_HHmm}.{ext}");
     }
+
+    [HttpGet("{id:int}/contacts")]
+    public async Task<IActionResult> GetContacts(int id)
+        => Ok(ApiResponse<List<CustomerContactDto>>.Ok(await svc.GetContactsAsync(id)));
 }

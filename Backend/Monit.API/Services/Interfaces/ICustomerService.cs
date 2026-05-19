@@ -13,4 +13,5 @@ public interface ICustomerService
     Task<CustomerDetailDto>             UpdateAsync(int id, UpdateCustomerDto dto, string updatedBy);
     Task                                DeleteAsync(int id, string deletedBy);
     Task<byte[]>                        ExportAsync(CustomerFilterRequest filter, string format);
+    Task<List<CustomerContactDto>>      GetContactsAsync(int customerId);
 }

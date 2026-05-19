@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Monit Paper Agency ERP** — Internal admin panel for a paper trading company (Indore). Covers the full paper trading lifecycle: procurement, inventory, sales orders, dispatch planning, invoicing, analytics, and role management.
 
-**Current status:** Phase 1 frontend prototype is complete using mock data. Backend API integration is the next phase.
+**Current status:** Phase 1 backend integration is in progress. Procurement + Sales Order flow (SO, PO, Approvals, Mill Tracker) is connected to the .NET 8 API. Email dispatch (MailKit) and PDF generation (QuestPDF) are fully implemented. Pages not yet integrated still use mock data from `mockData.ts`.
 
 ## Tech Stack
 
@@ -32,11 +32,13 @@ npm run lint     # ESLint
 
 ### Data Layer
 
-All data currently lives in [frontend/data/mockData.ts](frontend/data/mockData.ts). This single file contains:
-- All TypeScript interfaces/types for every entity (CustomerInquiry, SalesOrder, GRN, etc.)
-- Mock arrays used by every page
+**Integrated pages** use `lib/api-services.ts` which contains typed `fetch` wrappers for every backend endpoint. The backend is a .NET 8 API (Dapper + MSSQL) running at `http://localhost:5000`.
 
-When integrating the backend, replace mock data usage with API calls but keep the interfaces in `mockData.ts` or migrate them to a dedicated `types/` directory.
+**Non-integrated pages** still read from `frontend/data/mockData.ts`, which holds all TypeScript interfaces and mock arrays. When integrating a page, replace mock data reads with API calls from `api-services.ts`.
+
+**Key utilities:**
+- `lib/api-services.ts` — all API call functions, typed request/response interfaces
+- `lib/emailSentCache.ts` — localStorage cache for email-sent state (shared across SO, PO, Approvals pages)
 
 Backend API contracts are documented in [BACKEND_REQUIREMENTS.md](BACKEND_REQUIREMENTS.md).
 
@@ -73,3 +75,12 @@ Masters at: `/masters/materials`, `/masters/mills`, `/masters/salesmen`, `/maste
 - **Challan** = delivery document created from a truck load plan.
 - **GRN** = Goods Receipt Note, recorded when material arrives at the godown.
 - **Pick Plan** uses FIFO + Bin location logic for warehouse picking.
+
+## Backend Services (Phase 1 Complete)
+
+- **Email** — MailKit 4.9.0, Gmail App Password via SMTP StartTLS on port 587. SMTP credentials stored in `system.CompanyConfig` (Id=1). Sending attaches a PDF of the SO/PO.
+- **PDF generation** — QuestPDF 2024.12.0 (Community license). `SalesOrderPdfService` and `PurchaseOrderPdfService` in `Backend/Monit.API/Services/`.
+- **PO rate logic** — PO stores `Rate` as the final (post-discount) rate; base rate back-calculated as `Rate / (1 - Discount/100)` for display in emails and PDF.
+- **SO rate logic** — SO stores `Rate` as the base (pre-discount) rate; `Discount` is a ₹ amount; `FinalPrice = Rate - Discount`.
+- **Company Config** — `system.CompanyConfig` singleton (Id=1). MERGE SQL uses "null = keep existing, empty string = clear" pattern so saving one section (e.g. SMTP) never overwrites another section (e.g. Insurance).
+- **EmailSentAt** — both SO and PO tables have `EmailSentAt` column. Frontend `emailSentCache.ts` persists sent IDs in localStorage so the "Mail Sent ✓" state is consistent across page navigations and the Approvals page.

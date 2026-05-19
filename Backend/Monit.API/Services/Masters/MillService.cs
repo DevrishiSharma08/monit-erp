@@ -75,6 +75,9 @@ public class MillService(
         await millRepo.SoftDeleteAsync(id, deletedBy);
     }
 
+    public Task<List<MillContactDto>> GetContactsAsync(int millId)
+        => millRepo.GetContactsAsync(millId);
+
     public async Task<byte[]> ExportAsync(MillFilterRequest filter, string format)
     {
         var data    = await millRepo.GetAllForExportAsync(filter);

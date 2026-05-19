@@ -36,7 +36,8 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
             po.GSTPercentage,
             po.Remarks,
             po.SpecialInstructions,
-            po.CreatedAt
+            po.CreatedAt,
+            CONVERT(NVARCHAR(20), po.EmailSentAt, 120) AS EmailSentAt
         FROM   procurement.PurchaseOrders      po
         JOIN   masters.Mills                   m  ON m.Id  = po.MillId
         LEFT JOIN sales.SalesOrders            so ON so.Id = po.LinkedSOId
@@ -227,6 +228,16 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
         await conn.ExecuteAsync(
             "UPDATE procurement.PurchaseOrderItems SET IsDeleted=1, DeletedAt=GETUTCDATE(), DeletedBy=@By WHERE POId=@Id AND IsDeleted=0",
             new { Id = id, By = deletedBy });
+    }
+
+    // ── MarkEmailSent ─────────────────────────────────────────────────────────
+
+    public async Task MarkEmailSentAsync(int id)
+    {
+        using var conn = db.Create();
+        await conn.ExecuteAsync(
+            "UPDATE procurement.PurchaseOrders SET EmailSentAt = GETUTCDATE() WHERE Id = @Id AND IsDeleted = 0",
+            new { Id = id });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

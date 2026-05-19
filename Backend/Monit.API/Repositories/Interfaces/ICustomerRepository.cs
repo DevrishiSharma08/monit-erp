@@ -14,4 +14,5 @@ public interface ICustomerRepository
     Task<int>                           CreateAsync(Customer customer, IEnumerable<CustomerContact> contacts, IEnumerable<CustomerDeliveryLocation> locations, string createdBy);
     Task                                UpdateAsync(Customer customer, IEnumerable<CustomerContact> contacts, IEnumerable<CustomerDeliveryLocation> locations, string updatedBy);
     Task                                SoftDeleteAsync(int id, string deletedBy);
+    Task<List<CustomerContactDto>>      GetContactsAsync(int customerId);
 }

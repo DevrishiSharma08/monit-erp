@@ -49,6 +49,10 @@ public class MillTrackerRepository(DbConnectionFactory db) : IMillTrackerReposit
             mt.Remarks,
             po.MillSONumber,
             po.DirectDeliveryAddress,
+            (SELECT TOP 1 mu.Address
+             FROM   masters.MillUnits mu
+             WHERE  mu.MillId = mt.MillId AND mu.IsDeleted = 0
+             ORDER  BY mu.IsDefault DESC, mu.Id)                                AS MillAddress,
             mt.CreatedAt
         FROM  procurement.MillTrackers           mt
         JOIN  masters.Mills                      mil ON mil.Id  = mt.MillId
