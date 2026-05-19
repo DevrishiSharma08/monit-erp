@@ -1,15 +1,15 @@
 # Monit Paper Agency ERP — Backend Architecture Reference
 
-**Created:** 2026-04-28 | **Updated:** 2026-04-28
+**Created:** 2026-04-28 | **Updated:** 2026-05-19
 **Stack:** .NET 8 Web API + Dapper + SQL Server (MSSQL)
-**Pattern:** Clean Architecture (Domain → Application → Infrastructure → API)
+**Pattern:** Single-project layered architecture (Controllers → Services → Repositories → DB)
 **Purpose:** Single source of truth for all backend design decisions. Read before touching any backend code.
 
 ---
 
 ## 1. Context & Constraints
 
-- **Phase 1 (current):** Procurement flow — Inquiry → SO → Coverage → PO → Mill Tracker → GRN → Stock → Pick Plan → TLP → Challan → In-Transit + all Masters + Auth
+- **Phase 1 (current):** Procurement flow — Inquiry → SO → Coverage → PO → Mill Tracker → GRN → Stock → Pick Plan → TLP → Challan → In-Transit + all Masters + Auth. **Backend API integration is in progress** — Auth, Masters, Sales Orders, Purchase Orders, Mill Tracker, TLP, GRN, Stock Lots, Company Config, and Dashboard are complete.
 - **Phase 2 (future):** Invoicing (Sales + Purchase), Payments, Tally export, Customer portal
 - **Phase 3 (future):** Full reporting dashboards, advanced analytics
 - **Non-negotiable:** SO / PO / GRN data must survive all future phases without corruption — no destructive ALTER TABLE on core tables ever
@@ -41,105 +41,105 @@
 
 ## 3. Solution Structure
 
+The backend is a **single ASP.NET Core Web API project** (`Monit.API`) using a layered folder structure — not the multi-project Clean Architecture described in the original design. All concerns live within one project.
+
 ```
-Monit.sln
+Backend/Monit.API/
 │
-├── src/
-│   ├── Monit.API/                        ← ASP.NET Core Web API (Presentation layer)
-│   │   ├── Controllers/
-│   │   │   ├── Auth/
-│   │   │   ├── Masters/                  ← Mills, Materials, Customers, Salesmen, etc.
-│   │   │   ├── Sales/                    ← Inquiries, SalesOrders, Coverage
-│   │   │   ├── Procurement/              ← PurchaseOrders, MillTrackers
-│   │   │   ├── Inventory/                ← GRNs, StockLots
-│   │   │   ├── Logistics/                ← PickPlans, TLP, Challans, InTransit
-│   │   │   └── System/                   ← Notifications, Health
-│   │   ├── Middleware/
-│   │   │   ├── ExceptionMiddleware.cs    ← Global exception → standard error response
-│   │   │   └── RequestLoggingMiddleware.cs
-│   │   ├── Filters/
-│   │   │   └── ValidationFilter.cs       ← Auto-returns 400 on FluentValidation failure
-│   │   ├── Extensions/
-│   │   │   └── ServiceCollectionExtensions.cs
-│   │   └── Program.cs
-│   │
-│   ├── Monit.Application/                ← Business logic — no SQL, no HTTP here
-│   │   ├── Features/                     ← One sub-folder per feature/aggregate
-│   │   │   ├── Auth/
-│   │   │   │   ├── Commands/             ← LoginCommand, RefreshTokenCommand
-│   │   │   │   ├── Queries/
-│   │   │   │   └── DTOs/
-│   │   │   ├── Inquiries/
-│   │   │   │   ├── Commands/             ← CreateInquiry, UpdateInquiry, ConvertToSO, CheckCoverage
-│   │   │   │   ├── Queries/              ← GetInquiries, GetInquiryById
-│   │   │   │   └── DTOs/
-│   │   │   ├── SalesOrders/
-│   │   │   ├── Coverage/
-│   │   │   ├── PurchaseOrders/
-│   │   │   ├── MillTrackers/
-│   │   │   ├── GRNs/
-│   │   │   ├── StockLots/
-│   │   │   ├── PickPlans/
-│   │   │   ├── TruckLoadPlans/
-│   │   │   ├── Challans/
-│   │   │   ├── InTransit/
-│   │   │   └── Masters/                  ← One Commands+Queries+DTOs per master type
-│   │   ├── Common/
-│   │   │   ├── Interfaces/
-│   │   │   │   ├── IRepository.cs        ← Generic: GetById, GetAll, Add, Update, Delete
-│   │   │   │   ├── IUnitOfWork.cs        ← Wraps SqlTransaction for multi-table ops
-│   │   │   │   └── ICurrentUser.cs       ← Gets userId/role from JWT claims
-│   │   │   ├── Models/
-│   │   │   │   ├── ApiResponse.cs        ← Standard { success, data, message, errors, meta }
-│   │   │   │   └── PagedResult.cs
-│   │   │   ├── Validators/               ← FluentValidation base classes
-│   │   │   └── Exceptions/               ← NotFoundException, ForbiddenException, ConflictException
-│   │   └── Mappings/                     ← Mapster config (Entity ↔ DTO)
-│   │
-│   ├── Monit.Domain/                     ← Pure POCO models — ZERO external dependencies
-│   │   ├── Entities/
-│   │   │   ├── Base/
-│   │   │   │   └── BaseEntity.cs         ← See section 4
-│   │   │   ├── Auth/                     ← User, Role, Team, TeamMember
-│   │   │   ├── Masters/                  ← Mill, Material, Customer, Salesman, etc.
-│   │   │   ├── Sales/                    ← Inquiry, InquiryRequirement, SalesOrder, SalesOrderLine
-│   │   │   ├── Procurement/              ← PurchaseOrder, PurchaseOrderItem, MillTracker, ...
-│   │   │   ├── Inventory/                ← GRN, StockLot, StockAllocation, BinLocation
-│   │   │   └── Logistics/                ← PickPlan, TruckLoadPlan, Challan, InTransitTracking
-│   │   └── Enums/                        ← Minimal — only used in C# logic, not stored in DB
-│   │
-│   └── Monit.Infrastructure/             ← Dapper, SqlConnection, external services
-│       ├── Data/
-│       │   └── DbConnectionFactory.cs    ← Creates IDbConnection from connection string
-│       ├── Repositories/
-│       │   ├── GenericRepository.cs      ← Dapper-based generic CRUD
-│       │   ├── Auth/
-│       │   ├── Masters/
-│       │   ├── Sales/
-│       │   ├── Procurement/
-│       │   ├── Inventory/
-│       │   └── Logistics/
-│       ├── Services/
-│       │   ├── NumberSequenceService.cs  ← Thread-safe number gen: SO-2024-0001
-│       │   ├── CoverageService.cs        ← Stock + in-transit coverage calculation
-│       │   ├── PasswordService.cs        ← BCrypt hash/verify
-│       │   └── CurrentUserService.cs     ← Reads JWT claims
-│       └── DependencyInjection.cs        ← Registers all repos + services
+├── Controllers/
+│   ├── Auth/
+│   │   ├── AuthController.cs             ← Login, Refresh, Logout, Me, ChangePassword
+│   │   ├── UsersController.cs            ← User CRUD + export + password reset
+│   │   └── RolesController.cs            ← Role CRUD + permissions
+│   ├── Masters/
+│   │   ├── MillsController.cs
+│   │   ├── MaterialsController.cs
+│   │   ├── CustomersController.cs
+│   │   ├── SalesmenController.cs
+│   │   ├── WarehousesController.cs
+│   │   ├── TransportersController.cs
+│   │   ├── RatesController.cs
+│   │   ├── PaperSizesController.cs
+│   │   ├── StockGroupsController.cs
+│   │   ├── StockCategoriesController.cs
+│   │   ├── ItemTypesController.cs
+│   │   ├── UnitsController.cs
+│   │   ├── HsnCodesController.cs
+│   │   ├── LocalitiesController.cs
+│   │   ├── MQGController.cs              ← Mill Quality GSM master
+│   │   └── InstructionsController.cs
+│   ├── Sales/
+│   │   └── SalesOrdersController.cs
+│   ├── Procurement/
+│   │   ├── PurchaseOrdersController.cs
+│   │   ├── MillTrackerController.cs
+│   │   └── TruckLoadPlanController.cs
+│   ├── Inventory/
+│   │   ├── GrnController.cs
+│   │   └── StockLotsController.cs
+│   └── System/
+│       ├── CompanyConfigController.cs
+│       └── DashboardController.cs
 │
-└── database/                             ← ALL SQL scripts (run in order)
-    ├── 00_schemas.sql                    ← CREATE SCHEMA for all schemas
-    ├── 01_system_tables.sql              ← NumberSequences, AuditLogs, Notifications
-    ├── 02_auth_tables.sql                ← Users, Roles, Teams, TeamMembers
-    ├── 03_masters_tables.sql             ← All 14+ master tables
-    ├── 04_sales_tables.sql               ← Inquiries, SalesOrders, SalesOrderLines
-    ├── 05_procurement_tables.sql         ← PurchaseOrders, MillTrackers, History
-    ├── 06_inventory_tables.sql           ← GRNs, StockLots, Allocations, BinLocations
-    ├── 07_logistics_tables.sql           ← PickPlans, TLP, Challans, InTransit
-    ├── 08_indexes.sql                    ← All non-PK indexes
-    ├── 09_seed_data.sql                  ← NumberSequences seed + Admin user + sample masters
-    └── _future/
-        ├── phase2_finance_tables.sql     ← SalesInvoices, PurchaseInvoices, Payments (Phase 2)
-        └── phase3_reporting_tables.sql   ← Aggregates, snapshots (Phase 3)
+├── Services/                             ← Business logic; one service per entity
+│   ├── Auth/        AuthService, JwtService, UserManagementService, RoleService
+│   ├── Masters/     (one service per master type)
+│   ├── Sales/       SalesOrderService
+│   ├── Procurement/ PurchaseOrderService, MillTrackerService, TruckLoadPlanService
+│   ├── Inventory/   GrnService, StockLotService
+│   ├── System/      CompanyConfigService, DashboardService, ExportService
+│   └── Interfaces/  (one interface per service)
+│
+├── Repositories/                         ← Dapper raw SQL; one repo per entity
+│   ├── Auth/        UserRepository, RoleRepository
+│   ├── Masters/     AuthRepository + one repo per master type
+│   ├── Sales/       SalesOrderRepository
+│   ├── Procurement/ PurchaseOrderRepository, MillTrackerRepository, TruckLoadPlanRepository
+│   ├── Inventory/   GrnRepository, StockLotRepository
+│   ├── System/      CompanyConfigRepository, DashboardRepository
+│   └── Interfaces/  (one interface per repository)
+│
+├── Models/
+│   ├── DTOs/                             ← Request/Response shapes per module
+│   │   ├── Auth/        AuthDtos, RoleDtos, UserManagementDtos
+│   │   ├── Masters/     (one Dtos file per master)
+│   │   ├── Sales/       SalesOrderDtos
+│   │   ├── Procurement/ PurchaseOrderDtos
+│   │   ├── Inventory/   GrnDtos (+ StockLot, MillTracker, TLP inside)
+│   │   └── System/      CompanyConfigDtos, DashboardDtos
+│   └── Entities/                         ← POCO domain models (Dapper maps to these)
+│       ├── Base/        BaseEntity.cs
+│       ├── Auth/        User, Role
+│       ├── Masters/     Mill, Material, Customer, Salesman, Warehouse, etc.
+│       ├── Sales/       SalesOrder, SalesOrderLine
+│       ├── Procurement/ PurchaseOrder, PurchaseOrderItem
+│       └── System/      CompanyConfig
+│
+├── Common/
+│   ├── Middleware/    ExceptionMiddleware.cs   ← Global exception → ApiResponse error
+│   ├── Helpers/       AppConfig.cs, DependencyInjection.cs
+│   └── Response/      ApiResponse<T>, PagedResult<T>, FilterRequest
+│
+├── Data/
+│   ├── DbConnectionFactory.cs            ← Creates and opens SqlConnection
+│   └── DateOnlyTypeHandler.cs            ← Dapper type handler for DateOnly
+│
+└── Program.cs
+
+database/                                 ← SQL scripts (run in order)
+├── 00_schemas.sql
+├── 01_system_tables.sql
+├── 02_auth_tables.sql
+├── 03_masters_tables.sql
+├── 04_sales_tables.sql
+├── 05_procurement_tables.sql
+├── 06_inventory_tables.sql
+├── 07_logistics_tables.sql
+├── 08_indexes.sql
+├── 09_seed_data.sql
+└── _future/
+    ├── phase2_finance_tables.sql
+    └── phase3_reporting_tables.sql
 ```
 
 ---
@@ -785,22 +785,27 @@ logistics.InTransitTrackings
 ```
 
 ### Controller → Route Mapping
-| Controller | Base Route |
-|---|---|
-| AuthController | `/api/v1/auth` |
-| Mills/Materials/Customers/etc. | `/api/v1/masters/{resource}` |
-| InquiriesController | `/api/v1/sales/inquiries` |
-| SalesOrdersController | `/api/v1/sales/orders` |
-| CoverageController | `/api/v1/sales/coverage` |
-| PurchaseOrdersController | `/api/v1/procurement/purchase-orders` |
-| MillTrackersController | `/api/v1/procurement/mill-trackers` |
-| GRNsController | `/api/v1/inventory/grns` |
-| StockLotsController | `/api/v1/inventory/stock-lots` |
-| PickPlansController | `/api/v1/logistics/pick-plans` |
-| TruckLoadPlansController | `/api/v1/logistics/tlp` |
-| ChallansController | `/api/v1/logistics/challans` |
-| InTransitController | `/api/v1/logistics/in-transit` |
-| NotificationsController | `/api/v1/system/notifications` |
+| Controller | Base Route | Status |
+|---|---|---|
+| AuthController | `/api/v1/auth` | ✅ |
+| UsersController | `/api/v1/auth/users` | ✅ |
+| RolesController | `/api/v1/auth/roles` | ✅ |
+| Mills/Materials/Customers/etc. | `/api/v1/masters/{resource}` | ✅ |
+| SalesOrdersController | `/api/v1/sales/orders` | ✅ |
+| PurchaseOrdersController | `/api/v1/procurement/purchase-orders` | ✅ |
+| MillTrackerController | `/api/v1/procurement/mill-trackers` | ✅ |
+| TruckLoadPlanController | `/api/v1/procurement/tlp` | ✅ |
+| GrnController | `/api/v1/inventory/grns` | ✅ |
+| StockLotsController | `/api/v1/inventory/stock-lots` | ✅ |
+| CompanyConfigController | `/api/v1/system/company-config` | ✅ |
+| DashboardController | `/api/v1/system/dashboard` | ✅ |
+| InquiriesController | `/api/v1/sales/inquiries` | 🔲 planned |
+| CoverageController | `/api/v1/sales/coverage` | 🔲 planned |
+| PickPlansController | `/api/v1/logistics/pick-plans` | 🔲 planned |
+| TruckLoadPlansController | `/api/v1/logistics/tlp` | 🔲 planned |
+| ChallansController | `/api/v1/logistics/challans` | 🔲 planned |
+| InTransitController | `/api/v1/logistics/in-transit` | 🔲 planned |
+| NotificationsController | `/api/v1/system/notifications` | 🔲 planned |
 
 ### HTTP Verbs
 - `GET /resource` — paginated list
@@ -856,75 +861,93 @@ JWT:
   AccessTokenExpiry: 8 hours
   RefreshTokenExpiry: 7 days
 
+JWT Claims:
+  NameIdentifier  → user.Id
+  Name (username) → user.Username
+  Role            → user.Role
+  "name"          → user.Name (display name)
+  "customerName"  → user.CustomerName (only present for Customer-role users)
+  Jti             → Guid (token ID)
+
 CORS:
   Dev:  http://localhost:3000
-  Prod: https://monit-erp.com
+  Prod: configured via appsettings.json
+
+Password hashing:
+  BCrypt.Net-Next 4.0.3 (work factor 11)
+  Backward-compat: on login, detects $2-prefix to distinguish BCrypt from legacy plaintext;
+  auto-upgrades plaintext to BCrypt hash on first successful login.
+  Session revocation: RevokeRefreshTokenAsync called on password change and admin reset.
 
 Role permissions matrix:
-  Admin           → full access
-  Manager         → all read + create/update, no hard-delete
+  Admin           → full access (FULL_ACCESS_ROLES)
+  Manager         → all read + create/update, no hard-delete (FULL_ACCESS_ROLES)
   Salesman        → Inquiry + SO (own) + read-only rest
   Planner         → PO + TLP + PickPlan + Challan
   Accounts        → Finance (Phase 2) + read-only rest
   Warehouse Mgr   → GRN + Stock + BinLocations
+
+Field-level masking (frontend):
+  canViewCosts    → FULL_ACCESS_ROLES only
+  canViewContacts → FULL_ACCESS_ROLES only
 ```
 
 ---
 
-## 9. Phase 1 Execution Plan
+## 9. Key Implementation Patterns
 
-### Step 1 — Solution + DB (Day 1-2)
-1. `dotnet new sln -n Monit` + 4 projects
-2. Install Dapper, Serilog, FluentValidation, Mapster, Swashbuckle, Microsoft.Data.SqlClient
-3. Write and run SQL scripts `00` → `09` — creates complete Phase 1 schema
-4. `DbConnectionFactory.cs` + base `GenericRepository.cs` using Dapper
-5. `NumberSequenceService.cs` with UPDLOCK stored procedure
+### Concurrency-safe GRN creation
+`GrnRepository.CreateAsync` wraps the INSERT in a transaction and re-reads `prevQty` with `WITH (UPDLOCK, HOLDLOCK)` before inserting, ensuring concurrent GRN creates cannot both read the same prevQty and both succeed.
 
-### Step 2 — Auth (Day 2-3)
-6. `POST /api/v1/auth/login` → JWT + refresh token
-7. `POST /api/v1/auth/refresh`
-8. `POST /api/v1/auth/logout`
-9. Role-based `[Authorize]` attributes
+### SO number generation
+`GenerateSONumberAsync` uses `ROWLOCK` on the UPDATE + a `BEGIN TRY/CATCH` for the first-year INSERT, making it race-safe under concurrent requests.
 
-### Step 3 — Masters APIs (Day 3-5)
-10. CRUD for all 14 masters (Mills, Materials, Customers, Salesmen, Warehouses, Bins, Transporters, Vehicles, Sizes, StockGroups, StockCategories, ItemTypes, Rates, Users)
-11. Material code auto-composition
-12. Test each master with frontend
+### AllocatedQty preservation on SO update
+`SalesOrderRepository.UpdateAsync` snapshots `AllocatedQty` per `LineNumber` with `UPDLOCK` before deleting lines, then restores them on reinsert. `PendingQty` is recalculated as `max(0, OrderedQty − AllocatedQty)`.
 
-### Step 4 — Core Flow: Sales side (Day 5-7)
-13. Inquiries CRUD + `check-coverage` action + `convert-to-so` action
-14. Sales Orders CRUD + status patch + line management
-15. Coverage engine (query)
-
-### Step 5 — Core Flow: Procurement side (Day 7-9)
-16. Purchase Orders CRUD + `send-to-mill` + `acknowledge` actions
-17. Mill Trackers CRUD + history + `update-production-status`
-
-### Step 6 — Inventory (Day 9-11)
-18. GRN CRUD + lot number auto-generation + stock lot creation trigger
-19. Stock Lots — FIFO list, bin assignment
-20. Stock Allocations — allocate against SO line
-
-### Step 7 — Logistics (Day 11-13)
-21. Pick Plans CRUD + FIFO auto-generation
-22. Truck Load Plans CRUD + loading confirmation
-23. Challans CRUD + issue action
-24. In-Transit CRUD + status updates
-
-### Step 8 — Integration (Day 13-15)
-25. Notifications API (list, mark-read, dismiss)
-26. Connect frontend — replace mock data module by module
-27. Integration testing + error handling
-28. Deploy to IIS / staging server
+### API response envelope
+Every response uses `ApiResponse<T>` — `{ success, data, message, errors, meta }`. `ExceptionMiddleware` catches all unhandled exceptions and maps them to the correct HTTP status + error shape.
 
 ---
 
-## 10. Files Reference
+## 10. Phase 1 Execution Plan
+
+### ✅ Complete
+- Solution setup (single `Monit.API` project), `DbConnectionFactory`, `ExceptionMiddleware`
+- SQL scripts `00` → `09` — full Phase 1 schema created
+- **Auth:** Login (BCrypt + backward-compat plaintext upgrade), Refresh, Logout, Me, ChangePassword, User CRUD, Role CRUD
+- **Masters:** All 16 master types — Mills (+ contacts, units, quality-GSM), Materials, Customers (+ delivery locations), Salesmen, Warehouses (+ bins, racks), Transporters (+ vehicles), Rates, PaperSizes, StockGroups, StockCategories, ItemTypes, Units, HSN Codes, Localities, MQG, Instructions
+- **Sales Orders:** Full CRUD + line management + status transitions + export (Excel/PDF/Word)
+- **Purchase Orders:** Full CRUD + status transitions + export
+- **Mill Tracker:** Full CRUD + production status updates + history
+- **Truck Load Plans:** Full CRUD
+- **GRN:** Full CRUD + lot number auto-generation + concurrency-safe prevQty check
+- **Stock Lots:** FIFO list + bin assignment + status management
+- **Company Config:** Get/Update company settings
+- **Dashboard:** KPI aggregates endpoint
+
+### 🔲 Remaining (Phase 1)
+- Inquiries API (+ check-coverage, convert-to-SO)
+- Coverage engine query
+- Pick Plans (FIFO auto-generation)
+- Challans
+- In-Transit tracking
+- Notifications API
+- Connect remaining frontend pages (Inquiry, Coverage, Pick Plan, Challan, In-Transit, Reports)
+- Deploy to IIS / staging server
+
+---
+
+## 11. Files Reference
 
 | File | Purpose |
 |---|---|
 | `BACKEND_ARCHITECTURE.md` | This file — architecture, DB schema, patterns, plan |
 | `BACKEND_REQUIREMENTS.md` | Screen-by-screen API contracts (request/response JSON shapes) |
-| `CLAUDE.md` | Frontend codebase guidance |
-| `frontend/data/mockData.ts` | TypeScript interfaces — match these when designing DTO shapes |
-| `database/*.sql` | Run these in order to create the DB (does not exist yet — to be created) |
+| `CLAUDE.md` | Full codebase guidance (frontend + backend conventions) |
+| `Database/README.md` | DB setup run-order and seed credentials |
+| `frontend/data/mockData.ts` | TypeScript interfaces + mock arrays for non-integrated pages |
+| `frontend/types/paper-domain.ts` | Shared TypeScript types for API-integrated modules |
+| `frontend/lib/api.ts` | `apiFetch` — JWT auth, 401 refresh retry, envelope unwrap |
+| `frontend/lib/api-services.ts` | Per-resource API helpers (soApi, poApi, grnApi, etc.) |
+| `database/*.sql` | Run in order to create the complete Phase 1 DB schema |

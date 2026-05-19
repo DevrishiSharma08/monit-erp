@@ -4,11 +4,11 @@
 
 | Field               | Detail                                                        |
 |---------------------|---------------------------------------------------------------|
-| **Document Version**| 1.1                                                           |
-| **Date**            | 2026-02-19                                                    |
+| **Document Version**| 1.2                                                           |
+| **Date**            | 2026-05-19                                                    |
 | **Prepared For**    | Monit Paper Sales Agency / Monit Paper Associates, Indore, MP |
 | **Prepared By**     | Parmeshwar / Development Team                                 |
-| **Status**          | In Development — Phase 1 Frontend Complete                    |
+| **Status**          | In Development — Phase 1 Backend Integration In Progress      |
 
 ---
 
@@ -1245,22 +1245,24 @@ The following activities are standard in the paper trading industry and are inco
 
 ---
 
-## Appendix F — Frontend Implementation Status (Phase 1)
+## Appendix F — Implementation Status
 
-**Phase 1 — Admin Panel Frontend Prototype: Complete (as of 2026-02-19)**
+**Phase 1 — Admin Panel Frontend Prototype: Complete (2026-02-19)**
+**Phase 1 — Backend API Integration: In Progress (as of 2026-05-19)**
 
-All major modules have been implemented as functional frontend prototypes using TypeScript mock data (`/data/mockData.ts`). Backend API integration is Phase 2.
+Frontend prototype is fully implemented. Backend (.NET 8 + Dapper + SQL Server) is built and the majority of core modules are API-integrated. Remaining pages still use TypeScript mock data (`/data/mockData.ts`).
 
 ### F.1 Tech Stack
 
-| Layer     | Technology                  |
-|-----------|-----------------------------|
-| Framework | Next.js 16 (App Router)     |
-| Language  | TypeScript                  |
-| Styling   | Tailwind CSS v4             |
-| Charts    | Recharts                    |
-| Icons     | Lucide React                |
-| Data      | Mock data — backend pending |
+| Layer     | Technology                       |
+|-----------|----------------------------------|
+| Framework | Next.js 16 (App Router)          |
+| Language  | TypeScript                       |
+| Styling   | Tailwind CSS v4                  |
+| Charts    | Recharts                         |
+| Icons     | Lucide React                     |
+| Backend   | .NET 8 Web API + Dapper + MSSQL  |
+| Auth      | JWT Bearer + BCrypt + HttpOnly refresh cookie |
 
 ### F.2 Implemented Pages & Routes
 
@@ -1275,26 +1277,26 @@ All major modules have been implemented as functional frontend prototypes using 
 
 #### Sales Workflow
 
-| Route        | Status    | Description                                         |
-|--------------|-----------|-----------------------------------------------------|
-| `/inquiry`   | ✅ Done   | Customer Inquiry — capture, assign, track           |
-| `/orders`    | ✅ Done   | Sales Orders — create, track, allocate, dispatch    |
-| `/coverage`  | ✅ Done   | Coverage / customer territory map view              |
-| `/customers` | ✅ Done   | Customer Master                                     |
+| Route        | UI Status | API Status | Description                                         |
+|--------------|-----------|------------|-----------------------------------------------------|
+| `/inquiry`   | ✅ Done   | 🔲 Pending | Customer Inquiry — capture, assign, track           |
+| `/orders`    | ✅ Done   | ✅ Live    | Sales Orders — create, track, allocate, dispatch    |
+| `/coverage`  | ✅ Done   | 🔲 Pending | Coverage / customer territory map view              |
+| `/customers` | ✅ Done   | ✅ Live    | Customer Master                                     |
 
 #### Procurement & Logistics
 
-| Route               | Status    | Description                                                  |
-|---------------------|-----------|--------------------------------------------------------------|
-| `/purchase-orders`  | ✅ Done   | Purchase Orders to mills — create, track, status updates     |
-| `/mill-tracker`     | ✅ Done   | Mill Order Tracker — PO-line progress with production status |
-| `/truck-load-plan`  | ✅ Done   | Truck Load Planner — group orders into truck loads           |
-| `/dispatch-queue`   | ✅ Done   | Dispatch Queue — orders ready for dispatch                   |
-| `/in-transit`       | ✅ Done   | In-Transit tracking                                          |
-| `/grn`              | ✅ Done   | GRN — record material arriving at godown                     |
-| `/challan`          | ✅ Done   | Challan & Loading — delivery challans                        |
-| `/pick-plan`        | ✅ Done   | Pick Plan (FIFO + Bin) — warehouse picking instructions      |
-| `/bin-locations`    | ✅ Done   | Bin Location Master                                          |
+| Route               | UI Status | API Status | Description                                                  |
+|---------------------|-----------|------------|--------------------------------------------------------------|
+| `/purchase-orders`  | ✅ Done   | ✅ Live    | Purchase Orders to mills — create, track, status updates     |
+| `/mill-tracker`     | ✅ Done   | ✅ Live    | Mill Order Tracker — PO-line progress with production status |
+| `/truck-load-plan`  | ✅ Done   | ✅ Live    | Truck Load Planner — group orders into truck loads           |
+| `/dispatch-queue`   | ✅ Done   | 🔲 Pending | Dispatch Queue — orders ready for dispatch                   |
+| `/in-transit`       | ✅ Done   | 🔲 Pending | In-Transit tracking                                          |
+| `/grn`              | ✅ Done   | ✅ Live    | GRN — record material arriving at godown                     |
+| `/challan`          | ✅ Done   | 🔲 Pending | Challan & Loading — delivery challans                        |
+| `/pick-plan`        | ✅ Done   | 🔲 Pending | Pick Plan (FIFO + Bin) — warehouse picking instructions      |
+| `/bin-locations`    | ✅ Done   | ✅ Live    | Bin Location Master                                          |
 
 #### Invoice Tracker
 
@@ -1355,21 +1357,32 @@ All report pages include: search/filter bar, column visibility toggle, and CSV e
 | `components/DataGrid.tsx`            | Reusable table with sort, filter, column toggle, CSV export     |
 | `components/reports/ReportPageLayout.tsx` | Report page wrapper — search, filters, column toggle, CSV  |
 
-### F.4 Phase 2 — Pending (Backend Integration)
+### F.4 Remaining Backend Integration (Phase 1)
 
 | Item                              | Description                                                   |
 |-----------------------------------|---------------------------------------------------------------|
-| REST / GraphQL API                | Backend API connecting all modules to a real database         |
-| Authentication & Session          | JWT-based login, role-based route protection                  |
+| Customer Inquiry API              | CRUD + check-coverage + convert-to-SO                         |
+| Coverage Engine API               | Stock + in-transit coverage query                             |
+| Pick Plan API                     | FIFO auto-generation + confirm picked                         |
+| Challan API                       | Create from TLP + issue action                                |
+| In-Transit API                    | Status updates + arrival confirmation                         |
+| Notifications API                 | List, mark-read, dismiss                                      |
+| Report APIs                       | Aggregation queries for all 15 report pages                   |
+| Dashboard API                     | KPI aggregates (partially done)                               |
+
+### F.5 Phase 2 — Future
+
+| Item                              | Description                                                   |
+|-----------------------------------|---------------------------------------------------------------|
+| Invoicing                         | Sales Invoices, Purchase Invoices, Payments                   |
 | Tally Sync Bridge                 | Real-time or near-real-time sync with Tally ERP               |
 | Customer-Facing App               | Mobile app + AI chatbot (WhatsApp + in-app)                   |
 | Planning Engine Integration       | Carton optimization API hookup                                |
 | Real-time Notifications           | WebSocket / push notifications for order/dispatch events      |
-| Excel/PDF Import-Export           | Mill readiness uploads, invoice PDF generation                |
 | E-Way Bill & GST Compliance       | API integration for e-invoice and e-way bill generation       |
 
 ---
 
-*End of SRS Document — Version 1.1*
+*End of SRS Document — Version 1.2*
 
 *This document is subject to review and approval by the Monit Paper Agency management team. Requirements may be refined during the detailed design phase.*

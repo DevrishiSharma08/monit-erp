@@ -24,4 +24,6 @@
 - All scripts are idempotent (`IF NOT EXISTS` checks) — safe to re-run
 - `_future/` folder contains Phase 2/3 scripts — do NOT run now
 - All tables have soft-delete (`IsDeleted`, `DeletedAt`, `DeletedBy`)
-- Number generation: use stored proc `system.usp_GetNextNumber`
+- Number generation: `system.NumberSequences` table updated with `UPDLOCK` via `SalesOrderRepository.GenerateSONumberAsync` — no stored procedure needed
+- Passwords are stored as BCrypt hashes (`$2...` prefix). Legacy plaintext passwords are auto-upgraded on first login.
+- Auth users table column is `Password` (not `PasswordHash`)

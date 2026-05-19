@@ -1,7 +1,11 @@
-# Monit Paper Agency ERP - Backend Requirements & Implementation Guide
+# Monit Paper Agency ERP — Backend Requirements & Implementation Guide
 
-**Last Updated:** February 14, 2026
-**Purpose:** Screen-wise documentation of frontend implementation and backend requirements
+**Last Updated:** 2026-05-19
+**Purpose:** Screen-wise documentation of frontend implementation and backend API contracts
+
+> **Integration status as of 2026-05-19:**
+> ✅ Implemented: Auth, All Masters, Sales Orders, Purchase Orders, Mill Tracker, Truck Load Plans, GRN, Stock Lots, Company Config, Dashboard
+> 🔲 Pending: Customer Inquiry, Coverage Engine, Pick Plan, Challan, In-Transit, Notifications, Reports
 
 ---
 

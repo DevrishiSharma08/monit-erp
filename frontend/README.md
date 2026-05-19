@@ -1,10 +1,10 @@
-# Monit Paper Agency — Command System
+# Monit Paper Agency — Frontend
 
-> Integrated Paper Trading Management System — Frontend (Admin Panel)
+> Integrated Paper Trading Management System — Admin Panel
 
 ## Overview
 
-This is the internal web-based admin panel for **Monit Paper Sales Agency & Monit Paper Associates**, Indore. It covers the full paper trading lifecycle — procurement tracking, inventory, sales orders, dispatch planning, invoicing, analytics, and user/role management.
+Internal web-based admin panel for **Monit Paper Sales Agency & Monit Paper Associates**, Indore. Covers the full paper trading lifecycle — procurement tracking, inventory, sales orders, dispatch planning, invoicing, analytics, and user/role management.
 
 ---
 
@@ -17,7 +17,9 @@ This is the internal web-based admin panel for **Monit Paper Sales Agency & Moni
 | Styling | Tailwind CSS v4 |
 | Charts | Recharts |
 | Icons | Lucide React |
-| Data | Mock data (`/data/mockData.ts`) — backend integration pending |
+| State | React Context API |
+| Tables | @tanstack/react-table + custom DataGrid |
+| Drag & drop | @dnd-kit |
 
 ---
 
@@ -32,6 +34,9 @@ npm run dev
 
 # Build for production
 npm run build
+
+# Lint
+npm run lint
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
@@ -67,28 +72,15 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 | `/challan` | Challan & Loading — delivery challans |
 | `/pick-plan` | Pick Plan (FIFO + Bin) — warehouse picking instructions |
 
-### Invoice Tracker
-| Route | Description |
-|-------|-------------|
-| `/purchase-invoices` | Purchase Invoices from mills |
-| `/sales-invoices` | Sales Invoices to customers |
-
 ### Reports
 | Route | Description |
 |-------|-------------|
-| `/reports/sales-performance/sales-summary` | Sales summary report |
+| `/reports/sales-performance/sales-summary` | Sales summary |
 | `/reports/sales-performance/customer-wise-volume` | Customer wise volume |
 | `/reports/sales-performance/product-wise-sales` | Product wise sales |
-| `/reports/sales-performance/quality-wise-sales-trend` | Quality wise sales trend |
 | `/reports/sales-performance/salesman-performance` | Salesman performance |
-| `/reports/sales-performance/target-vs-order-lifted` | Target vs order lifted |
-| `/reports/sales-performance/inquiry-conversion-funnel` | Inquiry conversion funnel |
 | `/reports/mill-supply/mill-performance` | Mill performance scorecard |
-| `/reports/mill-supply/product-against-supply` | Product against supply |
-| `/reports/mill-supply/customer-order-by-mill` | Customer order by mill |
-| `/reports/mill-supply/product-ready-vs-transport-delay` | Product ready vs transport delay |
 | `/reports/logistics-transport/transporter-performance` | Transporter performance |
-| `/reports/logistics-transport/in-transit-delay-report` | In-transit delay report |
 | `/reports/finance-inventory/customer-aging` | Customer aging (receivables) |
 | `/reports/finance-inventory/inventory-report` | Inventory report |
 
@@ -96,22 +88,19 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 | Route | Description |
 |-------|-------------|
 | `/masters/materials` | Material Master — paper types, GSM, sizes |
-| `/masters/categories` | Category Master |
-| `/masters/mills` | Mill Master — mill details, TAT, products |
-| `/masters/salesmen` | Salesman Master — territory, monthly targets |
+| `/masters/mills` | Mill Master — mill details, contacts, quality |
+| `/masters/salesmen` | Salesman Master — territory, targets |
 | `/masters/warehouse` | Warehouse / Godown Master |
 | `/masters/transporters` | Transporter Master |
 | `/masters/rates` | Rate Master — customer-wise price cards |
-| `/bin-locations` | Bin Location Master |
-| `/customers` | Customer Master |
+| `/masters/customers` | Customer Master |
 
 ### Settings
 | Route | Description |
 |-------|-------------|
-| `/settings` | App Settings overview |
 | `/settings/users` | User Management — add/edit/delete users, assign roles |
 | `/settings/roles` | Role Management — define roles with permission sets |
-| `/settings/teams` | Team Management — organize users into teams with territories |
+| `/approvals` | Approval workflows |
 
 ---
 
@@ -120,50 +109,77 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ```
 frontend/
 ├── app/                        # Next.js App Router pages
-│   ├── (dashboard pages)
-│   ├── (report pages)
-│   ├── (workflow pages)
+│   ├── page.tsx                # Owner Dashboard
+│   ├── orders/                 # Sales Orders
+│   ├── purchase-orders/        # Purchase Orders
+│   ├── mill-tracker/
+│   ├── truck-load-plan/
+│   ├── dispatch-queue/
+│   ├── grn/
 │   ├── masters/
 │   └── settings/
-│       ├── users/
-│       ├── roles/
-│       └── teams/
 ├── components/
-│   ├── Sidebar.tsx             # Main navigation sidebar
-│   ├── Header.tsx              # Top bar with breadcrumb
-│   ├── DataGrid.tsx            # Reusable data table with sort/filter
+│   ├── AppShell.tsx            # Root layout (Sidebar + Header + main)
+│   ├── Sidebar.tsx             # Collapsible navigation
+│   ├── Header.tsx              # Top bar with breadcrumb + notifications
+│   ├── Modal.tsx               # Portal modal (responsive, transparent overlay)
+│   ├── EmailModal.tsx          # Email composer modal
+│   ├── DataGrid.tsx            # Reusable table (sort, filter, pagination)
+│   ├── forms/                  # One form per entity
+│   │   ├── SalesOrderForm.tsx
+│   │   └── ...
+│   ├── ui/
+│   │   └── ConfirmDialog.tsx   # Confirm/delete dialog
 │   └── reports/
-│       └── ReportPageLayout.tsx # Report page wrapper (search, filters, column toggle, CSV export)
+│       └── ReportPageLayout.tsx
+├── context/
+│   ├── AuthContext.tsx          # JWT auth + refresh token
+│   ├── SalesOrderContext.tsx    # SO data (real API)
+│   ├── PurchaseOrderContext.tsx # PO + MillTracker + TLP (real API)
+│   └── CompanySettingsContext.tsx
 ├── data/
-│   └── mockData.ts             # All mock data & TypeScript interfaces
+│   └── mockData.ts             # Interfaces + mock arrays for non-integrated pages
+├── types/
+│   └── paper-domain.ts         # Shared TypeScript types for API-integrated modules
 └── lib/
-    └── utils.ts                # Utility functions (cn, formatters)
+    ├── api.ts                  # apiFetch — JWT headers, 401 refresh, envelope unwrap
+    ├── api-services.ts         # Per-resource API helpers
+    └── utils.ts                # cn(), formatters
 ```
 
 ---
 
 ## User Roles
 
-| Role | Description |
-|------|-------------|
+| Role | Access |
+|------|--------|
 | Admin | Full access to all modules and settings |
-| Manager | Sales, orders, dispatch, reporting |
-| Salesman | Orders, inquiry, customer interaction |
-| Accountant | Invoices, payments, financial reports |
-| Planner | Dispatch, GRN, stock, mill tracker |
-| Warehouse Manager | Stock, GRN, bin locations |
-| Driver | View-only dispatch access |
+| Manager | All read + create/update; no hard-delete |
+| Salesman | Inquiry + own Sales Orders + read-only rest |
+| Planner | PO + TLP + PickPlan + Challan |
+| Accounts | Finance (Phase 2) + read-only rest |
+| Warehouse Manager | GRN + Stock + Bin Locations |
 
 ---
 
 ## Current Status
 
 **Phase 1 — Frontend Prototype: Complete**
+**Phase 1 — Backend API Integration: In Progress**
 
-All major modules have been built as functional frontend prototypes using mock data. Backend API integration is the next phase.
+### Integrated with real API
+- Authentication (login, refresh, logout, change password)
+- Sales Orders (full CRUD + lines)
+- Purchase Orders, Mill Tracker, Truck Load Plans
+- GRN (Goods Receipt Notes), Stock Lots
+- All Masters (Mills, Materials, Customers, Salesmen, Warehouses, Rates, etc.)
+- Company Settings / Config
 
-- All workflow pages implemented with full CRUD UI
-- 4 role-based dashboards (Owner, Accounts, Salesman, Planner)
-- 15 report pages with search, column visibility toggle, and CSV export
-- Settings module: User, Role, and Team Management
-- Responsive sidebar with collapsible navigation
+### Still using mock data (pending backend integration)
+- Customer Inquiry
+- Coverage Engine
+- Pick Plan
+- Challan
+- In-Transit
+- All Report pages
+- Dashboards (partial — uses mock for chart data)
