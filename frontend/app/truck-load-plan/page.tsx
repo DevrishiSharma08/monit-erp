@@ -1,5 +1,6 @@
 "use client";
 
+import { PermGuard } from "@/components/PermGuard";
 import { useMemo, useState, useRef, useCallback, useEffect } from "react";
 import { TruckLoadPlan, TruckLoadPlanItem, MillOrderTracker } from "@/data/mockData";
 import {
@@ -1278,7 +1279,7 @@ function PlanActionsMenu({ plan, onView, onUpdateStatus, onDelete, onPrint }: {
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
-export default function TruckLoadPlanPage() {
+function TruckLoadPlanPage() {
   const { success } = useToast();
 
   // ── API state ──────────────────────────────────────────────────────────────
@@ -1847,4 +1848,8 @@ export default function TruckLoadPlanPage() {
       </Modal>
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="logistics.read"><TruckLoadPlanPage /></PermGuard>;
 }

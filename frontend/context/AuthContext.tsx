@@ -19,6 +19,7 @@ export interface AuthUser {
   name:         string;
   role:         string;
   customerName: string | null;
+  permissions:  string[];
 }
 
 interface LoginApiResponse {
@@ -46,9 +47,21 @@ interface AuthContextValue {
   isPlanner:    boolean;
   isAccountant: boolean;
   hasRole:      (roles: string[]) => boolean;
+  hasPerm:      (perm: string) => boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function decodePermsFromToken(token: string): string[] {
+  try {
+    const b64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(b64));
+    const p = payload["perm"];
+    return Array.isArray(p) ? p : p ? [p] : [];
+  } catch {
+    return [];
+  }
+}
 
 const USER_KEY = "monit_user";
 
@@ -57,7 +70,7 @@ const PUBLIC_PATHS = ["/login"];
 const roleHome: Record<string, string> = {
   Admin:             "/",
   Manager:           "/",
-  Salesman:          "/inquiry",
+  Salesman:          "/orders",
   Accountant:        "/dashboard/accounts",
   Planner:           "/dashboard/planner",
   "Warehouse Manager": "/stock-lots",
@@ -71,7 +84,10 @@ function saveUser(user: AuthUser): void {
 function loadUser(): AuthUser | null {
   try {
     const raw = localStorage.getItem(USER_KEY);
-    return raw ? (JSON.parse(raw) as AuthUser) : null;
+    if (!raw) return null;
+    const u = JSON.parse(raw) as AuthUser;
+    if (!u.permissions) u.permissions = [];
+    return u;
   } catch {
     return null;
   }
@@ -105,7 +121,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (newToken) {
         const cached = loadUser();
         if (cached) {
-          setUser(cached);
+          // Always decode fresh permissions from new token — role may have changed
+          setUser({ ...cached, permissions: decodePermsFromToken(newToken) });
         } else {
           // Cookie valid but no cached user — force re-login for clean state
           setAccessToken(null);
@@ -142,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name:         data.user.name,
           role:         data.user.role,
           customerName: data.user.customerName,
+          permissions:  decodePermsFromToken(data.accessToken),
         };
 
         setAccessToken(data.accessToken);
@@ -175,6 +193,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user]
   );
 
+  const hasPerm = useCallback(
+    (perm: string): boolean => {
+      if (!user) return false;
+      // Admin role always has full access
+      if (user.role === "Admin") return true;
+      const perms = user.permissions ?? [];
+      // If no permissions stored (old token / no restrictions), show everything
+      if (perms.length === 0) return true;
+      return perms.includes(perm);
+    },
+    [user]
+  );
+
   const value: AuthContextValue = {
     user,
     isLoading,
@@ -186,6 +217,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isPlanner:    user?.role === "Planner",
     isAccountant: user?.role === "Accountant",
     hasRole,
+    hasPerm,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

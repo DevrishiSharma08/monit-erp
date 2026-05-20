@@ -54,7 +54,10 @@ async function doFetch<T>(
   // No body
   if (res.status === 204) return undefined as T;
 
-  const body = (await res.json()) as ApiEnvelope<T>;
+  const text = await res.text();
+  if (!text.trim()) throw new ApiError(res.status, `Request failed (${res.status})`);
+
+  const body = JSON.parse(text) as ApiEnvelope<T>;
 
   if (!res.ok || !body.success) {
     // errors[0] gives the specific message (e.g. "Invalid username or password.")

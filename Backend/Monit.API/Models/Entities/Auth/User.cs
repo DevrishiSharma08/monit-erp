@@ -15,4 +15,5 @@ public class User : BaseEntity
     public DateTime? LastLoginAt        { get; set; }
     public string?   RefreshToken       { get; set; }
     public DateTime? RefreshTokenExpiry { get; set; }
+    public string?   PermissionsJson    { get; set; }  // JSON from auth.Roles — added at login
 }

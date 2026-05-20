@@ -1,9 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect } from "react";
-import {
-  SalesOrder, SalesOrderLine, mockCustomers,
-} from "@/data/mockData";
+import { SalesOrder, SOLine as SalesOrderLine } from "@/context/SalesOrderContext";
 import {
   ThumbsUp, Clock, IndianRupee, Eye, Mail, X, Check, Package,
   ShoppingCart, Pencil, Factory,
@@ -25,10 +23,9 @@ import { emailSentCache } from "@/lib/emailSentCache";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildEmailData(so: SalesOrder): EmailFormData {
-  const customerRecord = mockCustomers.find((c) => c.company === so.customer);
   const totalKg = so.lines.reduce((s, l) => s + ((l as any).weightKg ?? 0), 0);
   return {
-    to:      (customerRecord?.email ?? (so as any).customerEmail) ? [customerRecord?.email ?? (so as any).customerEmail] : [],
+    to:      (so as any).customerEmail ? [(so as any).customerEmail] : [],
     cc:      [],
     subject: `Sales Order ${so.soNumber} Approved — ${so.customer}`,
     body: [
@@ -478,7 +475,7 @@ function POApprovalViewModal({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ApprovalsPage() {
-  const { salesOrders, updateSalesOrder } = useSalesOrder();
+  const { salesOrders, updateSalesOrder, reload } = useSalesOrder();
   const { success, error: showError } = useToast();
 
   // ── Tab state ─────────────────────────────────────────────────────────────
@@ -591,14 +588,12 @@ export default function ApprovalsPage() {
     setShowForm(true);
   }, []);
 
-  const handleSubmit = useCallback((data: Partial<SalesOrder>) => {
-    if (data.id) {
-      updateSalesOrder(data.id, data);
-      success("Sales order updated.");
-    }
+  const handleSuccess = useCallback((_soNumber: string, _isUpdate: boolean) => {
+    reload();
+    success("Sales order updated.");
     setShowForm(false);
     setEditingOrder(undefined);
-  }, [updateSalesOrder, success]);
+  }, [reload, success]);
 
   const handleApprove = useCallback((id: string) => {
     updateSalesOrder(id, { status: "Pending Allocation" });
@@ -1162,8 +1157,8 @@ export default function ApprovalsPage() {
           size="xl"
         >
           <SalesOrderForm
-            initialData={editingOrder}
-            onSubmit={handleSubmit}
+            initialData={editingOrder as SalesOrder}
+            onSuccess={handleSuccess}
             onCancel={() => { setShowForm(false); setEditingOrder(undefined); }}
           />
         </Modal>

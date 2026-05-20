@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Monit.API.Common.Helpers;
 using Monit.API.Common.Response;
 using Monit.API.Models.DTOs.Masters;
 using Monit.API.Services.Interfaces;
@@ -17,7 +18,13 @@ public class CustomersController(ICustomerService svc) : ControllerBase
 
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] CustomerFilterRequest filter)
-        => Ok(ApiResponse<PagedResult<CustomerListDto>>.Ok(await svc.GetAllAsync(filter)));
+    {
+        var result = await svc.GetAllAsync(filter);
+        if (RoleGuard.ShouldHidePhone(User))
+            foreach (var c in result.Items)
+                c.Phone = null;
+        return Ok(ApiResponse<PagedResult<CustomerListDto>>.Ok(result));
+    }
 
     [HttpGet("dropdown")]
     public async Task<IActionResult> Dropdown()
@@ -25,11 +32,30 @@ public class CustomersController(ICustomerService svc) : ControllerBase
 
     [HttpGet("for-so")]
     public async Task<IActionResult> ForSO()
-        => Ok(ApiResponse<List<CustomerSODropdownDto>>.Ok(await svc.GetForSOAsync()));
+    {
+        var result = await svc.GetForSOAsync();
+        if (RoleGuard.ShouldHidePhone(User))
+            foreach (var c in result)
+            {
+                c.Phone = null;
+                foreach (var contact in c.Contacts)
+                    contact.Phone = null;
+            }
+        return Ok(ApiResponse<List<CustomerSODropdownDto>>.Ok(result));
+    }
 
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
-        => Ok(ApiResponse<CustomerDetailDto>.Ok(await svc.GetByIdAsync(id)));
+    {
+        var result = await svc.GetByIdAsync(id);
+        if (RoleGuard.ShouldHidePhone(User))
+        {
+            result.Phone = null;
+            foreach (var contact in result.Contacts)
+                contact.Phone = null;
+        }
+        return Ok(ApiResponse<CustomerDetailDto>.Ok(result));
+    }
 
     [HttpPost]
     [Authorize(Roles = "Admin,Manager")]
@@ -68,5 +94,11 @@ public class CustomersController(ICustomerService svc) : ControllerBase
 
     [HttpGet("{id:int}/contacts")]
     public async Task<IActionResult> GetContacts(int id)
-        => Ok(ApiResponse<List<CustomerContactDto>>.Ok(await svc.GetContactsAsync(id)));
+    {
+        var result = await svc.GetContactsAsync(id);
+        if (RoleGuard.ShouldHidePhone(User))
+            foreach (var contact in result)
+                contact.Phone = null;
+        return Ok(ApiResponse<List<CustomerContactDto>>.Ok(result));
+    }
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { PermGuard } from "@/components/PermGuard";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   grnApi, GrnRow, GrnDetailRow, CreateGrnDto, UpdateGrnDto,
@@ -1209,7 +1210,7 @@ function RowActions({ onView, onEdit, onDelete }: {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function GRNPage() {
+function GRNPage() {
   const [grns, setGrns] = useState<GrnRow[]>([]);
   const [pendingTlps, setPendingTlps] = useState<TruckLoadPlanApiDto[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseDropdown[]>([]);
@@ -1633,4 +1634,8 @@ export default function GRNPage() {
       )}
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="grn.read"><GRNPage /></PermGuard>;
 }

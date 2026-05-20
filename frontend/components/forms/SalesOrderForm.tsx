@@ -237,7 +237,7 @@ interface SalesOrderFormProps {
 
 export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderFormProps) {
   const today = new Date().toISOString().split("T")[0];
-  const { config: companyConfig } = useCompanySettings();
+  const { config: companyConfig, allConfigs } = useCompanySettings();
   const [showPreview, setShowPreview] = useState(false);
   const [saving, setSaving]           = useState(false);
 
@@ -327,6 +327,17 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
     };
   });
 
+
+  // Auto-populate insurance policy for new SOs once allConfigs loads
+  useEffect(() => {
+    if (!initialData?.id && !formData.insurancePolicyNo) {
+      const first = allConfigs.find((c) => c.insurancePolicyNo);
+      if (first?.insurancePolicyNo) {
+        setFormData((prev) => ({ ...prev, insurancePolicyNo: first.insurancePolicyNo! }));
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allConfigs]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
@@ -570,7 +581,7 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
       deliveryTerms:        formData.deliveryTerms || undefined,
       deliveryMode:         formData.deliveryMode || undefined,
       remarks:              formData.remarks || undefined,
-      insurancePolicyNo:    companyConfig.insurancePolicyNo || undefined,
+      insurancePolicyNo:    formData.insurancePolicyNo || undefined,
       lines,
     };
   };
@@ -793,20 +804,36 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
               onChange={handleChange} placeholder="Notes or special instructions" className={inputCls} />
           </div>
 
-          {/* Insurance Policy No. — read-only, always from Company Settings */}
+          {/* Insurance Policy No. — dropdown from all companies */}
           <div className="sm:col-span-2">
             <label className={labelCls + " flex items-center gap-1.5"}>
               <Shield className="h-3 w-3 text-blue-400" />
               Insurance Policy No.
             </label>
-            <input
-              type="text"
-              readOnly
-              value={companyConfig.insurancePolicyNo || ""}
-              placeholder="Set in Company Settings"
-              className={readonlyCls}
-            />
-            <p className="mt-1 text-[10px] text-gray-400">Managed in Company Settings · not editable here</p>
+            {allConfigs.filter((c) => c.insurancePolicyNo).length > 1 ? (
+              <select
+                name="insurancePolicyNo"
+                value={formData.insurancePolicyNo || ""}
+                onChange={handleChange}
+                className={cn(inputCls, "cursor-pointer")}>
+                <option value="">— Select policy —</option>
+                {allConfigs
+                  .filter((c) => c.insurancePolicyNo)
+                  .map((c) => (
+                    <option key={c.id} value={c.insurancePolicyNo!}>
+                      {c.insurancePolicyNo} — {c.companyName ?? `Company ${c.id}`}
+                    </option>
+                  ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                readOnly
+                value={formData.insurancePolicyNo || companyConfig.insurancePolicyNo || ""}
+                placeholder="Set in Company Settings"
+                className={readonlyCls}
+              />
+            )}
           </div>
 
         </div>

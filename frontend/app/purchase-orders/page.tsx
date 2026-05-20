@@ -1,5 +1,6 @@
 "use client";
 
+import { PermGuard } from "@/components/PermGuard";
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -61,7 +62,7 @@ const PO_TYPE_COLORS: Record<string, string> = {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function PurchaseOrdersPage() {
+function PurchaseOrdersPage() {
   const { pendingPoSOs, linkPO } = useSalesOrder();
   const { success, error: showError } = useToast();
 
@@ -1124,4 +1125,8 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
       </div>
     </Modal>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="po.read"><PurchaseOrdersPage /></PermGuard>;
 }

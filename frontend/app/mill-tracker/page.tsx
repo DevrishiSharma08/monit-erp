@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { PermGuard } from "@/components/PermGuard";
 import { Fragment, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { MillOrderTracker, PartialDelivery, TruckLoadPlan } from "@/data/mockData";
 import { usePurchaseOrder } from "@/context/PurchaseOrderContext";
@@ -138,7 +139,7 @@ function mapTrackerRow(r: MillTrackerRow): MillOrderTracker {
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
-export default function MillTrackerPage() {
+function MillTrackerPage() {
   const { addTruckLoadPlan } = usePurchaseOrder();
   const { success } = useToast();
 
@@ -1582,4 +1583,8 @@ function BulkUploadModal({
       )}
     </Modal>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="mill.read"><MillTrackerPage /></PermGuard>;
 }

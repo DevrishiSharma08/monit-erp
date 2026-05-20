@@ -10,10 +10,12 @@ public class AuthRepository(DbConnectionFactory db) : IAuthRepository
     public async Task<User?> GetByUsernameAsync(string username)
     {
         const string sql = @"
-            SELECT Id, Username, Email, Password, Name, RoleId, Role,
-                   CustomerName, IsActive, LastLoginAt, RefreshToken, RefreshTokenExpiry
-            FROM auth.Users
-            WHERE (Username = @Username OR Email = @Username) AND IsDeleted = 0";
+            SELECT u.Id, u.Username, u.Email, u.Password, u.Name, u.RoleId, u.Role,
+                   u.CustomerName, u.IsActive, u.LastLoginAt, u.RefreshToken, u.RefreshTokenExpiry,
+                   r.Permissions AS PermissionsJson
+            FROM   auth.Users u
+            LEFT JOIN auth.Roles r ON r.Id = u.RoleId
+            WHERE  (u.Username = @Username OR u.Email = @Username) AND u.IsDeleted = 0";
 
         using var conn = db.Create();
         return await conn.QueryFirstOrDefaultAsync<User>(sql, new { Username = username });
@@ -22,10 +24,12 @@ public class AuthRepository(DbConnectionFactory db) : IAuthRepository
     public async Task<User?> GetByIdAsync(int id)
     {
         const string sql = @"
-            SELECT Id, Username, Email, Password, Name, RoleId, Role,
-                   CustomerName, IsActive, LastLoginAt, RefreshToken, RefreshTokenExpiry
-            FROM auth.Users
-            WHERE Id = @Id AND IsDeleted = 0";
+            SELECT u.Id, u.Username, u.Email, u.Password, u.Name, u.RoleId, u.Role,
+                   u.CustomerName, u.IsActive, u.LastLoginAt, u.RefreshToken, u.RefreshTokenExpiry,
+                   r.Permissions AS PermissionsJson
+            FROM   auth.Users u
+            LEFT JOIN auth.Roles r ON r.Id = u.RoleId
+            WHERE  u.Id = @Id AND u.IsDeleted = 0";
 
         using var conn = db.Create();
         return await conn.QueryFirstOrDefaultAsync<User>(sql, new { Id = id });
@@ -34,12 +38,14 @@ public class AuthRepository(DbConnectionFactory db) : IAuthRepository
     public async Task<User?> GetByRefreshTokenAsync(string refreshToken)
     {
         const string sql = @"
-            SELECT Id, Username, Email, Password, Name, RoleId, Role,
-                   CustomerName, IsActive, RefreshToken, RefreshTokenExpiry
-            FROM auth.Users
-            WHERE RefreshToken = @Token
-              AND RefreshTokenExpiry > GETUTCDATE()
-              AND IsDeleted = 0";
+            SELECT u.Id, u.Username, u.Email, u.Password, u.Name, u.RoleId, u.Role,
+                   u.CustomerName, u.IsActive, u.RefreshToken, u.RefreshTokenExpiry,
+                   r.Permissions AS PermissionsJson
+            FROM   auth.Users u
+            LEFT JOIN auth.Roles r ON r.Id = u.RoleId
+            WHERE  u.RefreshToken = @Token
+              AND  u.RefreshTokenExpiry > GETUTCDATE()
+              AND  u.IsDeleted = 0";
 
         using var conn = db.Create();
         return await conn.QueryFirstOrDefaultAsync<User>(sql, new { Token = refreshToken });

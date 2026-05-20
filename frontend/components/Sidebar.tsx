@@ -20,12 +20,14 @@ interface NavLeaf {
   name: string;
   href: string;
   icon: React.ElementType;
+  perm?: string;
 }
 
 interface NavSubGroup {
   type: "subgroup";
   label: string;
   items: NavLeaf[];
+  perm?: string;
 }
 
 interface NavSection {
@@ -33,6 +35,7 @@ interface NavSection {
   name: string;
   icon: React.ElementType;
   items: (NavLeaf | NavSubGroup)[];
+  perm?: string;
 }
 
 type TopItem = NavLeaf | NavSection;
@@ -43,18 +46,19 @@ type TopItem = NavLeaf | NavSection;
 
 const NAV_ADMIN: TopItem[] = [
   // ── Phase 1 ──────────────────────────────────────────────────────────────
-  { type: "leaf", name: "Dashboard",          href: "/",                icon: LayoutDashboard },
-  { type: "leaf", name: "Sales Order",        href: "/orders",          icon: ShoppingCart   },
-  { type: "leaf", name: "Approvals",          href: "/approvals",       icon: ThumbsUp       },
-  { type: "leaf", name: "Purchase Order",     href: "/purchase-orders", icon: ShoppingBag    },
-  { type: "leaf", name: "Mill Order Tracker", href: "/mill-tracker",    icon: Factory        },
-  { type: "leaf", name: "Truck Load Planner", href: "/truck-load-plan", icon: Truck          },
-  { type: "leaf", name: "GRN",                href: "/grn",             icon: ClipboardCheck },
-  { type: "leaf", name: "Stock Location",      href: "/stock-lots",      icon: Package        },
+  { type: "leaf", name: "Dashboard",          href: "/",                icon: LayoutDashboard, perm: "dashboard.read" },
+  { type: "leaf", name: "Sales Order",        href: "/orders",          icon: ShoppingCart,    perm: "so.read"        },
+  { type: "leaf", name: "Approvals",          href: "/approvals",       icon: ThumbsUp,        perm: "approvals.read" },
+  { type: "leaf", name: "Purchase Order",     href: "/purchase-orders", icon: ShoppingBag,     perm: "po.read"        },
+  { type: "leaf", name: "Mill Order Tracker", href: "/mill-tracker",    icon: Factory,         perm: "mill.read"      },
+  { type: "leaf", name: "Truck Load Planner", href: "/truck-load-plan", icon: Truck,           perm: "logistics.read" },
+  { type: "leaf", name: "GRN",                href: "/grn",             icon: ClipboardCheck,  perm: "grn.read"       },
+  { type: "leaf", name: "Stock Location",     href: "/stock-lots",      icon: Package,         perm: "stock.read"     },
   {
     type: "section",
     name: "Masters",
     icon: Database,
+    perm: "masters.read",
     items: [
       { type: "leaf", name: "Item Type",           href: "/masters/item-type",      icon: LayoutGrid    },
       { type: "leaf", name: "Mill Master",         href: "/masters/mills",          icon: Factory       },
@@ -74,10 +78,9 @@ const NAV_ADMIN: TopItem[] = [
     name: "Settings",
     icon: Settings,
     items: [
-      { type: "leaf", name: "Company Settings", href: "/settings/company", icon: Building2 },
-      { type: "leaf", name: "User Management", href: "/settings/users",   icon: Users    },
-      { type: "leaf", name: "Permissions",     href: "/settings/roles",   icon: Shield   },
-      // { type: "leaf", name: "Team Management", href: "/settings/teams", icon: UsersRound },
+      { type: "leaf", name: "Company Settings", href: "/settings/company", icon: Building2, perm: "company.read" },
+      { type: "leaf", name: "User Management",  href: "/settings/users",   icon: Users,     perm: "users.read"   },
+      { type: "leaf", name: "Permissions",      href: "/settings/roles",   icon: Shield,    perm: "roles.read"   },
     ],
   },
 
@@ -236,7 +239,13 @@ function SectionBlock({
   collapsed: boolean;
   onMobileClose: () => void;
 }) {
-  const active = sectionIsActive(section, pathname);
+  const { hasPerm } = useAuth();
+  const visibleItems = section.items.filter((i) => !i.perm || hasPerm(i.perm));
+  const active = visibleItems.some((item) =>
+    item.type === "leaf"
+      ? leafIsActive(item.href, pathname)
+      : item.items.some((l) => leafIsActive(l.href, pathname))
+  );
   const [open, setOpen] = useState(active);
 
   useEffect(() => {
@@ -274,9 +283,9 @@ function SectionBlock({
         />
       </button>
 
-      {open && (
+      {open && visibleItems.length > 0 && (
         <div className="mt-1 space-y-0.5 pl-1">
-          {section.items.map((item) =>
+          {visibleItems.map((item) =>
             item.type === "leaf" ? (
               <LeafLink key={item.href + item.name} item={item} pathname={pathname} depth={1} onMobileClose={onMobileClose} />
             ) : (
@@ -365,7 +374,7 @@ interface SidebarProps {
 
 export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
-  const { isCustomer } = useAuth();
+  const { isCustomer, hasPerm } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
   if (isCustomer) {
@@ -422,7 +431,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
-        {NAV_ADMIN.map((item) => {
+        {NAV_ADMIN.filter((item) => !item.perm || hasPerm(item.perm)).map((item) => {
           if (item.type === "leaf") {
             const active = leafIsActive(item.href, pathname);
             if (collapsed) {

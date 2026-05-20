@@ -13,8 +13,8 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
             po.Id,
             po.PONumber,
             po.MillId,
-            m.Name      AS MillName,
-            m.Code      AS MillCode,
+            ISNULL(m.Name, '')  AS MillName,
+            ISNULL(m.Code, '')  AS MillCode,
             CONVERT(NVARCHAR(10), po.OrderDate, 23)             AS OrderDate,
             po.POType,
             po.LinkedSOId,
@@ -39,7 +39,7 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
             po.CreatedAt,
             CONVERT(NVARCHAR(20), po.EmailSentAt, 120) AS EmailSentAt
         FROM   procurement.PurchaseOrders      po
-        JOIN   masters.Mills                   m  ON m.Id  = po.MillId
+        LEFT JOIN masters.Mills                m  ON m.Id  = po.MillId
         LEFT JOIN sales.SalesOrders            so ON so.Id = po.LinkedSOId
         LEFT JOIN masters.Customers            dc ON dc.Id = po.DirectCustomerId";
 
@@ -70,7 +70,7 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
         var (where, param) = BuildWhere(f);
         var orderBy = SafeColumn(f.SortBy, "OrderDate") + " " + f.SafeSortOrder;
 
-        var countSql = $"SELECT COUNT(*) FROM procurement.PurchaseOrders po JOIN masters.Mills m ON m.Id=po.MillId WHERE {where}";
+        var countSql = $"SELECT COUNT(*) FROM procurement.PurchaseOrders po LEFT JOIN masters.Mills m ON m.Id=po.MillId WHERE {where}";
         var dataSql  = $"{PoSelect} WHERE {where} ORDER BY po.{orderBy} OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY";
 
         param.Add("Offset",   f.Offset);

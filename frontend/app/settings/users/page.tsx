@@ -1,5 +1,6 @@
 "use client";
 
+import { PermGuard } from "@/components/PermGuard";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { Search, Plus, Save, Eye, EyeOff, Pencil, Trash2, Shield, AlertTriangle, Loader2, KeyRound } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,7 +26,7 @@ function fmtDate(d: string) {
   return `${dt.getDate().toString().padStart(2,"0")}/${(dt.getMonth()+1).toString().padStart(2,"0")}/${dt.getFullYear()}`;
 }
 
-export default function UserManagementPage() {
+function UserManagementPage() {
   const [data,      setData]      = useState<UserRow[]>([]);
   const [roles,     setRoles]     = useState<RoleDropdown[]>([]);
   const [loading,   setLoading]   = useState(true);
@@ -354,4 +355,8 @@ export default function UserManagementPage() {
       </Modal>
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="users.read"><UserManagementPage /></PermGuard>;
 }

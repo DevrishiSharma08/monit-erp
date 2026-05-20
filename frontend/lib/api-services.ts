@@ -378,6 +378,8 @@ export const localityApi = {
 // ── Company Configuration ─────────────────────────────────────────────────────
 
 export interface CompanyConfigData {
+  id:                 number;
+  companyName?:       string;
   insurancePolicyNo?: string;
   insurancePolicyFy?: string;
   insuranceIssuer?:   string;
@@ -402,15 +404,17 @@ export interface SendMailResponse {
 
 const CC_BASE = "/api/v1/company-config";
 export const companyConfigApi = {
-  get:    () => apiFetch<CompanyConfigData>(CC_BASE),
-  update: (dto: {
+  getAll:    () => apiFetch<CompanyConfigData[]>(CC_BASE),
+  getById:   (id: number) => apiFetch<CompanyConfigData>(`${CC_BASE}/${id}`),
+  update: (id: number, dto: {
+    companyName?:       string;
     insurancePolicyNo?: string;
     insurancePolicyFy?: string;
     insuranceIssuer?:   string;
     smtpSenderEmail?:   string;
     smtpSenderName?:    string;
     smtpAppPassword?:   string | null;
-  }) => apiFetch<CompanyConfigData>(CC_BASE, { method: "PUT", body: JSON.stringify(dto) }),
+  }) => apiFetch<CompanyConfigData>(`${CC_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
 };
 
 // ── Items (Materials) ─────────────────────────────────────────────────────────
@@ -940,4 +944,76 @@ export const millTrackerApi = {
   bulkImport:   (rows: BulkImportRowInput[]) =>
                   apiFetch<BulkImportResultDto>(`${MT_BASE}/bulk-import`, { method: "POST", body: JSON.stringify(rows) }),
   remove:       (id: number) => apiFetch<void>(`${MT_BASE}/${id}`, { method: "DELETE" }),
+};
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+export interface DashboardOrderRow {
+  id: number;
+  number: string;
+  party: string;
+  status: string;
+  totalValue: number;
+  orderDate: string;
+}
+
+export interface DashboardMillTrackerRow {
+  id: number;
+  material: string;
+  mill: string;
+  orderedQty: number;
+  productionStatus: string;
+  productionProgress: number;
+}
+
+export interface DashboardStatusItem {
+  name: string;
+  value: number;
+}
+
+export interface DashboardSummaryDto {
+  openSoCount: number;
+  openSoValue: number;
+  openPoCount: number;
+  openPoValue: number;
+  pendingGrnCount: number;
+  availableStockLots: number;
+  availableStockQty: number;
+  millTrackerTotal: number;
+  millTrackerReady: number;
+  recentSalesOrders: DashboardOrderRow[];
+  recentPurchaseOrders: DashboardOrderRow[];
+  millTrackers: DashboardMillTrackerRow[];
+  soStatusBreakdown: DashboardStatusItem[];
+  poStatusBreakdown: DashboardStatusItem[];
+}
+
+export const dashboardApi = {
+  summary: () => apiFetch<DashboardSummaryDto>("/api/v1/dashboard/summary"),
+};
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+export interface NotificationDto {
+  key: string;
+  type: string;
+  title: string;
+  body: string;
+  refNumber: string;
+  href: string;
+  isRead: boolean;
+  notifTs: string;
+}
+
+const NOTIF_BASE = "/api/v1/notifications";
+export const notificationApi = {
+  getAll:       () => apiFetch<NotificationDto[]>(NOTIF_BASE),
+  markRead:     (key: string) =>
+                  apiFetch<void>(`${NOTIF_BASE}/${encodeURIComponent(key)}/read`, { method: "POST" }),
+  markAllRead:  (keys: string[]) =>
+                  apiFetch<void>(`${NOTIF_BASE}/read-all`, { method: "POST", body: JSON.stringify(keys) }),
+  dismiss:      (key: string) =>
+                  apiFetch<void>(`${NOTIF_BASE}/${encodeURIComponent(key)}`, { method: "DELETE" }),
+  dismissAll:   (keys: string[]) =>
+                  apiFetch<void>(NOTIF_BASE, { method: "DELETE", body: JSON.stringify(keys) }),
 };
