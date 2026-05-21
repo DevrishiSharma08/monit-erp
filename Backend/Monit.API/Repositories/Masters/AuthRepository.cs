@@ -7,7 +7,7 @@ namespace Monit.API.Repositories.Masters;
 
 public class AuthRepository(DbConnectionFactory db) : IAuthRepository
 {
-    public async Task<User?> GetByUsernameAsync(string username)
+    public async Task<User?> GetByUsernameAsync(string username, int companyId)
     {
         const string sql = @"
             SELECT u.Id, u.Username, u.Email, u.Password, u.Name, u.RoleId, u.Role,
@@ -17,11 +17,11 @@ public class AuthRepository(DbConnectionFactory db) : IAuthRepository
             LEFT JOIN auth.Roles r ON r.Id = u.RoleId
             WHERE  (u.Username = @Username OR u.Email = @Username) AND u.IsDeleted = 0";
 
-        using var conn = db.Create();
+        using var conn = db.CreateForCompany(companyId);
         return await conn.QueryFirstOrDefaultAsync<User>(sql, new { Username = username });
     }
 
-    public async Task<User?> GetByIdAsync(int id)
+    public async Task<User?> GetByIdAsync(int id, int companyId)
     {
         const string sql = @"
             SELECT u.Id, u.Username, u.Email, u.Password, u.Name, u.RoleId, u.Role,
@@ -31,11 +31,11 @@ public class AuthRepository(DbConnectionFactory db) : IAuthRepository
             LEFT JOIN auth.Roles r ON r.Id = u.RoleId
             WHERE  u.Id = @Id AND u.IsDeleted = 0";
 
-        using var conn = db.Create();
+        using var conn = db.CreateForCompany(companyId);
         return await conn.QueryFirstOrDefaultAsync<User>(sql, new { Id = id });
     }
 
-    public async Task<User?> GetByRefreshTokenAsync(string refreshToken)
+    public async Task<User?> GetByRefreshTokenAsync(string refreshToken, int companyId)
     {
         const string sql = @"
             SELECT u.Id, u.Username, u.Email, u.Password, u.Name, u.RoleId, u.Role,
@@ -47,11 +47,11 @@ public class AuthRepository(DbConnectionFactory db) : IAuthRepository
               AND  u.RefreshTokenExpiry > GETUTCDATE()
               AND  u.IsDeleted = 0";
 
-        using var conn = db.Create();
+        using var conn = db.CreateForCompany(companyId);
         return await conn.QueryFirstOrDefaultAsync<User>(sql, new { Token = refreshToken });
     }
 
-    public async Task SaveRefreshTokenAsync(int userId, string token, DateTime expiry)
+    public async Task SaveRefreshTokenAsync(int userId, string token, DateTime expiry, int companyId)
     {
         const string sql = @"
             UPDATE auth.Users SET
@@ -60,11 +60,11 @@ public class AuthRepository(DbConnectionFactory db) : IAuthRepository
                 UpdatedAt          = GETUTCDATE()
             WHERE Id = @UserId";
 
-        using var conn = db.Create();
+        using var conn = db.CreateForCompany(companyId);
         await conn.ExecuteAsync(sql, new { UserId = userId, Token = token, Expiry = expiry });
     }
 
-    public async Task RevokeRefreshTokenAsync(int userId)
+    public async Task RevokeRefreshTokenAsync(int userId, int companyId)
     {
         const string sql = @"
             UPDATE auth.Users SET
@@ -73,11 +73,11 @@ public class AuthRepository(DbConnectionFactory db) : IAuthRepository
                 UpdatedAt          = GETUTCDATE()
             WHERE Id = @UserId";
 
-        using var conn = db.Create();
+        using var conn = db.CreateForCompany(companyId);
         await conn.ExecuteAsync(sql, new { UserId = userId });
     }
 
-    public async Task UpdatePasswordAsync(int userId, string password, string updatedBy)
+    public async Task UpdatePasswordAsync(int userId, string password, string updatedBy, int companyId)
     {
         const string sql = @"
             UPDATE auth.Users SET
@@ -86,14 +86,14 @@ public class AuthRepository(DbConnectionFactory db) : IAuthRepository
                 UpdatedBy = @UpdatedBy
             WHERE Id = @UserId";
 
-        using var conn = db.Create();
+        using var conn = db.CreateForCompany(companyId);
         await conn.ExecuteAsync(sql, new { UserId = userId, Password = password, UpdatedBy = updatedBy });
     }
 
-    public async Task UpdateLastLoginAsync(int userId)
+    public async Task UpdateLastLoginAsync(int userId, int companyId)
     {
         const string sql = "UPDATE auth.Users SET LastLoginAt = GETUTCDATE() WHERE Id = @UserId";
-        using var conn = db.Create();
+        using var conn = db.CreateForCompany(companyId);
         await conn.ExecuteAsync(sql, new { UserId = userId });
     }
 }

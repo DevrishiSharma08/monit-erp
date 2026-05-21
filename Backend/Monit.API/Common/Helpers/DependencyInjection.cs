@@ -32,7 +32,8 @@ public static class DependencyInjection
     {
         // ── Infrastructure ────────────────────────────────────────────────────
         services.AddSingleton(config);
-        services.AddSingleton<DbConnectionFactory>();
+        services.AddHttpContextAccessor();
+        services.AddScoped<DbConnectionFactory>();
 
         // ── Repositories ──────────────────────────────────────────────────────
         services.AddScoped<IUnitRepository,          UnitRepository>();

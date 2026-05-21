@@ -25,6 +25,7 @@ public class JwtService(AppConfig config) : IJwtService
             new(ClaimTypes.Name,                 user.Username),
             new(ClaimTypes.Role,                 user.Role),
             new("name",                          user.Name),
+            new("company_id",                    user.CompanyId.ToString()),
             new(JwtRegisteredClaimNames.Jti,     Guid.NewGuid().ToString()),
         };
 

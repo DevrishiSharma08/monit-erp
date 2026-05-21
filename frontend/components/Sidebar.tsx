@@ -374,8 +374,9 @@ interface SidebarProps {
 
 export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
-  const { isCustomer, hasPerm } = useAuth();
+  const { isCustomer, hasPerm, user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const companyName = user?.companyName ?? "Monit Paper";
 
   if (isCustomer) {
     return <CustomerSidebar mobileOpen={mobileOpen} onMobileClose={onMobileClose} />;
@@ -389,7 +390,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
         "fixed inset-y-0 left-0 z-50 transition-transform duration-300",
         mobileOpen ? "translate-x-0" : "-translate-x-full",
         "lg:relative lg:z-auto lg:translate-x-0",
-        collapsed ? "lg:w-14 w-14" : "lg:w-60 w-72",
+        collapsed ? "w-14 lg:w-14" : "w-72 lg:w-60",
         "lg:transition-[width] lg:duration-300"
       )}
     >
@@ -408,7 +409,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
               <span className="text-sm font-black text-white">M</span>
             </div>
             <div className="min-w-0">
-              <p className={cn("text-sm font-bold leading-tight", BRAND_TEXT)}>Monit Paper</p>
+              <p className={cn("text-sm font-bold leading-tight truncate", BRAND_TEXT)}>{companyName}</p>
               <p className={cn("text-[10px] leading-tight", BRAND_SUB)}>ERP System</p>
             </div>
           </div>

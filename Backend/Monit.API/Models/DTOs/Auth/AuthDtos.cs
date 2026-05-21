@@ -1,6 +1,6 @@
 namespace Monit.API.Models.DTOs.Auth;
 
-public record LoginRequest(string Username, string Password);
+public record LoginRequest(string Username, string Password, int CompanyId = 1);
 
 public record LoginResponse(
     string AccessToken,
@@ -14,7 +14,8 @@ public record UserInfo(
     string Username,
     string Name,
     string Role,
-    string? CustomerName
+    string? CustomerName,
+    int    CompanyId = 1
 );
 
 public record RefreshResponse(

@@ -16,4 +16,5 @@ public class User : BaseEntity
     public string?   RefreshToken       { get; set; }
     public DateTime? RefreshTokenExpiry { get; set; }
     public string?   PermissionsJson    { get; set; }  // JSON from auth.Roles — added at login
+    public int       CompanyId          { get; set; } = 1;  // set in memory at login, not stored in DB
 }
