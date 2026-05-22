@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Monit.API.Common.Helpers;
 using Monit.API.Common.Middleware;
@@ -41,11 +42,19 @@ public class AuthService(
         SetRefreshCookie(httpResponse, refreshToken, refreshExpiry);
         SetCompanyCookie(httpResponse, companyId, refreshExpiry);
 
+        List<string> permissions = [];
+        if (!string.IsNullOrWhiteSpace(user.PermissionsJson))
+        {
+            try { permissions = JsonSerializer.Deserialize<List<string>>(user.PermissionsJson) ?? []; }
+            catch { /* malformed JSON */ }
+        }
+
         return new LoginResponse(
             AccessToken: accessToken,
             TokenType:   "Bearer",
             ExpiresAt:   jwtService.AccessTokenExpiry,
-            User: new UserInfo(user.Id, user.Username, user.Name, user.Role, user.CustomerName, companyId)
+            User:        new UserInfo(user.Id, user.Username, user.Name, user.Role, user.CustomerName, companyId),
+            Permissions: permissions
         );
     }
 

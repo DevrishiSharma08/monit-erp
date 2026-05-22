@@ -17,6 +17,7 @@ import {
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { createPortal } from "react-dom";
+import { KpiCard } from "@/components/ui/KpiCard";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1528,82 +1529,25 @@ function GRNPage() {
     <div className="space-y-6 pb-24">
 
       {/* KPI Row */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-8">
-
-        <button onClick={() => { setShowPending((v) => !v); setPendingSearch(""); }}
-          className={`rounded-xl border-2 p-4 text-left transition-all ${showPending ? "border-amber-400 bg-amber-500 shadow-md" : pendingTlps.length > 0 ? "border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 hover:border-amber-300" : "border-gray-100 bg-white hover:border-gray-200"}`}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={`text-xs font-medium uppercase tracking-wide ${showPending ? "text-amber-100" : "text-gray-400"}`}>Pending GRN</p>
-              <p className={`mt-1.5 text-2xl font-bold ${showPending ? "text-white" : pendingTlps.length > 0 ? "text-amber-600" : "text-gray-900"}`}>{pendingTlps.length}</p>
-              <p className={`mt-0.5 text-xs ${showPending ? "text-amber-100" : "text-amber-500"}`}>{showPending ? "Click to hide" : "Shipments waiting"}</p>
-            </div>
-            <div className={`flex h-10 w-10 items-center justify-center rounded-full ${showPending ? "bg-amber-400" : "bg-amber-100"}`}>
-              <Truck className={`h-5 w-5 ${showPending ? "text-white" : "text-amber-600"}`} />
-            </div>
-          </div>
-        </button>
-
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Stock Updated</p>
-              <p className="mt-1.5 text-2xl font-bold text-green-700">{kpis.stockUpdated}</p>
-              <p className="mt-0.5 text-xs text-green-600">In inventory</p></div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-50"><PackageCheck className="h-5 w-5 text-green-500" /></div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Discrepancy</p>
-              <p className="mt-1.5 text-2xl font-bold text-red-700">{kpis.discrepancy}</p>
-              <p className="mt-0.5 text-xs text-red-600">Issues found</p></div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-50"><AlertTriangle className="h-5 w-5 text-red-500" /></div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Draft</p>
-              <p className="mt-1.5 text-2xl font-bold text-gray-700">{kpis.draft}</p>
-              <p className="mt-0.5 text-xs text-gray-500">New arrivals</p></div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-50"><FileText className="h-5 w-5 text-gray-400" /></div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">QC Pending</p>
-              <p className="mt-1.5 text-2xl font-bold text-yellow-700">{kpis.qcPending}</p>
-              <p className="mt-0.5 text-xs text-yellow-600">On hold</p></div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-50"><Clock className="h-5 w-5 text-yellow-500" /></div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Approved</p>
-              <p className="mt-1.5 text-2xl font-bold text-blue-700">{kpis.approved}</p>
-              <p className="mt-0.5 text-xs text-blue-600">QC passed</p></div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50"><CheckCircle className="h-5 w-5 text-blue-500" /></div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">→ Stock</p>
-            <p className="mt-1.5 text-2xl font-bold text-teal-700">{(kpis.totalStock / 1000).toFixed(1)}K</p>
-            <p className="mt-0.5 text-xs text-teal-600">kg to inventory</p>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">→ Client Direct</p>
-            <p className="mt-1.5 text-2xl font-bold text-purple-700">{(kpis.totalDirect / 1000).toFixed(1)}K</p>
-            <p className="mt-0.5 text-xs text-purple-600">kg bypassed stock</p>
-          </div>
-        </div>
+      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-3">
+        <KpiCard
+          title="Pending GRN"
+          value={pendingTlps.length}
+          subtitle={showPending ? "Click to hide" : "Shipments waiting"}
+          subtitleColor="amber"
+          icon={Truck}
+          iconBg={showPending ? "bg-amber-500" : pendingTlps.length > 0 ? "bg-amber-50" : "bg-gray-50"}
+          iconColor={showPending ? "text-white" : "text-amber-600"}
+          onClick={() => { setShowPending((v) => !v); setPendingSearch(""); }}
+          className={showPending ? "ring-2 ring-amber-400" : ""}
+        />
+        <KpiCard title="Stock Updated" value={kpis.stockUpdated}  subtitle="In inventory"      subtitleColor="green" icon={PackageCheck} iconBg="bg-green-50"  iconColor="text-green-500"  />
+        <KpiCard title="Discrepancy"   value={kpis.discrepancy}   subtitle="Issues found"      subtitleColor="red"   icon={AlertTriangle} iconBg="bg-red-50"    iconColor="text-red-500"    />
+        <KpiCard title="Draft"         value={kpis.draft}         subtitle="New arrivals"                            icon={FileText}      iconBg="bg-gray-50"   iconColor="text-gray-400"   />
+        <KpiCard title="QC Pending"    value={kpis.qcPending}     subtitle="On hold"           subtitleColor="amber" icon={Clock}         iconBg="bg-yellow-50" iconColor="text-yellow-500" />
+        <KpiCard title="Approved"      value={kpis.approved}      subtitle="QC passed"         subtitleColor="blue"  icon={CheckCircle}   iconBg="bg-blue-50"   iconColor="text-blue-500"   />
+        <KpiCard title="→ Stock"       value={`${(kpis.totalStock / 1000).toFixed(1)}K`}  subtitle="kg to inventory"   icon={PackageCheck} iconBg="bg-teal-50"   iconColor="text-teal-500"   />
+        <KpiCard title="→ Client Direct" value={`${(kpis.totalDirect / 1000).toFixed(1)}K`} subtitle="kg bypassed stock" icon={ArrowRight}  iconBg="bg-purple-50" iconColor="text-purple-500" />
       </div>
 
       {/* Pending TLP Grid */}

@@ -19,6 +19,7 @@ import { useSalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
 import { poApi, PORow, CreatePODto, salesOrderApi, customerApi, millApi } from "@/lib/api-services";
 import { emailSentCache } from "@/lib/emailSentCache";
+import { KpiCard } from "@/components/ui/KpiCard";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -829,7 +830,7 @@ export default function ApprovalsPage() {
       id: "poNumber", accessorKey: "poNumber", header: "PO #",
       filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 140,
       cell: (info) => (
-        <span className="font-semibold text-violet-700">{info.getValue() as string}</span>
+        <span className="font-semibold text-purple-700">{info.getValue() as string}</span>
       ),
     },
     {
@@ -1010,67 +1011,32 @@ export default function ApprovalsPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="flex flex-wrap items-stretch gap-3">
-
-        <div className={cn(
-          "flex-1 min-w-[160px] rounded-xl border bg-white p-5 shadow-sm",
-          activeTab === "so" ? "border-orange-100" : "border-violet-100"
-        )}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={cn("text-xs font-medium uppercase tracking-wide", activeTab === "so" ? "text-orange-400" : "text-violet-400")}>
-                Pending Approvals
-              </p>
-              <p className={cn("mt-1.5 text-3xl font-black", activeTab === "so" ? "text-orange-600" : "text-violet-600")}>
-                {activeCount}
-              </p>
-              <p className={cn("mt-0.5 text-xs", activeTab === "so" ? "text-orange-400" : "text-violet-400")}>
-                {activeSubLabel}
-              </p>
-            </div>
-            <div className={cn("flex h-10 w-10 items-center justify-center rounded-full", activeTab === "so" ? "bg-orange-50" : "bg-violet-50")}>
-              <Clock className={cn("h-5 w-5", activeTab === "so" ? "text-orange-500" : "text-violet-500")} />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 min-w-[160px] rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Total Value</p>
-              <p className="mt-1.5 text-2xl font-bold text-gray-900">
-                ₹{(activeValue / 100000).toFixed(1)}L
-              </p>
-              <p className="mt-0.5 text-xs text-gray-500">across {activeCount} orders</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-50">
-              <IndianRupee className="h-5 w-5 text-gray-500" />
-            </div>
-          </div>
-        </div>
-
-        <div className={cn(
-          "flex-1 min-w-[160px] rounded-xl border bg-white p-5 shadow-sm",
-          activeOldestDays > 3 ? "border-red-100" : "border-gray-100"
-        )}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={cn("text-xs font-medium uppercase tracking-wide", activeOldestDays > 3 ? "text-red-400" : "text-gray-400")}>
-                Oldest Pending
-              </p>
-              <p className={cn("mt-1.5 text-2xl font-bold", activeOldestDays > 3 ? "text-red-600" : "text-gray-900")}>
-                {activeOldestDays}d
-              </p>
-              <p className={cn("mt-0.5 text-xs", activeOldestDays > 3 ? "text-red-400" : "text-gray-400")}>
-                {activeOldestDays > 3 ? "overdue — action needed" : "within SLA"}
-              </p>
-            </div>
-            <div className={cn("flex h-10 w-10 items-center justify-center rounded-full", activeOldestDays > 3 ? "bg-red-50" : "bg-gray-50")}>
-              <Package className={cn("h-5 w-5", activeOldestDays > 3 ? "text-red-400" : "text-gray-400")} />
-            </div>
-          </div>
-        </div>
-
+      <div className="kpi-grid grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+        <KpiCard
+          title="Pending Approvals"
+          value={activeCount}
+          subtitle={activeSubLabel}
+          icon={Clock}
+          iconBg={activeTab === "so" ? "bg-orange-50" : "bg-violet-50"}
+          iconColor={activeTab === "so" ? "text-orange-500" : "text-violet-500"}
+        />
+        <KpiCard
+          title="Total Value"
+          value={`₹${(activeValue / 100000).toFixed(1)}L`}
+          subtitle={`across ${activeCount} orders`}
+          icon={IndianRupee}
+          iconBg="bg-gray-50"
+          iconColor="text-gray-500"
+        />
+        <KpiCard
+          title="Oldest Pending"
+          value={`${activeOldestDays}d`}
+          subtitle={activeOldestDays > 3 ? "overdue — action needed" : "within SLA"}
+          subtitleColor={activeOldestDays > 3 ? "red" : "default"}
+          icon={Package}
+          iconBg={activeOldestDays > 3 ? "bg-red-50" : "bg-gray-50"}
+          iconColor={activeOldestDays > 3 ? "text-red-400" : "text-gray-400"}
+        />
       </div>
 
       {/* ── SO Tab ─────────────────────────────────────────────────────────────── */}

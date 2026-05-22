@@ -34,6 +34,7 @@ import {
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { Modal } from "@/components/Modal";
+import { KpiCard } from "@/components/ui/KpiCard";
 
 // ─── Timestamp formatter (UTC → IST) ─────────────────────────────────────────
 function fmtDateTime(raw?: string | null): string {
@@ -356,18 +357,25 @@ function MillTrackerPage() {
         const lineNo = poItemLineMap.get(info.row.original.id);
         return (
           <div className="leading-tight">
-            <span className="font-mono font-semibold text-xs text-purple-600">{po}</span>
-            {lineNo && <span className="font-mono text-xs text-blue-500"> #{lineNo}</span>}
+            <span className="font-semibold text-sm text-purple-700">{po}</span>
+            {lineNo && <span className="font-mono text-xs text-purple-400"> #{lineNo}</span>}
           </div>
         );
       } },
     { id: "poDate",         accessorKey: "poDate",          header: "Order Date",   filterType: "none",   enableSorting: true, defaultVisible: true, size: 95,
       cell: (info) => <span className="text-xs text-gray-600">{info.getValue() as string}</span> },
-    { id: "itemCode",       accessorKey: "mill",            header: "Item Code",    filterType: "text",   enableSorting: false, defaultVisible: true, size: 200,
+    { id: "millName",       accessorKey: "mill",            header: "Mill",         filterType: "text",   enableSorting: true,  defaultVisible: true, size: 160,
       cell: (info) => { const t = info.row.original; return (
         <div className="text-xs leading-tight">
           <div className="font-semibold text-gray-800">{t.mill}</div>
-          <div className="text-gray-500">{t.paper} · {t.gsm} GSM · {t.size}</div>
+          {t.millUnitName && <div className="text-[10px] text-blue-600 mt-0.5">{t.millUnitName}</div>}
+        </div>
+      ); } },
+    { id: "itemCode",       accessorKey: "paper",           header: "Item Code",    filterType: "text",   enableSorting: false, defaultVisible: true, size: 220,
+      cell: (info) => { const t = info.row.original; return (
+        <div className="text-xs leading-tight min-w-0">
+          <div className="font-medium text-gray-900 truncate">{t.paper}</div>
+          <div className="text-[10px] text-gray-500 mt-0.5">{t.gsm} GSM · {t.size}</div>
         </div>
       ); } },
     { id: "orderedQty",     accessorKey: "orderedQty",      header: "Ordered (kg)", filterType: "none",   enableSorting: true, defaultVisible: true, size: 95,
@@ -426,8 +434,8 @@ function MillTrackerPage() {
         onClick={() => openDetail(tracker)}>
         <td className="px-3 py-2 text-xs text-gray-400 tabular-nums">{rowIndex + 1}</td>
         <td className="px-3 py-2">
-          <span className="font-mono font-semibold text-xs text-purple-600">{tracker.poNumber}</span>
-          {poItemLineMap.get(tracker.id) && <span className="font-mono text-xs text-blue-500"> #{poItemLineMap.get(tracker.id)}</span>}
+          <span className="font-semibold text-sm text-purple-700">{tracker.poNumber}</span>
+          {poItemLineMap.get(tracker.id) && <span className="font-mono text-xs text-purple-400"> #{poItemLineMap.get(tracker.id)}</span>}
         </td>
         <td className="px-3 py-2 text-xs text-gray-600">{tracker.poDate}</td>
         <td className="px-3 py-2">
@@ -484,28 +492,13 @@ function MillTrackerPage() {
     <div className="space-y-4 pb-24">
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-        {([
-          { label: "Total Orders",  value: kpis.total,           sub: "All mills",    icon: Factory,     color: "blue"    },
-          { label: "Pending",       value: kpis.pending,         sub: "Not started",  icon: Clock,       color: "gray"    },
-          { label: "In Production", value: kpis.inProduction,    sub: "Active",       icon: Factory,     color: "purple"  },
-          { label: "Ready",         value: kpis.readyToDispatch, sub: "To dispatch",  icon: CheckCircle, color: "green"   },
-          { label: "Dispatched",    value: kpis.dispatched,      sub: "Sent from mill",icon: Truck,      color: "cyan"    },
-          { label: "Total Value",   value: `₹${(kpis.totalValue/100000).toFixed(1)}L`, sub: "PO value", icon: Package,   color: "emerald" },
-        ] as const).map(({ label, value, sub, icon: Icon, color }) => (
-          <div key={label} className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{label}</p>
-                <p className="mt-1 text-xl font-bold text-gray-900">{value}</p>
-                <p className={`mt-0.5 text-xs text-${color}-600`}>{sub}</p>
-              </div>
-              <div className={`flex h-9 w-9 items-center justify-center rounded-full bg-${color}-50`}>
-                <Icon className={`h-4 w-4 text-${color}-500`}/>
-              </div>
-            </div>
-          </div>
-        ))}
+      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
+        <KpiCard title="Total Orders"  value={kpis.total}           subtitle="All mills"       icon={Factory}     iconBg="bg-blue-50"    iconColor="text-blue-500"   />
+        <KpiCard title="Pending"       value={kpis.pending}         subtitle="Not started"     icon={Clock}       iconBg="bg-gray-50"    iconColor="text-gray-500"   />
+        <KpiCard title="In Production" value={kpis.inProduction}    subtitle="Active"          icon={Factory}     iconBg="bg-purple-50"  iconColor="text-purple-500" />
+        <KpiCard title="Ready"         value={kpis.readyToDispatch} subtitle="To dispatch"     icon={CheckCircle} iconBg="bg-green-50"   iconColor="text-green-500"  />
+        <KpiCard title="Dispatched"    value={kpis.dispatched}      subtitle="Sent from mill"  icon={Truck}       iconBg="bg-cyan-50"    iconColor="text-cyan-500"   />
+        <KpiCard title="Total Value"   value={`₹${(kpis.totalValue/100000).toFixed(1)}L`} subtitle="PO value" icon={Package} iconBg="bg-emerald-50" iconColor="text-emerald-500" />
       </div>
 
       {/* ── Toolbar (matches DataGrid toolbar style) ─────────────────────── */}

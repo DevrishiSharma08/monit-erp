@@ -543,7 +543,7 @@ export interface SalesOrderLineDto {
   id: number; lineNumber: number;
   materialId: number; materialCode: string;
   gsm?: number; size?: string; unit?: string;
-  orderedQty: number; qty?: number;
+  orderedQty: number; weightKg?: number; qty?: number;
   rate: number; discount: number; finalPrice?: number; amount: number;
   deliveryAddress?: string; requiredDeliveryDate?: string;
   status: string; allocatedQty: number; pendingQty: number;
@@ -612,7 +612,7 @@ export interface POItemRow {
 
 export interface PORow {
   id: number; poNumber: string;
-  millId: number; millName: string; millCode?: string;
+  millId: number; millName: string; millCode?: string; millUnitId?: number; millUnitName?: string;
   orderDate: string; poType: string;
   linkedSOId?: number; linkedSONumber?: string;
   deliveryMode?: string; shipmentMode?: string; blindShipment: boolean;
@@ -635,7 +635,7 @@ export interface CreatePOItemDto {
 }
 
 export interface CreatePODto {
-  millId: number; orderDate: string; poType: string;
+  millId: number; millUnitId?: number; orderDate: string; poType: string;
   linkedSOId?: number; deliveryMode?: string;
   shipmentMode?: string; blindShipment: boolean;
   invoiceParty?: string; invoicePartyId?: number;
@@ -683,10 +683,10 @@ export interface MillTrackerHistoryRow {
 export interface MillTrackerRow {
   id: number; poId: number; poItemId?: number;
   poNumber: string; poDate?: string;
-  millId: number; mill: string; millAddress?: string;
+  millId: number; mill: string; millAddress?: string; millUnitId?: number; millUnitName?: string;
   materialId?: number; paper?: string; gsm?: number; size?: string;
   orderedQty: number; readyQty: number; dispatchedQty: number; balanceQty: number;
-  rate: number; totalAmount: number;
+  rate: number; discount?: number; totalAmount: number;
   productionStatus: string; productionProgress: number;
   expectedDelivery?: string; actualDispatchDate?: string;
   lastUpdate?: string; lastUpdatedBy?: string; delayDays?: number;
@@ -718,13 +718,23 @@ export interface BulkImportResultDto {
 
 // ── Truck Load Plans ───────────────────────────────────────────────────────────
 
+export type TlpLoadType = "Load 1" | "Load 2" | "Load 3" | "Last Load";
+
+export interface TruckLoadPlanLoadApiDto {
+  id: number; loadType: TlpLoadType; loadSequence: number; address?: string;
+}
+
+export interface CreateTruckLoadPlanLoadApiDto {
+  loadType: TlpLoadType; loadSequence: number; address?: string;
+}
+
 export interface TruckLoadPlanItemApiDto {
   id: number; planId: number; trackerId?: number;
   poNumber?: string; soNumber?: string;
   paper?: string; gsm?: number; size?: string;
   customerName?: string; mill?: string;
-  quantity: number; weightKg?: number;
-  loadOrder: number;
+  quantity: number; planQty?: number; weightKg?: number;
+  loadOrder: number; loadType?: TlpLoadType;
   deliveryLocation?: string; deliveryAddress?: string;
   millInvoiceNo?: string; deliveryBillNo?: string;
 }
@@ -740,14 +750,15 @@ export interface TruckLoadPlanApiDto {
   actualLoadDate?: string; actualDeliveryDate?: string;
   status: string; remarks?: string; createdAt: string;
   items: TruckLoadPlanItemApiDto[];
+  loads?: TruckLoadPlanLoadApiDto[];
 }
 
 export interface CreateTruckLoadPlanItemApiDto {
   trackerId?: number; poNumber?: string; soNumber?: string;
   paper?: string; gsm?: number; size?: string;
   customerName?: string; mill?: string;
-  quantity: number; weightKg?: number;
-  loadOrder: number;
+  quantity: number; planQty?: number; weightKg?: number;
+  loadOrder: number; loadType?: TlpLoadType;
   deliveryLocation?: string; deliveryAddress?: string;
   millInvoiceNo?: string; deliveryBillNo?: string;
 }
@@ -760,6 +771,7 @@ export interface CreateTruckLoadPlanApiDto {
   millInvoiceNo?: string; deliveryBillNo?: string;
   plannedLoadDate?: string; plannedDeliveryDate?: string;
   remarks?: string;
+  loads?: CreateTruckLoadPlanLoadApiDto[];
   items: CreateTruckLoadPlanItemApiDto[];
 }
 

@@ -449,9 +449,9 @@ export default function OrdersPage() {
         const first = lines[0];
         if (!first) return <span className="text-gray-400 text-xs">—</span>;
         const code = first.materialCode || first.materialId || "—";
-        const qty = (first as any).weightKg
-          ? `${(first as any).weightKg.toLocaleString("en-IN")} KG`
-          : `${first.orderedQty.toLocaleString("en-IN")}`;
+        const qty = first.weightKg && first.weightKg > 0
+          ? `${first.weightKg.toLocaleString("en-IN")} KG`
+          : `${first.orderedQty.toLocaleString("en-IN")} ${first.unit || "KG"}`.trim();
         return (
           <div className="text-xs leading-snug">
             <div className="font-medium text-gray-900">{code}</div>
@@ -534,7 +534,7 @@ export default function OrdersPage() {
             emailSent={emailSentIds.has(so.id)}
             shareData={(() => {
               const itemLines = so.lines.map((l, i) => {
-                const qty = l.weightKg ? `${l.weightKg.toLocaleString("en-IN")} KG` : `${l.orderedQty.toLocaleString("en-IN")}`;
+                const qty = l.weightKg && l.weightKg > 0 ? `${l.weightKg.toLocaleString("en-IN")} KG` : `${l.orderedQty.toLocaleString("en-IN")} ${l.unit || "KG"}`.trim();
                 return `  ${i + 1}. ${l.materialCode || l.materialId} — ${qty} @ ₹${l.rate.toLocaleString("en-IN")}`;
               }).join("\n");
               return {

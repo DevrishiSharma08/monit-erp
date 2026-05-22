@@ -118,7 +118,7 @@ function PurchaseOrdersPage() {
         const po = info.row.original;
         return (
           <div className="flex flex-col gap-0.5">
-            <span className="font-semibold text-gray-900">{info.getValue() as string}</span>
+            <span className="font-semibold text-purple-700">{info.getValue() as string}</span>
             {(po.shipmentMode === "Blind" || po.blindShipment) && (
               <span className="inline-flex w-fit rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">Blind</span>
             )}
@@ -149,7 +149,17 @@ function PurchaseOrdersPage() {
     },
     {
       id: "millName", accessorKey: "millName", header: "Mill",
-      filterType: "text", enableSorting: true, defaultVisible: true, size: 170, align: "left" as const,
+      filterType: "text", enableSorting: true, defaultVisible: true, size: 160, align: "left" as const,
+    },
+    {
+      id: "millUnitName", accessorKey: "millUnitName", header: "Mill Unit",
+      filterType: "text", enableSorting: false, defaultVisible: true, size: 130, align: "left" as const,
+      cell: (info) => {
+        const v = info.getValue() as string | undefined;
+        return v
+          ? <span className="text-xs font-medium text-blue-700">{v}</span>
+          : <span className="text-xs text-gray-300">—</span>;
+      },
     },
     {
       id: "items", accessorKey: "items", header: "Material",

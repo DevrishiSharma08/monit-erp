@@ -1281,6 +1281,8 @@ function mapTrackerRow(r: MillTrackerRow): MillOrderTracker {
     poDate:                r.poDate ?? "",
     mill:                  r.mill ?? "",
     millAddress:           r.millAddress,
+    millUnitId:            r.millUnitId,
+    millUnitName:          r.millUnitName,
     paper:                 r.paper ?? "",
     gsm:                   r.gsm ?? 0,
     size:                  r.size ?? "",

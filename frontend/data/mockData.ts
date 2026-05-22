@@ -385,6 +385,8 @@ export interface MillOrderTracker {
   poDate: string;
   mill: string;
   millAddress?: string;
+  millUnitId?: number;
+  millUnitName?: string;
 
   paper: string;
   gsm: number;

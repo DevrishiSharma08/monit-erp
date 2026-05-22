@@ -54,6 +54,8 @@ public class MillTrackerRepository(DbConnectionFactory db) : IMillTrackerReposit
              FROM   masters.MillUnits mu
              WHERE  mu.MillId = mt.MillId AND mu.IsDeleted = 0
              ORDER  BY mu.IsDefault DESC, mu.Id)                                AS MillAddress,
+            po.MillUnitId,
+            muu.UnitName                                                        AS MillUnitName,
             mt.CreatedAt
         FROM  procurement.MillTrackers           mt
         JOIN  masters.Mills                      mil ON mil.Id  = mt.MillId
@@ -62,7 +64,8 @@ public class MillTrackerRepository(DbConnectionFactory db) : IMillTrackerReposit
         LEFT JOIN procurement.PurchaseOrderItems poi ON poi.Id  = mt.POItemId
         LEFT JOIN masters.Customers              dc  ON dc.Id   = po.DirectCustomerId
         LEFT JOIN sales.SalesOrders              so  ON so.Id   = mt.LinkedSOId
-        LEFT JOIN masters.Customers              soc ON soc.Id  = so.CustomerId";
+        LEFT JOIN masters.Customers              soc ON soc.Id  = so.CustomerId
+        LEFT JOIN masters.MillUnits              muu ON muu.Id  = po.MillUnitId";
 
     private const string BatchSelect = @"
         SELECT

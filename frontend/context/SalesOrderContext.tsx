@@ -93,7 +93,7 @@ function toSO(r: SalesOrderRow): SalesOrder {
       size:             l.size,
       unit:             l.unit,
       orderedQty:       l.orderedQty,
-      weightKg:         undefined,
+      weightKg:         l.weightKg,
       qty:              l.qty,
       rate:             l.rate,
       discount:         l.discount,

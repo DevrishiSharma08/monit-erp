@@ -10,16 +10,16 @@ interface Props {
 }
 
 export function PermGuard({ perm, children }: Props) {
-  const { hasPerm, isLoading } = useAuth();
+  const { hasPermission, isLoading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (isLoading) return;
-    if (!hasPerm(perm)) router.replace("/");
-  }, [isLoading, hasPerm, perm, router]);
+    if (!hasPermission(perm)) router.replace("/");
+  }, [isLoading, hasPermission, perm, router]);
 
   if (isLoading) return null;
-  if (!hasPerm(perm)) return null;
+  if (!hasPermission(perm)) return null;
 
   return <>{children}</>;
 }
