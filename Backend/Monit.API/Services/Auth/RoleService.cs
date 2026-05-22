@@ -22,12 +22,24 @@ public class RoleService(IRoleRepository repo) : IRoleService
     public async Task<RoleDetailDto> CreateAsync(CreateRoleDto dto, string createdBy)
     {
         if (string.IsNullOrWhiteSpace(dto.Name)) throw new ValidationException("Role name is required.");
-        if (await repo.NameExistsAsync(dto.Name.Trim()))
-            throw new ConflictException($"Role '{dto.Name}' already exists.");
+
+        var name = dto.Name.Trim();
+
+        // Active role with same name → conflict
+        if (await repo.NameExistsAsync(name))
+            throw new ConflictException($"Role '{name}' already exists.");
+
+        // Soft-deleted role with same name → restore it
+        var deletedId = await repo.FindSoftDeletedByNameAsync(name);
+        if (deletedId.HasValue)
+        {
+            await repo.RestoreAsync(deletedId.Value, createdBy);
+            return await GetByIdAsync(deletedId.Value);
+        }
 
         var id = await repo.CreateAsync(new Role
         {
-            Name        = dto.Name.Trim(),
+            Name        = name,
             Description = dto.Description?.Trim(),
             Permissions = SerializePermissions(dto.Permissions),
             IsActive    = true,

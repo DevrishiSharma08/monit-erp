@@ -15,6 +15,8 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
             po.MillId,
             ISNULL(m.Name, '')  AS MillName,
             ISNULL(m.Code, '')  AS MillCode,
+            po.MillUnitId,
+            mu.UnitName         AS MillUnitName,
             CONVERT(NVARCHAR(10), po.OrderDate, 23)             AS OrderDate,
             po.POType,
             po.LinkedSOId,
@@ -40,6 +42,7 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
             CONVERT(NVARCHAR(20), po.EmailSentAt, 120) AS EmailSentAt
         FROM   procurement.PurchaseOrders      po
         LEFT JOIN masters.Mills                m  ON m.Id  = po.MillId
+        LEFT JOIN masters.MillUnits            mu ON mu.Id = po.MillUnitId
         LEFT JOIN sales.SalesOrders            so ON so.Id = po.LinkedSOId
         LEFT JOIN masters.Customers            dc ON dc.Id = po.DirectCustomerId";
 
@@ -106,13 +109,13 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
         const string numSql = "SELECT ISNULL(MAX(CAST(SUBSTRING(PONumber, 9, 10) AS INT)), 0) + 1 FROM procurement.PurchaseOrders WHERE PONumber LIKE @Prefix AND IsDeleted = 0";
         const string poSql  = @"
             INSERT INTO procurement.PurchaseOrders
-                (PONumber, MillId, OrderDate, POType, LinkedSOId, DeliveryMode, ShipmentMode,
+                (PONumber, MillId, MillUnitId, OrderDate, POType, LinkedSOId, DeliveryMode, ShipmentMode,
                  BlindShipment, InvoiceParty, InvoicePartyId, DirectCustomerId, DirectDeliveryAddress,
                  ExpectedDeliveryDate, MillSONumber, PaymentTerms, TotalQuantity, TotalValue,
                  Status, GSTPercentage, Remarks, SpecialInstructions, CreatedAt, CreatedBy)
             OUTPUT INSERTED.Id
             VALUES
-                (@PONumber, @MillId, @OrderDate, @POType, @LinkedSOId, @DeliveryMode, @ShipmentMode,
+                (@PONumber, @MillId, @MillUnitId, @OrderDate, @POType, @LinkedSOId, @DeliveryMode, @ShipmentMode,
                  @BlindShipment, @InvoiceParty, @InvoicePartyId, @DirectCustomerId, @DirectDeliveryAddress,
                  @ExpectedDeliveryDate, @MillSONumber, @PaymentTerms, @TotalQuantity, @TotalValue,
                  @Status, @GSTPercentage, @Remarks, @SpecialInstructions, GETUTCDATE(), @CreatedBy)";
@@ -128,6 +131,7 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
             {
                 PONumber              = poNumber,
                 po.MillId,
+                po.MillUnitId,
                 OrderDate             = DateOnly.Parse(po.OrderDate),
                 po.POType,
                 po.LinkedSOId,
@@ -161,7 +165,7 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
     {
         const string sql = @"
             UPDATE procurement.PurchaseOrders SET
-                MillId=@MillId, OrderDate=@OrderDate, POType=@POType, LinkedSOId=@LinkedSOId,
+                MillId=@MillId, MillUnitId=@MillUnitId, OrderDate=@OrderDate, POType=@POType, LinkedSOId=@LinkedSOId,
                 DeliveryMode=@DeliveryMode, ShipmentMode=@ShipmentMode, BlindShipment=@BlindShipment,
                 InvoiceParty=@InvoiceParty, InvoicePartyId=@InvoicePartyId,
                 DirectCustomerId=@DirectCustomerId, DirectDeliveryAddress=@DirectDeliveryAddress,
@@ -179,6 +183,7 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
             {
                 Id                    = id,
                 po.MillId,
+                po.MillUnitId,
                 OrderDate             = DateOnly.Parse(po.OrderDate),
                 po.POType,
                 po.LinkedSOId,

@@ -12,7 +12,7 @@ import {
   PackageCheck, Clock, AlertTriangle, CheckCircle, X, FileText,
   Truck, MapPin, Plus, Printer, Search, MoreVertical, Eye,
   Pencil, Trash2, CheckCircle2, Ban, Loader2, ArrowRight, ChevronDown,
-  ShieldAlert, ShieldCheck, EyeOff,
+  ShieldAlert, ShieldCheck, EyeOff, Scale,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
@@ -103,24 +103,24 @@ function printGRN(grn: GrnDetailRow) {
       ${grn.billingMode === "InvoiceOverride" && grn.overrideClientName ? `<div class="f"><div class="fl">Client on PO</div><div class="fv">${grn.overrideClientName}</div></div>` : ""}
     </div>
   </div>
-  <div class="sec"><div class="sec-t">Material & Quantity Split</div>
-    <table><thead><tr><th>Paper</th><th>GSM</th><th>Size</th><th>Ordered</th><th>Received</th><th>Short</th><th>Damaged</th>
-      ${hasDirectDelivery ? "<th>→ Stock</th><th>→ Client</th>" : "<th>Balance</th>"}
+  <div class="sec"><div class="sec-t">Material & Weight Split</div>
+    <table><thead><tr><th>Paper</th><th>GSM</th><th>Size</th><th>Ordered (kg)</th><th>Received (kg)</th><th>Short (kg)</th><th>Damaged (kg)</th>
+      ${hasDirectDelivery ? "<th>→ Stock (kg)</th><th>→ Client (kg)</th>" : "<th>Balance (kg)</th>"}
     </tr></thead>
     <tbody><tr>
       <td><strong>${grn.paper}</strong></td><td>${grn.gsm} GSM</td><td>${grn.size}</td>
-      <td style="text-align:right">${grn.orderedQty.toLocaleString()}</td>
-      <td style="text-align:right;color:#15803d;font-weight:700">${grn.receivedQty.toLocaleString()}</td>
-      <td style="text-align:right;color:${grn.shortQty > 0 ? "#d97706" : "#9ca3af"}">${grn.shortQty.toLocaleString()}</td>
-      <td style="text-align:right;color:${grn.damagedQty > 0 ? "#b91c1c" : "#9ca3af"}">${grn.damagedQty.toLocaleString()}</td>
+      <td style="text-align:right">${qtyToKg(grn, grn.orderedQty).toLocaleString()}</td>
+      <td style="text-align:right;color:#15803d;font-weight:700">${qtyToKg(grn, grn.receivedQty).toLocaleString()}</td>
+      <td style="text-align:right;color:${grn.shortQty > 0 ? "#d97706" : "#9ca3af"}">${qtyToKg(grn, grn.shortQty).toLocaleString()}</td>
+      <td style="text-align:right;color:${grn.damagedQty > 0 ? "#b91c1c" : "#9ca3af"}">${qtyToKg(grn, grn.damagedQty).toLocaleString()}</td>
       ${hasDirectDelivery
-        ? `<td style="text-align:right;color:#0f766e;font-weight:700">${grn.stockQty.toLocaleString()}</td>
-           <td style="text-align:right;color:#7e22ce;font-weight:700">${grn.directQty.toLocaleString()}</td>`
-        : `<td style="text-align:right;font-weight:700;color:${grn.balanceQty > 0 ? "#b91c1c" : "#15803d"}">${grn.balanceQty > 0 ? grn.balanceQty.toLocaleString() : "NIL"}</td>`}
+        ? `<td style="text-align:right;color:#0f766e;font-weight:700">${qtyToKg(grn, grn.stockQty).toLocaleString()}</td>
+           <td style="text-align:right;color:#7e22ce;font-weight:700">${qtyToKg(grn, grn.directQty).toLocaleString()}</td>`
+        : `<td style="text-align:right;font-weight:700;color:${grn.balanceQty > 0 ? "#b91c1c" : "#15803d"}">${grn.balanceQty > 0 ? qtyToKg(grn, grn.balanceQty).toLocaleString() : "NIL"}</td>`}
     </tr></tbody></table>
     ${grn.grnDeliveryMode === "DirectToClient" || grn.grnDeliveryMode === "Split"
       ? `<div style="margin-top:6px;font-size:10px;color:#7e22ce;background:#faf5ff;border:1px solid #e9d5ff;border-radius:4px;padding:6px 8px">
-          Direct to Client: <strong>${grn.directQty.toLocaleString()} sheets</strong>${grn.directClientName ? ` → ${grn.directClientName}` : ""}
+          Direct to Client: <strong>${qtyToKg(grn, grn.directQty).toLocaleString()} kg</strong>${grn.directClientName ? ` → ${grn.directClientName}` : ""}
           ${grn.directDeliveryAddress ? ` · ${grn.directDeliveryAddress}` : ""}
         </div>` : ""}
   </div>
@@ -158,6 +158,15 @@ function printGRN(grn: GrnDetailRow) {
   win.document.close();
   win.focus();
   setTimeout(() => win.print(), 400);
+}
+
+// ─── Weight helpers ───────────────────────────────────────────────────────────
+// Procurement flow stores all qty fields in KG already (MillTracker.OrderedQty
+// is PO.WeightKg, TLP.Quantity is kg, GRN.receivedQty is kg). So these helpers
+// are identity for callers that already have a kg value, kept for naming clarity.
+
+function qtyToKg(_item: { weightKg?: number; quantity?: number; gsm?: number; size?: string }, kg: number): number {
+  return Math.round(kg);
 }
 
 // ─── Create GRN Modal ─────────────────────────────────────────────────────────
@@ -414,10 +423,10 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
               <table className="w-full text-xs">
                 <thead><tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-3 py-2 text-left font-semibold text-gray-600">Material</th>
-                  <th className="px-3 py-2 text-right font-semibold text-gray-600">Dispatched</th>
-                  <th className="px-3 py-2 text-right font-semibold text-green-700">Received</th>
-                  <th className="px-3 py-2 text-right font-semibold text-red-600">Damaged</th>
-                  <th className="px-3 py-2 text-right font-semibold text-orange-600">Short</th>
+                  <th className="px-3 py-2 text-right font-semibold text-gray-600">Dispatched (kg)</th>
+                  <th className="px-3 py-2 text-right font-semibold text-green-700">Received (kg)</th>
+                  <th className="px-3 py-2 text-right font-semibold text-red-600">Damaged (kg)</th>
+                  <th className="px-3 py-2 text-right font-semibold text-orange-600">Short (kg)</th>
                   <th className="px-3 py-2 text-left font-semibold text-indigo-600">QC</th>
                   <th className="px-3 py-2 text-left font-semibold text-gray-600">Routing</th>
                 </tr></thead>
@@ -434,25 +443,25 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
                     return (
                       <tr key={item.id}>
                         <td className="px-3 py-2 font-medium text-gray-900">{item.paper} {item.gsm}g · {item.size}</td>
-                        <td className="px-3 py-2 text-right text-gray-600">{item.quantity.toLocaleString()}</td>
-                        <td className="px-3 py-2 text-right font-bold text-green-700">{iForm.receivedQty.toLocaleString()}</td>
-                        <td className="px-3 py-2 text-right text-red-600">{iForm.damagedQty || "—"}</td>
-                        <td className="px-3 py-2 text-right text-orange-600">{short > 0 ? short.toLocaleString() : "—"}</td>
+                        <td className="px-3 py-2 text-right text-gray-600">{qtyToKg(item, item.quantity).toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right font-bold text-green-700">{qtyToKg(item, iForm.receivedQty).toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right text-red-600">{iForm.damagedQty > 0 ? qtyToKg(item, iForm.damagedQty).toLocaleString() : "—"}</td>
+                        <td className="px-3 py-2 text-right text-orange-600">{short > 0 ? qtyToKg(item, short).toLocaleString() : "—"}</td>
                         <td className="px-3 py-2">
                           <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold border ${getQcColor(iForm.qcResult)}`}>{iForm.qcResult}</span>
                         </td>
                         <td className="px-3 py-2">
                           {iForm.deliveryMode === "StockIn" && (
-                            <span className="text-[10px] text-teal-700 font-semibold">↓ {stockQty.toLocaleString()} → Stock</span>
+                            <span className="text-[10px] text-teal-700 font-semibold">↓ {qtyToKg(item, stockQty).toLocaleString()} kg → Stock</span>
                           )}
                           {iForm.deliveryMode === "DirectToClient" && (
-                            <span className="text-[10px] text-purple-700 font-semibold">→ {directQty.toLocaleString()} Direct</span>
+                            <span className="text-[10px] text-purple-700 font-semibold">→ {qtyToKg(item, directQty).toLocaleString()} kg Direct</span>
                           )}
                           {iForm.deliveryMode === "Split" && (
                             <span className="text-[10px] font-semibold">
-                              <span className="text-teal-700">{stockQty.toLocaleString()} Stock</span>
+                              <span className="text-teal-700">{qtyToKg(item, stockQty).toLocaleString()} kg Stock</span>
                               <span className="text-gray-400 mx-1">+</span>
-                              <span className="text-purple-700">{directQty.toLocaleString()} Direct</span>
+                              <span className="text-purple-700">{qtyToKg(item, directQty).toLocaleString()} kg Direct</span>
                             </span>
                           )}
                         </td>
@@ -545,7 +554,11 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
                   const iForm = itemForms[idx];
                   const tracker = item.trackerId ? trackerMap[item.trackerId] : undefined;
                   const orderedQty = tracker?.orderedQty ?? item.quantity;
-                  const poRate = tracker?.rate;
+                  const poRate = tracker
+                    ? (tracker.discount && tracker.discount > 0
+                        ? tracker.rate / (1 - tracker.discount / 100)
+                        : tracker.rate)
+                    : undefined;
                   const goodQty = Math.max(0, iForm.receivedQty - iForm.damagedQty);
                   const shortQty = Math.max(0, item.quantity - iForm.receivedQty - iForm.damagedQty);
                   const rateDiff = iForm.billingRate > 0 && poRate ? iForm.billingRate - poRate : null;
@@ -568,9 +581,9 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
                           </span>
                         )}
                         <div className="ml-auto flex items-center gap-4 text-xs text-gray-500">
-                          <span>Ordered: <strong className="text-gray-800">{orderedQty.toLocaleString()}</strong></span>
-                          <span>Dispatched: <strong className="text-gray-800">{item.quantity.toLocaleString()}</strong></span>
-                          <span className="text-amber-700 font-semibold">Received: {iForm.receivedQty.toLocaleString()}</span>
+                          <span>Ordered: <strong className="text-gray-800">{qtyToKg(item, orderedQty).toLocaleString()} kg</strong></span>
+                          <span>Dispatched: <strong className="text-gray-800">{qtyToKg(item, item.quantity).toLocaleString()} kg</strong></span>
+                          <span className="text-amber-700 font-semibold">Received: {qtyToKg(item, iForm.receivedQty).toLocaleString()} kg</span>
                           <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform flex-shrink-0 ${expandedItems.has(idx) ? "rotate-0" : "-rotate-90"}`} />
                         </div>
                       </button>
@@ -650,6 +663,68 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
                           </div>
                         </div>
 
+                        {/* Weight Verification — 3-way: PO / Plan / GRN (all kg) */}
+                        {(() => {
+                          const poWt   = tracker?.orderedQty ?? item.quantity;
+                          const planWt = item.weightKg ?? item.quantity ?? 0;
+                          const grnWt  = iForm.receivedQty;
+                          const baseWt = planWt > 0 ? planWt : poWt;
+                          const diff   = grnWt - baseWt;
+                          const pct    = baseWt > 0 ? (diff / baseWt) * 100 : 0;
+                          const fmt    = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+                          const diffCls = Math.abs(pct) <= 1
+                            ? "border-green-200 bg-green-50 text-green-700"
+                            : Math.abs(pct) <= 4
+                            ? "border-amber-200 bg-amber-50 text-amber-700"
+                            : "border-red-200 bg-red-50 text-red-700";
+                          return (
+                            <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-3">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-sky-500 mb-2.5 flex items-center gap-1.5">
+                                <Scale className="h-3 w-3" /> Weight Verification
+                              </p>
+                              <div className="grid grid-cols-3 gap-2">
+                                {/* PO ordered */}
+                                <div className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-center">
+                                  <p className="text-[9px] uppercase tracking-wide text-gray-400 mb-0.5">PO Ordered</p>
+                                  <p className="text-sm font-bold text-gray-800">{fmt(poWt)} <span className="text-[10px] font-medium text-gray-400">kg</span></p>
+                                </div>
+                                {/* Plan dispatched */}
+                                <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-center">
+                                  <p className="text-[9px] uppercase tracking-wide text-indigo-400 mb-0.5">Plan Dispatched</p>
+                                  <p className="text-sm font-bold text-indigo-800">
+                                    {planWt > 0 ? <>{fmt(planWt)} <span className="text-[10px] font-medium text-indigo-400">kg</span></> : <span className="text-gray-400">—</span>}
+                                  </p>
+                                </div>
+                                {/* GRN received */}
+                                <div className={`rounded-lg border px-2.5 py-2 text-center ${iForm.receivedQty > 0 ? "border-emerald-200 bg-emerald-50" : "border-gray-200 bg-white"}`}>
+                                  <p className={`text-[9px] uppercase tracking-wide mb-0.5 ${iForm.receivedQty > 0 ? "text-emerald-500" : "text-gray-400"}`}>GRN Received</p>
+                                  <p className={`text-sm font-bold ${iForm.receivedQty > 0 ? "text-emerald-800" : "text-gray-400"}`}>
+                                    {iForm.receivedQty > 0 ? <>{fmt(grnWt)} <span className="text-[10px] font-medium text-emerald-500">kg</span></> : "—"}
+                                  </p>
+                                  {iForm.receivedQty === 0 && <p className="text-[9px] mt-0.5 text-gray-400">enter qty above</p>}
+                                </div>
+                              </div>
+                              {/* Difference bar */}
+                              {iForm.receivedQty > 0 && baseWt > 0 && (
+                                <div className={`mt-2 rounded-lg border px-3 py-1.5 text-xs font-semibold flex items-center justify-between ${diffCls}`}>
+                                  <span>
+                                    vs {planWt > 0 ? "Plan" : "PO"}:{" "}
+                                    {diff >= 0 ? "+" : ""}{fmt(diff)} kg
+                                    {diff !== 0 && (
+                                      <span className="ml-2 font-normal opacity-75">
+                                        ({diff > 0 ? "surplus" : "short"})
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="tabular-nums">
+                                    {pct >= 0 ? "+" : ""}{pct.toFixed(1)}%
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
                         {/* Invoice & billing rate */}
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                           <div>
@@ -695,9 +770,9 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
                               min={0} placeholder="0" />
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Short Qty</label>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Short (kg)</label>
                             <div className={`w-full rounded-lg border px-2 py-1.5 text-xs font-semibold ${shortQty > 0 ? "border-orange-200 bg-orange-50 text-orange-700" : "border-gray-200 bg-gray-50 text-gray-400"}`}>
-                              {shortQty > 0 ? shortQty.toLocaleString() : "—"}
+                              {shortQty > 0 ? qtyToKg(item, shortQty).toLocaleString() : "—"}
                             </div>
                           </div>
                           <div>
@@ -731,17 +806,19 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
                         {/* Split qty */}
                         {iForm.deliveryMode === "Split" && (
                           <div className="flex items-center gap-3">
-                            <span className="text-xs text-purple-600 font-medium whitespace-nowrap">Direct qty:</span>
+                            <span className="text-xs text-purple-600 font-medium whitespace-nowrap">Direct (kg):</span>
                             <input type="number" value={iForm.directQty || ""}
-                              onChange={(e) => setItem(idx, "directQty", Math.max(0, +e.target.value || 0))}
-                              max={goodQty}
+                              onChange={(e) => {
+                                const kg = Math.max(0, Math.min(+e.target.value || 0, goodQty));
+                                setItem(idx, "directQty", kg);
+                              }}
                               className="w-28 rounded-lg border border-purple-300 bg-purple-50 px-2 py-1.5 text-right text-xs font-semibold text-purple-900 focus:border-purple-500 focus:outline-none"
                               placeholder="0" />
-                            <span className="text-xs text-teal-600">Stock: {Math.max(0, goodQty - iForm.directQty).toLocaleString()}</span>
+                            <span className="text-xs text-teal-600">Stock: {qtyToKg(item, Math.max(0, goodQty - iForm.directQty)).toLocaleString()} kg</span>
                           </div>
                         )}
                         {iForm.deliveryMode === "DirectToClient" && (
-                          <p className="text-xs text-purple-600 font-medium">All {goodQty.toLocaleString()} sheets → client</p>
+                          <p className="text-xs text-purple-600 font-medium">All {qtyToKg(item, goodQty).toLocaleString()} kg → client</p>
                         )}
                       </div>}
                     </div>
@@ -1253,8 +1330,8 @@ function GRNPage() {
     stockUpdated:  grns.filter((g) => g.status === "Stock Updated").length,
     discrepancy:   grns.filter((g) => g.status === "Discrepancy Raised").length,
     totalReceived: grns.reduce((s, g) => s + g.receivedQty, 0),
-    totalStock:    grns.reduce((s, g) => s + g.stockQty, 0),
-    totalDirect:   grns.reduce((s, g) => s + g.directQty, 0),
+    totalStock:    grns.reduce((s, g) => s + qtyToKg(g, g.stockQty), 0),
+    totalDirect:   grns.reduce((s, g) => s + qtyToKg(g, g.directQty), 0),
   }), [grns]);
 
   const filteredPending = useMemo(() => {
@@ -1353,23 +1430,26 @@ function GRNPage() {
             <span className={`inline-flex rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${getDeliveryModeColor(g.grnDeliveryMode)}`}>
               {g.grnDeliveryMode === "StockIn" ? "To Stock" : g.grnDeliveryMode === "DirectToClient" ? "Direct" : "Split"}
             </span>
-            {g.stockQty > 0 && <p className="text-teal-700">{g.stockQty.toLocaleString()} → stock</p>}
-            {g.directQty > 0 && <p className="text-purple-700">{g.directQty.toLocaleString()} → client</p>}
+            {g.stockQty > 0 && <p className="text-teal-700">{qtyToKg(g, g.stockQty).toLocaleString()} kg → stock</p>}
+            {g.directQty > 0 && <p className="text-purple-700">{qtyToKg(g, g.directQty).toLocaleString()} kg → client</p>}
           </div>
         );
       },
     },
     {
-      id: "qtyTracking", accessorKey: "orderedQty", header: "Ordered / Received",
-      filterType: "none", enableSorting: true, defaultVisible: true, size: 150,
+      id: "qtyTracking", accessorKey: "orderedQty", header: "Ordered / Received (kg)",
+      filterType: "none", enableSorting: true, defaultVisible: true, size: 170,
       cell: (info) => {
         const g = info.row.original;
+        const ord = qtyToKg(g, g.orderedQty);
+        const rcv = qtyToKg(g, g.receivedQty);
+        const bal = qtyToKg(g, g.balanceQty);
         return (
           <div className="text-sm">
-            <span className="text-gray-500">{g.orderedQty.toLocaleString()}</span>
+            <span className="text-gray-500">{ord.toLocaleString()}</span>
             <span className="mx-1 text-gray-300">/</span>
-            <span className={`font-semibold ${g.balanceQty > 0 ? "text-red-600" : "text-green-700"}`}>{g.receivedQty.toLocaleString()}</span>
-            {g.balanceQty > 0 && <span className="ml-1 text-xs text-red-500">(-{g.balanceQty.toLocaleString()})</span>}
+            <span className={`font-semibold ${g.balanceQty > 0 ? "text-red-600" : "text-green-700"}`}>{rcv.toLocaleString()}</span>
+            {g.balanceQty > 0 && <span className="ml-1 text-xs text-red-500">(-{bal.toLocaleString()})</span>}
           </div>
         );
       },
@@ -1513,7 +1593,7 @@ function GRNPage() {
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-400">→ Stock</p>
             <p className="mt-1.5 text-2xl font-bold text-teal-700">{(kpis.totalStock / 1000).toFixed(1)}K</p>
-            <p className="mt-0.5 text-xs text-teal-600">sheets to inventory</p>
+            <p className="mt-0.5 text-xs text-teal-600">kg to inventory</p>
           </div>
         </div>
 
@@ -1521,7 +1601,7 @@ function GRNPage() {
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-400">→ Client Direct</p>
             <p className="mt-1.5 text-2xl font-bold text-purple-700">{(kpis.totalDirect / 1000).toFixed(1)}K</p>
-            <p className="mt-0.5 text-xs text-purple-600">sheets bypassed stock</p>
+            <p className="mt-0.5 text-xs text-purple-600">kg bypassed stock</p>
           </div>
         </div>
       </div>
@@ -1548,13 +1628,13 @@ function GRNPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="bg-gray-50 border-b border-gray-100">
-                  {["Plan #", "Origin", "Truck", "Transporter", "Items / POs", "Total Qty", "Planned Delivery", ""].map((h) => (
+                  {["Plan #", "Origin", "Truck", "Transporter", "Items / POs", "Total Weight", "Planned Delivery", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr></thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredPending.map((tlp) => {
-                    const totalQty = tlp.items.reduce((s, i) => s + i.quantity, 0);
+                    const totalWt = tlp.items.reduce((s, i) => s + qtyToKg(i, i.quantity), 0);
                     const uniquePOs = new Set(tlp.items.map((i) => i.poNumber)).size;
                     return (
                       <tr key={tlp.id} className="hover:bg-amber-50/30 transition-colors">
@@ -1566,7 +1646,7 @@ function GRNPage() {
                           <p className="text-sm text-gray-900">{tlp.items.length} item{tlp.items.length !== 1 ? "s" : ""} · {uniquePOs} PO{uniquePOs !== 1 ? "s" : ""}</p>
                           {tlp.items[0] && <p className="text-xs text-gray-500 mt-0.5">{tlp.items[0].paper} {tlp.items[0].gsm}g{tlp.items.length > 1 ? ` +${tlp.items.length - 1}` : ""}</p>}
                         </td>
-                        <td className="px-4 py-3 text-right font-semibold text-gray-900">{totalQty.toLocaleString()}<span className="ml-1 text-xs font-normal text-gray-400">sht</span></td>
+                        <td className="px-4 py-3 text-right font-semibold text-gray-900">{totalWt.toLocaleString()}<span className="ml-1 text-xs font-normal text-gray-400">kg</span></td>
                         <td className="px-4 py-3 text-gray-600 text-sm">{tlp.plannedDeliveryDate || "—"}</td>
                         <td className="px-4 py-3 text-right">
                           <button

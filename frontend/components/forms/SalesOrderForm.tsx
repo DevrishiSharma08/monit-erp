@@ -30,6 +30,7 @@ type SOLineForm = {
   amount: number;
   isAutoFilled: boolean;
   status: string;
+  remarks?: string;
 };
 
 type FormState = {
@@ -311,6 +312,7 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
           amount:     l.amount,
           isAutoFilled: false,
           status:     l.status,
+          remarks:    l.remarks,
         })) ?? [],
       };
     }
@@ -388,9 +390,13 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
       return;
     }
 
-    // Load rates for new customer
-    const rates = await rateApi.forCustomer(customer.id).catch(() => [] as SORateDto[]);
+    // Load rates and last salesman for new customer in parallel
+    const [rates, lastSOs] = await Promise.all([
+      rateApi.forCustomer(customer.id).catch(() => [] as SORateDto[]),
+      salesOrderApi.list({ customerId: customer.id, pageSize: 1 }).catch(() => null),
+    ]);
     setCustomerRates(rates);
+    const lastSalesman = lastSOs?.items?.[0]?.salesman ?? "";
 
     const contacts = customer.contacts && customer.contacts.length > 0
       ? customer.contacts.map(c => ({ ...c, id: String(c.id) }))
@@ -416,7 +422,7 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
       contactPersonId: first.id, contactPerson: first.name,
       customerPhone: first.phone ?? "",
       customerEmail: (first as any).email ?? "",
-      salesman: "",
+      salesman: lastSalesman,
       paymentTerms: customer.paymentTerms ?? "",
       deliveryAddress: defaultAddr?.address ?? "",
       deliveryPartyId: customerId,
@@ -566,6 +572,7 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
       amount:               line.amount,
       deliveryAddress:      effectiveAddr,
       requiredDeliveryDate: formData.requiredDeliveryDate || undefined,
+      remarks:              line.remarks || undefined,
     }));
 
     return {
@@ -983,6 +990,18 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
                             ₹{line.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                           </div>
                         </div>
+                      </div>
+
+                      {/* Item Remark */}
+                      <div>
+                        <label className={labelCls}>Item Remark</label>
+                        <input
+                          type="text"
+                          value={line.remarks ?? ""}
+                          onChange={e => handleLineChange(index, "remarks", e.target.value)}
+                          placeholder="Optional note for this item…"
+                          className={inputCls}
+                        />
                       </div>
 
                     </div>

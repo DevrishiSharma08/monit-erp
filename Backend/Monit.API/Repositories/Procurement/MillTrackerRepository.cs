@@ -28,6 +28,7 @@ public class MillTrackerRepository(DbConnectionFactory db) : IMillTrackerReposit
             mt.ReadyQty,
             mt.DispatchedQty,
             ISNULL(mt.Rate,        ISNULL(poi.Rate,   0))                              AS Rate,
+            poi.Discount                                                                AS Discount,
             ISNULL(mt.TotalAmount, ISNULL(poi.Amount, 0))                              AS TotalAmount,
             mt.ProductionStatus,
             ISNULL(mt.ProductionProgress, 0)                                           AS ProductionProgress,

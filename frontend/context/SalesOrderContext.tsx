@@ -24,6 +24,7 @@ export interface SOLine {
   amount: number;
   deliveryAddress?: string;
   requiredDeliveryDate?: string;
+  remarks?: string;
   status: string;
   allocatedQty: number;
   pendingQty: number;

@@ -57,6 +57,7 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
             sol.Amount,
             sol.DeliveryAddress,
             CONVERT(NVARCHAR(10), sol.DeliveryDate, 23) AS RequiredDeliveryDate,
+            sol.Remarks,
             ISNULL(sol.LineStatus, 'Pending Allocation') AS Status,
             sol.AllocatedQty,
             sol.PendingQty
@@ -301,6 +302,7 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
                 Amount               = (decimal)r.Amount,
                 DeliveryAddress      = (string?)r.DeliveryAddress,
                 RequiredDeliveryDate = (string?)r.RequiredDeliveryDate,
+                Remarks              = (string?)r.Remarks,
                 Status               = (string)r.Status,
                 AllocatedQty         = (decimal)r.AllocatedQty,
                 PendingQty           = (decimal)r.PendingQty,
@@ -321,11 +323,11 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
             INSERT INTO sales.SalesOrderLines
                 (SOId, LineNumber, MaterialId, Description, GSM, Size, Unit,
                  Quantity, Qty, Rate, Discount, FinalPrice, Amount,
-                 DeliveryDate, DeliveryAddress, LineStatus,
+                 DeliveryDate, DeliveryAddress, Remarks, LineStatus,
                  AllocatedQty, PendingQty, CreatedAt, CreatedBy)
             VALUES (@SOId, @LineNumber, @MaterialId, @Description, @GSM, @Size, @Unit,
                     @Quantity, @Qty, @Rate, @Discount, @FinalPrice, @Amount,
-                    @DeliveryDate, @DeliveryAddress, 'Pending Allocation',
+                    @DeliveryDate, @DeliveryAddress, @Remarks, 'Pending Allocation',
                     0, @Quantity, GETUTCDATE(), @CreatedBy)";
 
         foreach (var line in lines)
@@ -347,6 +349,7 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
                 line.Amount,
                 DeliveryDate = ParseDateNullable(line.RequiredDeliveryDate),
                 line.DeliveryAddress,
+                line.Remarks,
                 CreatedBy    = createdBy
             }, tx);
         }

@@ -25,6 +25,7 @@ import {
   truckLoadPlanApi, TruckLoadPlanApiDto, TruckLoadPlanItemApiDto,
   millTrackerApi, MillTrackerRow,
   transporterApi, TransporterDropdown,
+  type TlpLoadType,
 } from "@/lib/api-services";
 import type { TransporterVehicleDto } from "@/lib/api-services";
 
@@ -38,33 +39,17 @@ const STATUS_COLOR: Record<string, string> = {
 };
 const STATUS_SEQ: TruckLoadPlan["status"][] = ["Planned", "Loading", "In Transit", "Delivered"];
 
-const TRUCK_TYPES: { label: string; value: string; capacity: number }[] = [
-  { label: "Tata Ace (750 kg)",     value: "Tata Ace",      capacity: 750   },
-  { label: "Pickup / Bolero (1.5T)",value: "Pickup",        capacity: 1500  },
-  { label: "Chhota Hathi (2T)",     value: "Chhota Hathi",  capacity: 2000  },
-  { label: "407 (4T)",              value: "407",            capacity: 4000  },
-  { label: "LCV (5T)",              value: "LCV",            capacity: 5000  },
-  { label: "17 ft (7T)",            value: "17 ft",          capacity: 7000  },
-  { label: "24 ft (12T)",           value: "24 ft",          capacity: 12000 },
-  { label: "32 ft SXL (20T)",       value: "32 ft SXL",      capacity: 20000 },
-  { label: "40 ft Trailer (25T+)",  value: "40 ft Trailer",  capacity: 25000 },
-];
-
 const PENDING_COLS = [
-  { id: "mill",     label: "Mill"              },
-  { id: "delivery", label: "Delivery Address"  },
-  { id: "status",   label: "Status"            },
-  { id: "qty",      label: "Ready (sht)"       },
-  { id: "plan",     label: "Dispatched (sht)"  },
-  { id: "balance",  label: "Balance (sht)"     },
-  { id: "weight",   label: "Weight (kg)"       },
-  { id: "eta",      label: "ETA"               },
+  { id: "status",    label: "Status"           },
+  { id: "readyWt",   label: "Ready (kg)"       },
+  { id: "planWt",    label: "Dispatched (kg)"  },
+  { id: "balanceWt", label: "Balance (kg)"     },
+  { id: "eta",       label: "ETA"              },
 ] as const;
 type PendingColId = typeof PENDING_COLS[number]["id"];
-const DEFAULT_HIDDEN: PendingColId[] = ["delivery"];
+const DEFAULT_HIDDEN: PendingColId[] = ["planWt"];
 const PENDING_COL_ALIGN: Record<PendingColId, "left" | "right"> = {
-  mill: "left", delivery: "left", status: "left",
-  qty: "right", plan: "right", balance: "right", weight: "right", eta: "left",
+  status: "left", readyWt: "right", planWt: "right", balanceWt: "right", eta: "left",
 };
 
 const TRACKER_STATUS_BADGE: Record<string, string> = {
@@ -78,36 +63,34 @@ const TRACKER_STATUS_BADGE: Record<string, string> = {
   "Cancelled":          "bg-gray-100 text-gray-400",
 };
 
-// ─── Weight helper ─────────────────────────────────────────────────────────────
+// ─── Local type extensions (load types not in shared mockData) ─────────────────
 
-function calcWeightKg(gsm: number, sizeStr: string, qty: number): number {
-  const parts = sizeStr.toLowerCase().replace("cm", "").split("x").map(Number);
-  if (parts.length !== 2 || parts.some(isNaN)) return 0;
-  let [w, h] = parts;
-  if (w < 100) { w = w * 2.54; h = h * 2.54; }
-  const areaSqM = (w / 100) * (h / 100);
-  return Math.round((qty * gsm * areaSqM) / 1000);
-}
+type TLPItemEx = TruckLoadPlanItem & { loadType?: TlpLoadType; planQty?: number };
+type TLPLoadEx = { id: number; loadType: TlpLoadType; loadSequence: number; address?: string; items: TLPItemEx[] };
+type TLPPlanEx = Omit<TruckLoadPlan, "items"> & { items: TLPItemEx[]; loads: TLPLoadEx[] };
+
+// ─── Note: tracker/TLP qty fields are stored in KG ────────────────────────────
+// MillTracker.OrderedQty/ReadyQty/DispatchedQty are kg (backend stores PO.WeightKg).
+// TLP items.quantity is also kg. Display values directly — no sheets conversion.
 
 function itemWeight(item: TruckLoadPlanItem): number {
-  return item.weightKg ?? calcWeightKg(item.gsm, item.size, item.quantity);
+  return item.weightKg ?? item.quantity ?? 0;
 }
 
-function planTotals(plan: TruckLoadPlan) {
-  const totalQty    = plan.items.reduce((s, i) => s + i.quantity, 0);
+function planTotals(plan: TLPPlanEx) {
   const totalWeight = plan.items.reduce((s, i) => s + itemWeight(i), 0);
   const uniquePOs   = new Set(plan.items.map((i) => i.poNumber)).size;
-  return { totalQty, totalWeight, uniquePOs };
+  return { totalWeight, uniquePOs };
 }
 
 // ─── Tracker Detail Modal ─────────────────────────────────────────────────────
 
 function TrackerDetailModal({ tracker, onClose }: { tracker: MillOrderTracker; onClose: () => void }) {
   const avail          = tracker.readyQty - tracker.dispatchedQty;
-  const availWeight    = calcWeightKg(tracker.gsm, tracker.size, avail);
-  const orderedWeight  = calcWeightKg(tracker.gsm, tracker.size, tracker.orderedQty);
-  const readyWeight    = calcWeightKg(tracker.gsm, tracker.size, tracker.readyQty);
-  const dispatchWeight = calcWeightKg(tracker.gsm, tracker.size, tracker.dispatchedQty);
+  const availWeight    = avail;
+  const orderedWeight  = tracker.orderedQty;
+  const readyWeight    = tracker.readyQty;
+  const dispatchWeight = tracker.dispatchedQty;
 
   return (
     <div className="space-y-4">
@@ -307,23 +290,13 @@ function PendingPOsSection({
 
   const selectedWeight = useMemo(() =>
     trackers.filter((t) => selectedIds.has(t.id))
-      .reduce((s, t) => s + calcWeightKg(t.gsm, t.size, t.readyQty - t.dispatchedQty), 0),
+      .reduce((s, t) => s + (t.readyQty - t.dispatchedQty), 0),
     [trackers, selectedIds],
   );
 
   // Per-column cell renderer — returns the <td> element
-  const renderCell = (col: PendingColId, t: MillOrderTracker, avail: number, wt: number) => {
+  const renderCell = (col: PendingColId, t: MillOrderTracker, balanceWt: number) => {
     switch (col) {
-      case "mill":
-        return <td key={col} className="px-3 py-3 text-xs text-gray-600 whitespace-nowrap">{t.mill}</td>;
-      case "delivery":
-        return (
-          <td key={col} className="px-3 py-3 text-xs text-gray-500 min-w-[160px] max-w-[220px]">
-            {t.directDeliveryAddress
-              ? <span className="line-clamp-2 leading-relaxed">{t.directDeliveryAddress}</span>
-              : <span className="text-gray-300">—</span>}
-          </td>
-        );
       case "status":
         return (
           <td key={col} className="px-3 py-3 whitespace-nowrap">
@@ -333,33 +306,44 @@ function PendingPOsSection({
             </span>
           </td>
         );
-      case "qty":
-        return <td key={col} className="px-3 py-3 text-right text-xs text-gray-600 tabular-nums whitespace-nowrap">{t.readyQty.toLocaleString()}</td>;
-      case "plan": {
-        const planWt = calcWeightKg(t.gsm, t.size, t.dispatchedQty);
+      case "readyWt": {
         return (
-          <td key={col} className="px-3 py-3 text-right whitespace-nowrap">
-            <p className="text-xs font-medium text-purple-600 tabular-nums">{t.dispatchedQty.toLocaleString()}</p>
-            {planWt > 0 && <p className="text-[10px] text-gray-400 tabular-nums">{planWt.toLocaleString()} kg</p>}
+          <td key={col} className="px-3 py-3 text-right text-xs font-medium text-gray-700 tabular-nums whitespace-nowrap">
+            {t.readyQty > 0 ? `${t.readyQty.toLocaleString()} kg` : "—"}
           </td>
         );
       }
-      case "balance":
+      case "planWt": {
         return (
-          <td key={col} className="px-3 py-3 text-right whitespace-nowrap">
-            <p className="text-xs font-semibold text-blue-700 tabular-nums">{avail.toLocaleString()}</p>
+          <td key={col} className="px-3 py-3 text-right text-xs font-medium text-purple-600 tabular-nums whitespace-nowrap">
+            {t.dispatchedQty > 0 ? `${t.dispatchedQty.toLocaleString()} kg` : "—"}
           </td>
         );
-      case "weight":
+      }
+      case "balanceWt":
         return (
-          <td key={col} className="px-3 py-3 text-right font-bold text-blue-700 tabular-nums text-sm whitespace-nowrap">
-            {wt > 0 ? `${wt.toLocaleString()} kg` : "—"}
+          <td key={col} className="px-3 py-3 text-right text-sm font-bold text-blue-700 tabular-nums whitespace-nowrap">
+            {balanceWt > 0 ? `${balanceWt.toLocaleString()} kg` : "—"}
           </td>
         );
       case "eta":
         return <td key={col} className="px-3 py-3 text-xs text-gray-500 whitespace-nowrap">{t.expectedDelivery || "—"}</td>;
     }
   };
+
+  // PO line numbers (#1, #2…) — only when same PO has multiple tracker items
+  const poItemLineMap = useMemo<Map<string, number>>(() => {
+    const groups = new Map<string, string[]>();
+    for (const t of trackers) {
+      if (!groups.has(t.poNumber)) groups.set(t.poNumber, []);
+      groups.get(t.poNumber)!.push(t.id);
+    }
+    const result = new Map<string, number>();
+    for (const [, ids] of groups) {
+      if (ids.length > 1) ids.forEach((id, i) => result.set(id, i + 1));
+    }
+    return result;
+  }, [trackers]);
 
   const selCls     = "min-w-[140px] rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none";
   const activeFilterCount = [filters.customer, filters.mill, filters.status].filter(Boolean).length;
@@ -491,14 +475,32 @@ function PendingPOsSection({
         {showFilters && (
           <div className="border-t px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
-              <select value={filters.customer} onChange={(e) => setF("customer", e.target.value)} className={selCls}>
-                <option value="">All Customers</option>
-                {customers.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <select value={filters.mill} onChange={(e) => setF("mill", e.target.value)} className={selCls}>
-                <option value="">All Mills</option>
-                {mills.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
+              <div className="relative">
+                <input
+                  type="text"
+                  list="pending-customers-list"
+                  value={filters.customer}
+                  onChange={(e) => setF("customer", e.target.value)}
+                  placeholder="Search customer…"
+                  className={selCls}
+                />
+                <datalist id="pending-customers-list">
+                  {customers.map((c) => <option key={c} value={c} />)}
+                </datalist>
+              </div>
+              <div className="relative">
+                <input
+                  type="text"
+                  list="pending-mills-list"
+                  value={filters.mill}
+                  onChange={(e) => setF("mill", e.target.value)}
+                  placeholder="Search mill…"
+                  className={selCls}
+                />
+                <datalist id="pending-mills-list">
+                  {mills.map((m) => <option key={m} value={m} />)}
+                </datalist>
+              </div>
               <select value={filters.status} onChange={(e) => setF("status", e.target.value)} className={selCls}>
                 <option value="">All Statuses</option>
                 {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -528,13 +530,25 @@ function PendingPOsSection({
                   <input type="checkbox" checked={allSelected} onChange={toggleAll}
                     className="h-3.5 w-3.5 rounded border-gray-300 accent-blue-500" />
                 </th>
-                {/* Fixed: PO / Material */}
+                {/* Fixed: PO Number */}
+                <th className="min-w-[120px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">
+                  PO #
+                </th>
+                {/* Fixed: Item Code (paper/gsm/size) */}
                 <th className="min-w-[180px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">
-                  PO # / Material
+                  Item Code
+                </th>
+                {/* Fixed: Mill */}
+                <th className="min-w-[110px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">
+                  Mill
                 </th>
                 {/* Fixed: Customer */}
-                <th className="min-w-[120px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">
+                <th className="min-w-[130px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">
                   Customer
+                </th>
+                {/* Fixed: Address */}
+                <th className="min-w-[180px] max-w-[240px] px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                  Address
                 </th>
                 {/* Drag-to-reorder visible columns */}
                 <SortableContext items={visibleCols} strategy={horizontalListSortingStrategy}>
@@ -557,9 +571,10 @@ function PendingPOsSection({
               {filtered.length === 0
                 ? <tr><td colSpan={99} className="py-8 text-center text-sm text-gray-400">No pending items match filters</td></tr>
                 : filtered.map((t) => {
-                    const avail   = t.readyQty - t.dispatchedQty;
-                    const wt      = calcWeightKg(t.gsm, t.size, avail);
-                    const checked = selectedIds.has(t.id);
+                    const avail    = t.readyQty - t.dispatchedQty;
+                    const balanceWt = avail;
+                    const checked  = selectedIds.has(t.id);
+                    const lineNo   = poItemLineMap.get(t.id);
                     return (
                       <tr key={t.id} onClick={() => onToggle(t.id)}
                         className={cn("cursor-pointer transition-colors", checked ? "bg-blue-50/70" : "hover:bg-gray-50/60")}>
@@ -567,16 +582,22 @@ function PendingPOsSection({
                           <input type="checkbox" checked={checked} onChange={() => onToggle(t.id)}
                             className="h-3.5 w-3.5 rounded border-gray-300 accent-blue-500" />
                         </td>
+                        <td className="px-3 py-3 min-w-[120px] whitespace-nowrap">
+                          <span className="font-mono text-xs font-semibold text-gray-800">{t.poNumber}</span>
+                          {lineNo && <span className="font-mono text-xs text-blue-500"> #{lineNo}</span>}
+                        </td>
                         <td className="px-3 py-3 min-w-[180px]">
-                          <div className="flex items-center gap-1.5 mb-0.5">
-                            <span className="font-mono text-xs font-semibold text-gray-800">{t.poNumber}</span>
-                            {t.soNumber && <span className="text-[11px] text-purple-500">→ {t.soNumber}</span>}
-                          </div>
-                          <p className="font-medium text-gray-700 text-xs">{t.paper}</p>
+                          <p className="font-medium text-gray-700 text-xs leading-tight">{t.paper}</p>
                           <p className="text-[11px] text-gray-400">{t.gsm} GSM · {t.size}</p>
                         </td>
-                        <td className="px-3 py-3 text-xs font-medium text-gray-700 whitespace-nowrap min-w-[120px]">{t.customerName ?? "—"}</td>
-                        {visibleCols.map((col) => renderCell(col, t, avail, wt))}
+                        <td className="px-3 py-3 text-xs text-gray-700 whitespace-nowrap min-w-[110px]">{t.mill}</td>
+                        <td className="px-3 py-3 text-xs font-medium text-gray-700 whitespace-nowrap min-w-[130px]">{t.customerName ?? "—"}</td>
+                        <td className="px-3 py-3 text-xs text-gray-500 min-w-[180px] max-w-[240px]">
+                          {t.directDeliveryAddress
+                            ? <span className="line-clamp-2 leading-relaxed">{t.directDeliveryAddress}</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                        {visibleCols.map((col) => renderCell(col, t, balanceWt))}
                         <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                           <button onClick={() => onViewTracker(t)}
                             className="rounded-md p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600 transition-colors">
@@ -597,21 +618,24 @@ function PendingPOsSection({
 
 // ─── Plan Creation Modal ───────────────────────────────────────────────────────
 
+const TLP_LOAD_TYPES: TlpLoadType[] = ["Load 1", "Load 2", "Load 3", "Last Load"];
+
 interface PlanItem {
+  rowKey: string;
   trackerId: string; poNumber: string; soNumber: string;
   paper: string; gsm: number; size: string;
   customerName: string; mill: string; deliveryAddress: string;
   maxQty: number; quantity: number; quantityStr: string; loadOrder: number;
+  loadType: TlpLoadType;
 }
 
 interface PlanForm {
   items: PlanItem[];
+  loadAddresses: Partial<Record<TlpLoadType, string>>;
   truckNumber: string; truckType: string; truckCapacityKg: number;
   transporterName: string; driverName: string; driverPhone: string;
-  freightAmount: number;
-  millInvoiceNo: string; deliveryBillNo: string;
-  origin: string;
-  plannedLoadDate: string; plannedDeliveryDate: string;
+  freightAmount: number; millInvoiceNo: string; deliveryBillNo: string;
+  origin: string; plannedLoadDate: string; plannedDeliveryDate: string;
 }
 
 function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
@@ -621,10 +645,12 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
   onCancel: () => void;
 }) {
   const today = new Date().toISOString().split("T")[0];
+  const [step, setStep] = useState<1 | 2>(1);
 
   const initialItems: PlanItem[] = trackers.map((t, i) => {
     const avail = t.readyQty - t.dispatchedQty;
     return {
+      rowKey: t.id,
       trackerId: t.id, poNumber: t.poNumber, soNumber: t.soNumber ?? "",
       paper: t.paper, gsm: t.gsm, size: t.size,
       customerName: t.customerName ?? "", mill: t.mill,
@@ -633,11 +659,14 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
       quantity: avail,
       quantityStr: String(avail),
       loadOrder: trackers.length - i,
+      loadType: "Load 1",
     };
   });
 
   const [form, setForm] = useState<PlanForm>({
-    items: initialItems, truckNumber: "", truckType: "", truckCapacityKg: 15000,
+    items: initialItems,
+    loadAddresses: {},
+    truckNumber: "", truckType: "", truckCapacityKg: 15000,
     transporterName: "", driverName: "", driverPhone: "", freightAmount: 0,
     millInvoiceNo: "", deliveryBillNo: "",
     origin: trackers[0]
@@ -652,10 +681,25 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
 
   const setF = <K extends keyof PlanForm>(k: K, v: PlanForm[K]) => setForm((p) => ({ ...p, [k]: v }));
 
-  const updateItemAddr = (idx: number, addr: string) =>
-    setForm((p) => ({ ...p, items: p.items.map((it, i) => i === idx ? { ...it, deliveryAddress: addr } : it) }));
-  const removeItem = (idx: number) =>
-    setForm((p) => ({ ...p, items: p.items.filter((_, i) => i !== idx).map((it, i, arr) => ({ ...it, loadOrder: arr.length - i })) }));
+  const removeItem = (rowKey: string) =>
+    setForm((p) => ({
+      ...p,
+      items: p.items.filter((it) => it.rowKey !== rowKey).map((it, i, arr) => ({ ...it, loadOrder: arr.length - i })),
+    }));
+
+  const splitItem = (rowKey: string) =>
+    setForm((p) => {
+      const idx = p.items.findIndex((it) => it.rowKey === rowKey);
+      if (idx === -1) return p;
+      const src = p.items[idx];
+      const usedLoads = new Set(p.items.map((it) => it.loadType));
+      const nextLoad = TLP_LOAD_TYPES.find((lt) => !usedLoads.has(lt)) ?? ("Load 2" as TlpLoadType);
+      const splitQty = Math.max(1, src.maxQty - src.quantity);
+      const newItem: PlanItem = { ...src, rowKey: `${src.trackerId}_s${Date.now()}`, quantity: splitQty, quantityStr: String(splitQty), loadType: nextLoad };
+      const items = [...p.items];
+      items.splice(idx + 1, 0, newItem);
+      return { ...p, items: items.map((it, i, arr) => ({ ...it, loadOrder: arr.length - i })) };
+    });
 
   const handleTransporterChange = async (name: string) => {
     setF("transporterName", name);
@@ -668,264 +712,296 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
       setAvailVehicles(detail.vehicles);
       if (detail.vehicles.length === 1) {
         const v = detail.vehicles[0];
-        setForm((p) => ({
-          ...p,
-          truckType:       v.vehicleType    || p.truckType,
-          truckCapacityKg: v.capacity       ?? p.truckCapacityKg,
-          freightAmount:   v.freightRate    ?? p.freightAmount,
-        }));
+        setForm((p) => ({ ...p, truckType: v.vehicleType || p.truckType, truckCapacityKg: v.capacity ?? p.truckCapacityKg, freightAmount: v.freightRate ?? p.freightAmount }));
       }
-    } catch { /* silently ignore — fields remain editable */ }
+    } catch { /* silently ignore */ }
     finally { setVehiclesLoading(false); }
   };
 
-  // Vehicle Type select (master vehicles only) — auto-fills capacity and freight
   const handleVehicleTypeChange = (type: string) => {
     const masterV = availVehicles.find((v) => v.vehicleType === type);
     if (masterV) {
-      setForm((p) => ({
-        ...p,
-        truckType:       masterV.vehicleType,
-        truckCapacityKg: masterV.capacity    ?? p.truckCapacityKg,
-        freightAmount:   masterV.freightRate ?? p.freightAmount,
-      }));
+      setForm((p) => ({ ...p, truckType: masterV.vehicleType, truckCapacityKg: masterV.capacity ?? p.truckCapacityKg, freightAmount: masterV.freightRate ?? p.freightAmount }));
     } else {
       setF("truckType", type);
     }
   };
 
-  const totalWeight = form.items.reduce((s, it) => s + calcWeightKg(it.gsm, it.size, it.quantity), 0);
-  const cap  = form.truckCapacityKg || 15000;
-  const pct  = Math.min((totalWeight / cap) * 100, 100);
-  const over = totalWeight > cap;
-  const isValid = form.items.length > 0 && form.truckNumber.trim() && form.transporterName.trim() && form.plannedLoadDate && !over;
+  const totalWeight   = form.items.reduce((s, it) => s + it.quantity, 0);
+  const cap           = form.truckCapacityKg || 15000;
+  const pct           = Math.min((totalWeight / cap) * 100, 100);
+  const over          = totalWeight > cap;
+  const usedLoadTypes = [...new Set(form.items.map((it) => it.loadType))].sort(
+    (a, b) => TLP_LOAD_TYPES.indexOf(a) - TLP_LOAD_TYPES.indexOf(b)
+  );
+  const step1Valid  = form.items.length > 0 && form.items.every((it) => it.quantity > 0);
+  const step2Valid  = step1Valid && !!form.truckNumber.trim() && !!form.transporterName.trim() && !!form.plannedLoadDate && !over;
 
   const iCls = "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-100";
   const lCls = "block text-xs font-semibold text-gray-600 mb-1";
 
   return (
     <div className="space-y-5">
-      {/* Item list */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Items — LIFO (top = first delivery stop)</p>
-          <span className="text-[11px] text-gray-400">{form.items.length} item{form.items.length !== 1 ? "s" : ""}</span>
-        </div>
-        <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-gray-300">
-          <table className="w-full text-xs" style={{ minWidth: 580 }}>
-            <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-400">
-              <tr>
-                <th className="w-7 px-2 py-2 text-center">#</th>
-                <th className="px-3 py-2 text-left min-w-[160px]">Material / PO</th>
-                <th className="px-3 py-2 text-left min-w-[160px]">Delivery Address</th>
-                <th className="px-3 py-2 text-right whitespace-nowrap">Qty · Weight</th>
-                <th className="w-8 px-2 py-2"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {form.items.length === 0 && (
-                <tr><td colSpan={5} className="py-4 text-center text-gray-400">No items</td></tr>
-              )}
-              {form.items.map((it, idx) => (
-                <tr key={it.trackerId} className="bg-white">
-                  <td className="px-2 py-2 text-center">
-                    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[11px] font-bold text-blue-600">{idx + 1}</span>
-                  </td>
-                  <td className="px-3 py-2 min-w-[160px]">
-                    <p className="font-medium text-gray-800 truncate max-w-[180px]">{it.paper}</p>
-                    <p className="text-[11px] text-gray-400 whitespace-nowrap">{it.gsm} GSM · {it.size} · {it.poNumber}</p>
-                    {it.customerName && <p className="text-[11px] text-blue-500 truncate max-w-[180px]">{it.customerName}</p>}
-                  </td>
-                  <td className="px-3 py-2 min-w-[160px]">
-                    <input type="text" value={it.deliveryAddress} placeholder="Delivery address"
-                      onChange={(e) => updateItemAddr(idx, e.target.value)}
-                      className="w-full rounded border border-gray-200 px-2 py-1 text-xs focus:border-blue-400 focus:outline-none" />
-                  </td>
-                  {/* Qty + Weight combined to keep side-by-side on narrow modals */}
-                  <td className="px-3 py-2 whitespace-nowrap text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <div className="text-right">
-                        <input type="number" value={it.quantityStr} min={1} max={it.maxQty}
-                          onChange={(e) => {
-                            const str = e.target.value;
-                            const n = parseInt(str);
-                            setForm((p) => ({
-                              ...p,
-                              items: p.items.map((it2, i) => i !== idx ? it2 : {
-                                ...it2,
-                                quantityStr: str,
-                                quantity: !isNaN(n) && n > 0 ? Math.min(n, it2.maxQty) : it2.quantity,
-                              }),
-                            }));
-                          }}
-                          onBlur={() => {
-                            setForm((p) => ({
-                              ...p,
-                              items: p.items.map((it2, i) => {
-                                if (i !== idx) return it2;
-                                const clamped = Math.max(1, Math.min(it2.quantity, it2.maxQty));
-                                return { ...it2, quantity: clamped, quantityStr: String(clamped) };
-                              }),
-                            }));
-                          }}
-                          className="w-20 rounded border border-gray-200 px-2 py-1 text-right text-xs font-semibold focus:border-blue-400 focus:outline-none" />
-                        <p className="text-[10px] text-gray-400 mt-0.5">/{it.maxQty.toLocaleString()} sht</p>
-                      </div>
-                      <div className="text-right min-w-[52px]">
-                        <p className="font-semibold tabular-nums text-gray-700">{calcWeightKg(it.gsm, it.size, it.quantity).toLocaleString()}</p>
-                        <p className="text-[10px] text-gray-400">kg</p>
-                      </div>
+      {/* Step indicator */}
+      <div className="flex items-center gap-2">
+        {([{ n: 1, label: "Load Assignment" }, { n: 2, label: "Truck Details" }] as const).map(({ n, label }, i) => (
+          <div key={n} className="flex items-center gap-2">
+            {i > 0 && <div className="h-px w-8 bg-gray-200"/>}
+            <div className="flex items-center gap-1.5">
+              <div className={cn(
+                "flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold",
+                step === n ? "bg-blue-600 text-white" : step > n ? "bg-green-500 text-white" : "bg-gray-200 text-gray-500"
+              )}>{n}</div>
+              <span className={cn("text-xs font-medium", step === n ? "text-blue-700" : "text-gray-400")}>{label}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── STEP 1: Load Assignment ── */}
+      {step === 1 && (
+        <>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Assign Items to Loads</p>
+              <span className="text-[11px] text-gray-400">{form.items.length} item{form.items.length !== 1 ? "s" : ""}</span>
+            </div>
+            <div className="rounded-xl border border-gray-200 overflow-hidden overflow-x-auto [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-thumb]:rounded [&::-webkit-scrollbar-thumb]:bg-gray-300">
+              <table className="w-full text-xs" style={{ minWidth: 580 }}>
+                <thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-400">
+                  <tr>
+                    <th className="w-7 px-2 py-2 text-center">#</th>
+                    <th className="px-3 py-2 text-left min-w-[160px]">Material / PO</th>
+                    <th className="px-3 py-2 text-left w-28">Load</th>
+                    <th className="px-3 py-2 text-right w-36">Plan Qty (kg) / Avail</th>
+                    <th className="w-14 px-2 py-2 text-center">Split</th>
+                    <th className="w-8 px-2 py-2"/>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {form.items.length === 0 && (
+                    <tr><td colSpan={6} className="py-4 text-center text-gray-400">No items</td></tr>
+                  )}
+                  {form.items.map((it, idx) => (
+                    <tr key={it.rowKey} className="bg-white">
+                      <td className="px-2 py-2 text-center">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[11px] font-bold text-blue-600">{idx + 1}</span>
+                      </td>
+                      <td className="px-3 py-2 min-w-[160px]">
+                        <p className="font-medium text-gray-800 truncate max-w-[180px]">{it.paper}</p>
+                        <p className="text-[11px] text-gray-400 whitespace-nowrap">{it.gsm} GSM · {it.size} · {it.poNumber}</p>
+                        {it.customerName && <p className="text-[11px] text-blue-500 truncate max-w-[180px]">{it.customerName}</p>}
+                      </td>
+                      <td className="px-3 py-2 w-28">
+                        <select value={it.loadType}
+                          onChange={(e) => setForm((p) => ({
+                            ...p,
+                            items: p.items.map((it2) => it2.rowKey === it.rowKey ? { ...it2, loadType: e.target.value as TlpLoadType } : it2),
+                          }))}
+                          className="w-full rounded border border-gray-200 px-2 py-1 text-xs focus:border-blue-400 focus:outline-none">
+                          {TLP_LOAD_TYPES.map((lt) => <option key={lt} value={lt}>{lt}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-3 py-2 w-36">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <input type="number" value={it.quantity || ""} min={1} max={it.maxQty}
+                            onChange={(e) => {
+                              const kg = Math.min(parseInt(e.target.value) || 0, it.maxQty);
+                              setForm((p) => ({ ...p, items: p.items.map((it2) => it2.rowKey !== it.rowKey ? it2 : { ...it2, quantity: kg, quantityStr: String(kg) }) }));
+                            }}
+                            className="w-20 rounded border border-gray-200 px-2 py-1 text-right text-xs font-semibold focus:border-blue-400 focus:outline-none"/>
+                          <span className="text-[11px] text-gray-400 whitespace-nowrap">/{it.maxQty.toLocaleString()} kg</span>
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 text-center w-14">
+                        <button onClick={() => splitItem(it.rowKey)} title="Split across another load"
+                          className="rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 border border-blue-200 hover:bg-blue-50 transition-colors">
+                          Split
+                        </button>
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <button onClick={() => removeItem(it.rowKey)} className="rounded p-0.5 text-gray-300 hover:bg-red-50 hover:text-red-400 transition-colors">
+                          <X className="h-3.5 w-3.5"/>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Load summary */}
+          {usedLoadTypes.length > 0 && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50/40 px-4 py-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-blue-500 mb-2">Load Summary</p>
+              <div className="grid grid-cols-2 gap-2">
+                {usedLoadTypes.map((lt) => {
+                  const ltItems = form.items.filter((it) => it.loadType === lt);
+                  const ltWt    = ltItems.reduce((s, it) => s + it.quantity, 0);
+                  return (
+                    <div key={lt} className="flex items-center justify-between rounded-lg bg-white border border-blue-100 px-3 py-2">
+                      <span className="text-xs font-semibold text-blue-700">{lt}</span>
+                      <span className="text-xs text-gray-500 tabular-nums">{ltWt.toLocaleString()} kg</span>
                     </div>
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    <button onClick={() => removeItem(idx)} className="rounded p-0.5 text-gray-300 hover:bg-red-50 hover:text-red-400 transition-colors">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
-      {/* Weight bar */}
-      <div className="rounded-xl border bg-gray-50 px-4 py-3">
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600">
-            <Weight className="h-3.5 w-3.5" /> Truck Load
-          </span>
-          <span className={cn("text-xs font-bold tabular-nums", over ? "text-red-600" : "text-gray-700")}>
-            {totalWeight.toLocaleString()} / {cap.toLocaleString()} kg
-            {over && <span className="ml-1.5 text-red-600">▲ {(totalWeight - cap).toLocaleString()} kg over!</span>}
-          </span>
-        </div>
-        <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
-          <div className={cn("h-full rounded-full transition-all", over ? "bg-red-500" : pct > 85 ? "bg-amber-400" : "bg-green-500")}
-            style={{ width: `${pct}%` }} />
-        </div>
-        {over && (
-          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600 font-medium">
-            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-            Truck capacity exceeded by {(totalWeight - cap).toLocaleString()} kg — remove items or reduce quantities.
-          </p>
-        )}
-      </div>
+          <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
+            <button type="button" onClick={onCancel}
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+            <button type="button" disabled={!step1Valid} onClick={() => setStep(2)}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 transition-all">
+              Next → Truck Details
+            </button>
+          </div>
+        </>
+      )}
 
-      {/* Transport Details */}
-      <div>
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Transport Details</p>
-        <div className="grid grid-cols-2 gap-3">
+      {/* ── STEP 2: Truck Details ── */}
+      {step === 2 && (
+        <>
+          {/* Per-load delivery addresses */}
+          {usedLoadTypes.length > 0 && (
+            <div>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Delivery Addresses per Load</p>
+              <div className="space-y-2">
+                {usedLoadTypes.map((lt) => (
+                  <div key={lt}>
+                    <label className={lCls}>{lt} — Delivery Address</label>
+                    <input type="text"
+                      value={form.loadAddresses[lt] ?? form.items.find((it) => it.loadType === lt)?.deliveryAddress ?? ""}
+                      placeholder="Full delivery address…"
+                      onChange={(e) => setForm((p) => ({ ...p, loadAddresses: { ...p.loadAddresses, [lt]: e.target.value } }))}
+                      className={iCls}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-          {/* Row 1: Transporter | Vehicle Type */}
-          <div>
-            <label className={lCls}>Transporter <span className="text-red-500">*</span></label>
-            <input list="transporters-list" value={form.transporterName} placeholder="Transporter name"
-              onChange={(e) => handleTransporterChange(e.target.value)}
-              className={iCls} />
-            <datalist id="transporters-list">
-              {transporters.map((t) => <option key={t.id} value={t.name} />)}
-            </datalist>
+          {/* Weight bar */}
+          <div className="rounded-xl border bg-gray-50 px-4 py-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600">
+                <Weight className="h-3.5 w-3.5"/> Truck Load
+              </span>
+              <span className={cn("text-xs font-bold tabular-nums", over ? "text-red-600" : "text-gray-700")}>
+                {totalWeight.toLocaleString()} / {cap.toLocaleString()} kg
+                {over && <span className="ml-1.5 text-red-600">▲ {(totalWeight - cap).toLocaleString()} kg over!</span>}
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
+              <div className={cn("h-full rounded-full transition-all", over ? "bg-red-500" : pct > 85 ? "bg-amber-400" : "bg-green-500")} style={{ width: `${pct}%` }}/>
+            </div>
+            {over && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600 font-medium">
+                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0"/>
+                Truck capacity exceeded by {(totalWeight - cap).toLocaleString()} kg — remove items or reduce quantities.
+              </p>
+            )}
           </div>
 
+          {/* Transport Details */}
           <div>
-            <label className={lCls}>
-              Vehicle Type
-              {vehiclesLoading && <span className="ml-1.5 text-[10px] font-normal text-blue-400">loading…</span>}
-            </label>
-            <input list="vehicles-list" type="text" value={form.truckType}
-              placeholder="e.g. 24 ft, Tata Ace…"
-              onChange={(e) => handleVehicleTypeChange(e.target.value)}
-              className={iCls} />
-            <datalist id="vehicles-list">
-              {availVehicles.map((v, i) => (
-                <option key={i} value={v.vehicleType}>
-                  {v.capacity    ? `${v.capacity.toLocaleString()} kg`    : ""}
-                  {v.freightRate ? ` · ₹${v.freightRate.toLocaleString()}` : ""}
-                </option>
-              ))}
-            </datalist>
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Transport Details</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={lCls}>Transporter <span className="text-red-500">*</span></label>
+                <input list="transporters-list" value={form.transporterName} placeholder="Transporter name"
+                  onChange={(e) => handleTransporterChange(e.target.value)} className={iCls}/>
+                <datalist id="transporters-list">
+                  {transporters.map((t) => <option key={t.id} value={t.name}/>)}
+                </datalist>
+              </div>
+
+              <div className="hidden">
+                <label className={lCls}>Vehicle Type{vehiclesLoading && <span className="ml-1.5 text-[10px] font-normal text-blue-400">loading…</span>}</label>
+                <input list="vehicles-list" type="text" value={form.truckType} placeholder="e.g. 24 ft, Tata Ace…"
+                  onChange={(e) => handleVehicleTypeChange(e.target.value)} className={iCls}/>
+                <datalist id="vehicles-list">
+                  {availVehicles.map((v, i) => (
+                    <option key={i} value={v.vehicleType}>
+                      {v.capacity ? `${v.capacity.toLocaleString()} kg` : ""}{v.freightRate ? ` · ₹${v.freightRate.toLocaleString()}` : ""}
+                    </option>
+                  ))}
+                </datalist>
+              </div>
+
+              <div>
+                <label className={lCls}>Truck Capacity (kg)</label>
+                <input type="number" value={form.truckCapacityKg || ""} min={100} step={500}
+                  onChange={(e) => setF("truckCapacityKg", parseInt(e.target.value) || 0)} className={iCls}/>
+              </div>
+
+              <div>
+                <label className={lCls}>Truck / Vehicle No <span className="text-red-500">*</span></label>
+                <input type="text" value={form.truckNumber} placeholder="MP09AB1234"
+                  onChange={(e) => setF("truckNumber", e.target.value.toUpperCase())} className={cn(iCls, "font-mono")}/>
+              </div>
+
+              <div>
+                <label className={lCls}>Driver Name</label>
+                <input type="text" value={form.driverName} placeholder="Driver full name"
+                  onChange={(e) => setF("driverName", e.target.value)} className={iCls}/>
+              </div>
+
+              <div>
+                <label className={lCls}>Driver Phone</label>
+                <input type="tel" value={form.driverPhone} placeholder="+91-9876543210"
+                  onChange={(e) => setF("driverPhone", e.target.value)} className={iCls}/>
+              </div>
+
+              <div>
+                <label className={lCls}>Freight Amount (₹)</label>
+                <input type="number" value={form.freightAmount || ""} min={0} step={100} placeholder="0"
+                  onChange={(e) => setF("freightAmount", parseFloat(e.target.value) || 0)} className={iCls}/>
+              </div>
+
+              <div>
+                <label className={lCls}>Origin (Mill / City)</label>
+                <input type="text" value={form.origin} onChange={(e) => setF("origin", e.target.value)} className={iCls}/>
+              </div>
+
+              <div>
+                <label className={lCls}>Planned Load Date <span className="text-red-500">*</span></label>
+                <input type="date" value={form.plannedLoadDate}
+                  onChange={(e) => setF("plannedLoadDate", e.target.value)} className={iCls}/>
+              </div>
+
+              <div>
+                <label className={lCls}>Planned Delivery Date</label>
+                <input type="date" value={form.plannedDeliveryDate}
+                  onChange={(e) => setF("plannedDeliveryDate", e.target.value)} className={iCls}/>
+              </div>
+            </div>
           </div>
 
-          {/* Row 2: Capacity | Vehicle No */}
-          <div>
-            <label className={lCls}>Truck Capacity (kg)</label>
-            <input type="number" value={form.truckCapacityKg || ""} min={100} step={500}
-              onChange={(e) => setF("truckCapacityKg", parseInt(e.target.value) || 0)}
-              className={iCls} />
+          <div className="flex items-center justify-between gap-3 pt-2 border-t border-gray-100">
+            <button type="button" onClick={() => setStep(1)}
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">← Back</button>
+            <div className="flex gap-3">
+              <button type="button" onClick={onCancel}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+              <button type="button" disabled={!step2Valid} onClick={() => onSubmit(form)}
+                className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 active:scale-95 transition-all">
+                <Truck className="h-4 w-4"/> Save Load Plan
+              </button>
+            </div>
           </div>
-
-          <div>
-            <label className={lCls}>Truck / Vehicle No <span className="text-red-500">*</span></label>
-            <input type="text" value={form.truckNumber} placeholder="MP09AB1234"
-              onChange={(e) => setF("truckNumber", e.target.value.toUpperCase())}
-              className={cn(iCls, "font-mono")} />
-          </div>
-
-          {/* Row 3: Driver Name | Driver Phone */}
-          <div>
-            <label className={lCls}>Driver Name</label>
-            <input type="text" value={form.driverName} placeholder="Driver full name"
-              onChange={(e) => setF("driverName", e.target.value)}
-              className={iCls} />
-          </div>
-
-          <div>
-            <label className={lCls}>Driver Phone</label>
-            <input type="tel" value={form.driverPhone} placeholder="+91-9876543210"
-              onChange={(e) => setF("driverPhone", e.target.value)}
-              className={iCls} />
-          </div>
-
-          {/* Row 4: Freight Amount | Origin */}
-          <div>
-            <label className={lCls}>Freight Amount (₹)</label>
-            <input type="number" value={form.freightAmount || ""} min={0} step={100} placeholder="0"
-              onChange={(e) => setF("freightAmount", parseFloat(e.target.value) || 0)}
-              className={iCls} />
-          </div>
-
-          <div>
-            <label className={lCls}>Origin (Mill / City)</label>
-            <input type="text" value={form.origin}
-              onChange={(e) => setF("origin", e.target.value)}
-              className={iCls} />
-          </div>
-
-          {/* Row 5: Load Date | Delivery Date */}
-          <div>
-            <label className={lCls}>Planned Load Date <span className="text-red-500">*</span></label>
-            <input type="date" value={form.plannedLoadDate}
-              onChange={(e) => setF("plannedLoadDate", e.target.value)}
-              className={iCls} />
-          </div>
-
-          <div>
-            <label className={lCls}>Planned Delivery Date</label>
-            <input type="date" value={form.plannedDeliveryDate}
-              onChange={(e) => setF("plannedDeliveryDate", e.target.value)}
-              className={iCls} />
-          </div>
-
-        </div>
-      </div>
-
-      <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
-        <button type="button" onClick={onCancel}
-          className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-        <button type="button" disabled={!isValid} onClick={() => onSubmit(form)}
-          className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40 active:scale-95 transition-all">
-          <Truck className="h-4 w-4" /> Save Load Plan
-        </button>
-      </div>
+        </>
+      )}
     </div>
   );
 }
 
 // ─── Plan Drill-Down Modal ─────────────────────────────────────────────────────
 
-function PlanDrillDown({ plan, onClose }: { plan: TruckLoadPlan; onClose: () => void }) {
-  const { totalQty, totalWeight, uniquePOs } = planTotals(plan);
+function PlanDrillDown({ plan, onClose }: { plan: TLPPlanEx; onClose: () => void }) {
+  const { totalWeight, uniquePOs } = planTotals(plan);
   const cap = plan.truckCapacityKg ?? 0;
   const pct = cap > 0 ? Math.min((totalWeight / cap) * 100, 100) : 0;
 
@@ -998,15 +1074,54 @@ function PlanDrillDown({ plan, onClose }: { plan: TruckLoadPlan; onClose: () => 
         <div className="mt-3 flex gap-4 pt-2.5 border-t border-gray-200 text-xs">
           <span><span className="text-gray-400">POs: </span><span className="font-bold text-gray-800">{uniquePOs}</span></span>
           <span><span className="text-gray-400">Items: </span><span className="font-bold text-gray-800">{plan.items.length}</span></span>
-          <span><span className="text-gray-400">Total Qty: </span><span className="font-bold text-gray-800">{totalQty.toLocaleString()} sht</span></span>
+          <span><span className="text-gray-400">Total Weight: </span><span className="font-bold text-gray-800">{totalWeight.toLocaleString()} kg</span></span>
         </div>
       </div>
+
+      {/* Loads section — shows when plan has named loads */}
+      {plan.loads.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Loads ({plan.loads.length})</p>
+          {plan.loads.map((load) => {
+            const ltWt = load.items.reduce((s, i) => s + itemWeight(i), 0);
+            return (
+              <div key={load.id} className="rounded-xl border border-blue-100 bg-blue-50/30 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50 border-b border-blue-100">
+                  <div className="flex items-center gap-2.5">
+                    <span className="inline-flex items-center rounded-md bg-blue-600 px-2 py-0.5 text-[11px] font-semibold text-white">{load.loadType}</span>
+                    <span className="text-[11px] text-gray-500">{load.items.length} item{load.items.length !== 1 ? "s" : ""}</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-[11px] text-gray-600 tabular-nums">
+                    <span>{ltWt.toLocaleString()} kg</span>
+                  </div>
+                </div>
+                {load.address && (
+                  <div className="px-4 py-2 text-xs text-gray-600 bg-white border-b border-blue-50">
+                    <span className="text-gray-400">Address: </span>{load.address}
+                  </div>
+                )}
+                <div className="bg-white">
+                  {load.items.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between px-4 py-1.5 text-xs border-b border-gray-50 last:border-b-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-mono text-[11px] text-gray-500 shrink-0">{item.poNumber}</span>
+                        <span className="text-gray-700 truncate">{item.paper} · {item.gsm} GSM · {item.size}</span>
+                        {item.customerName && <span className="text-blue-600 truncate">· {item.customerName}</span>}
+                      </div>
+                      <span className="font-semibold tabular-nums text-gray-800 shrink-0 ml-3">{itemWeight(item).toLocaleString()} kg</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Items grouped by PO */}
       <div className="space-y-2">
         {[...byPO.entries()].map(([poNumber, items]) => {
           const poWeight = items.reduce((s, i) => s + itemWeight(i), 0);
-          const poQty    = items.reduce((s, i) => s + i.quantity, 0);
           const expanded = expandedPOs.has(poNumber);
           return (
             <div key={poNumber} className="rounded-xl border border-gray-200 overflow-hidden">
@@ -1021,7 +1136,6 @@ function PlanDrillDown({ plan, onClose }: { plan: TruckLoadPlan; onClose: () => 
                   </span>
                 </div>
                 <div className="flex items-center gap-4 text-xs text-gray-500">
-                  <span className="tabular-nums">{poQty.toLocaleString()} sht</span>
                   <span className="tabular-nums">{poWeight.toLocaleString()} kg</span>
                 </div>
               </button>
@@ -1034,8 +1148,7 @@ function PlanDrillDown({ plan, onClose }: { plan: TruckLoadPlan; onClose: () => 
                       <th className="px-3 py-2 text-left">Material</th>
                       <th className="px-3 py-2 text-left">Customer</th>
                       <th className="px-3 py-2 text-left">Delivery Location</th>
-                      <th className="px-3 py-2 text-right">Qty</th>
-                      <th className="px-3 py-2 text-right">Weight</th>
+                      <th className="px-3 py-2 text-right">Weight (kg)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -1055,8 +1168,7 @@ function PlanDrillDown({ plan, onClose }: { plan: TruckLoadPlan; onClose: () => 
                           <p className="text-gray-700">{item.deliveryLocation || "—"}</p>
                           {item.deliveryAddress && <p className="text-[11px] text-gray-400">{item.deliveryAddress}</p>}
                         </td>
-                        <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-800">{item.quantity.toLocaleString()}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-gray-600">{itemWeight(item).toLocaleString()} kg</td>
+                        <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-800">{itemWeight(item).toLocaleString()}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1078,14 +1190,14 @@ function PlanDrillDown({ plan, onClose }: { plan: TruckLoadPlan; onClose: () => 
 // ─── Status Update Modal ───────────────────────────────────────────────────────
 
 function StatusUpdateModal({ plan, onClose, onSave }: {
-  plan: TruckLoadPlan; onClose: () => void; onSave: (patch: Partial<TruckLoadPlan>) => void;
+  plan: TLPPlanEx; onClose: () => void; onSave: (patch: Partial<TruckLoadPlan>) => void;
 }) {
   const currentIdx = STATUS_SEQ.indexOf(plan.status);
   const [newStatus, setNewStatus] = useState<TruckLoadPlan["status"]>(
     STATUS_SEQ[Math.min(currentIdx + 1, STATUS_SEQ.length - 1)]
   );
   const [actualDate, setActualDate] = useState(new Date().toISOString().split("T")[0]);
-  const { totalQty, totalWeight, uniquePOs } = planTotals(plan);
+  const { totalWeight, uniquePOs } = planTotals(plan);
 
   return (
     <div className="space-y-5">
@@ -1095,7 +1207,7 @@ function StatusUpdateModal({ plan, onClose, onSave }: {
           <span className={cn("inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold", STATUS_COLOR[plan.status])}>{plan.status}</span>
         </div>
         <p className="text-xs text-gray-500 mt-1">
-          {uniquePOs} PO{uniquePOs !== 1 ? "s" : ""} · {plan.items.length} item{plan.items.length !== 1 ? "s" : ""} · {totalQty.toLocaleString()} sht · {totalWeight.toLocaleString()} kg
+          {uniquePOs} PO{uniquePOs !== 1 ? "s" : ""} · {plan.items.length} item{plan.items.length !== 1 ? "s" : ""} · {totalWeight.toLocaleString()} kg
           {plan.truckNumber ? ` · ${plan.truckNumber}` : ""}
           {plan.truckType ? ` (${plan.truckType})` : ""}
         </p>
@@ -1183,7 +1295,7 @@ function mapTrackerRow(r: MillTrackerRow): MillOrderTracker {
   };
 }
 
-function mapApiItem(item: TruckLoadPlanItemApiDto): TruckLoadPlanItem {
+function mapApiItem(item: TruckLoadPlanItemApiDto): TLPItemEx {
   return {
     id:               String(item.id),
     trackerSourceId:  item.trackerId != null ? String(item.trackerId) : undefined,
@@ -1196,14 +1308,24 @@ function mapApiItem(item: TruckLoadPlanItemApiDto): TruckLoadPlanItem {
     deliveryLocation: item.deliveryLocation ?? undefined,
     deliveryAddress:  item.deliveryAddress  ?? undefined,
     quantity:         Number(item.quantity),
+    planQty:          item.planQty != null ? Number(item.planQty) : undefined,
     weightKg:         item.weightKg != null ? Number(item.weightKg) : undefined,
     loadOrder:        item.loadOrder,
+    loadType:         item.loadType,
     millInvoiceNo:    item.millInvoiceNo    ?? undefined,
     deliveryBillNo:   item.deliveryBillNo   ?? undefined,
   };
 }
 
-function mapApiPlan(plan: TruckLoadPlanApiDto): TruckLoadPlan {
+function mapApiPlan(plan: TruckLoadPlanApiDto): TLPPlanEx {
+  const items = plan.items.map(mapApiItem);
+  const loads: TLPLoadEx[] = (plan.loads ?? []).map((l) => ({
+    id:           l.id,
+    loadType:     l.loadType,
+    loadSequence: l.loadSequence,
+    address:      l.address ?? undefined,
+    items:        items.filter((it) => it.loadType === l.loadType),
+  }));
   return {
     id:                  String(plan.id),
     planNumber:          plan.planNumber,
@@ -1222,14 +1344,15 @@ function mapApiPlan(plan: TruckLoadPlanApiDto): TruckLoadPlan {
     actualLoadDate:      plan.actualLoadDate       ?? undefined,
     actualDeliveryDate:  plan.actualDeliveryDate   ?? undefined,
     status:              (plan.status as TruckLoadPlan["status"]) ?? "Planned",
-    items:               plan.items.map(mapApiItem),
+    items,
+    loads,
   };
 }
 
 // ─── 3-dot Actions Menu ────────────────────────────────────────────────────────
 
 function PlanActionsMenu({ plan, onView, onUpdateStatus, onDelete, onPrint }: {
-  plan: TruckLoadPlan;
+  plan: TLPPlanEx;
   onView: () => void; onUpdateStatus: () => void; onDelete: () => void; onPrint: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -1283,7 +1406,7 @@ function TruckLoadPlanPage() {
   const { success } = useToast();
 
   // ── API state ──────────────────────────────────────────────────────────────
-  const [truckLoadPlans, setTruckLoadPlans] = useState<TruckLoadPlan[]>([]);
+  const [truckLoadPlans, setTruckLoadPlans] = useState<TLPPlanEx[]>([]);
   const [readyTrackers,  setReadyTrackers]  = useState<MillOrderTracker[]>([]);
   const [transporters,   setTransporters]   = useState<TransporterDropdown[]>([]);
   const [isPageLoading,  setIsPageLoading]  = useState(true);
@@ -1330,7 +1453,7 @@ function TruckLoadPlanPage() {
   const [showStatusModal,  setShowStatusModal]   = useState(false);
   const [showDetailModal,  setShowDetailModal]   = useState(false);
   const [showTrackerModal, setShowTrackerModal]  = useState(false);
-  const [activePlan,       setActivePlan]        = useState<TruckLoadPlan | null>(null);
+  const [activePlan,       setActivePlan]        = useState<TLPPlanEx | null>(null);
   const [activeTracker,    setActiveTracker]     = useState<MillOrderTracker | null>(null);
   const [activeStatusFilter, setActiveStatusFilter] = useState<TruckLoadPlan["status"] | null>(null);
 
@@ -1367,6 +1490,13 @@ function TruckLoadPlanPage() {
         deliveryBillNo:      form.deliveryBillNo      || undefined,
         plannedLoadDate:     form.plannedLoadDate,
         plannedDeliveryDate: form.plannedDeliveryDate || undefined,
+        loads: [...new Set(form.items.map((it) => it.loadType))]
+          .sort((a, b) => TLP_LOAD_TYPES.indexOf(a) - TLP_LOAD_TYPES.indexOf(b))
+          .map((lt, i) => ({
+            loadType: lt,
+            loadSequence: i + 1,
+            address: form.loadAddresses[lt] || undefined,
+          })),
         items: form.items.map((it) => ({
           trackerId:        it.trackerId ? parseInt(it.trackerId) : undefined,
           poNumber:         it.poNumber,
@@ -1377,10 +1507,12 @@ function TruckLoadPlanPage() {
           customerName:     it.customerName    || undefined,
           mill:             it.mill            || undefined,
           quantity:         it.quantity,
-          weightKg:         calcWeightKg(it.gsm, it.size, it.quantity) || undefined,
+          planQty:          it.quantity,
+          weightKg:         it.quantity || undefined,
           loadOrder:        it.loadOrder,
+          loadType:         it.loadType,
           deliveryLocation: it.customerName    || undefined,
-          deliveryAddress:  it.deliveryAddress || undefined,
+          deliveryAddress:  form.loadAddresses[it.loadType] || it.deliveryAddress || undefined,
           millInvoiceNo:    form.millInvoiceNo || undefined,
           deliveryBillNo:   form.deliveryBillNo || undefined,
         })),
@@ -1417,7 +1549,7 @@ function TruckLoadPlanPage() {
     }
   };
 
-  const handleDelete = async (plan: TruckLoadPlan) => {
+  const handleDelete = async (plan: TLPPlanEx) => {
     if (!confirm(`Delete ${plan.planNumber}? This cannot be undone.`)) return;
     try {
       await truckLoadPlanApi.remove(parseInt(plan.id));
@@ -1428,8 +1560,8 @@ function TruckLoadPlanPage() {
     }
   };
 
-  const handlePrint = (plan: TruckLoadPlan) => {
-    const { totalQty, totalWeight, uniquePOs } = planTotals(plan);
+  const handlePrint = (plan: TLPPlanEx) => {
+    const { totalWeight, uniquePOs } = planTotals(plan);
     const sortedItems = [...plan.items].sort((a, b) => b.loadOrder - a.loadOrder);
 
     const esc = (s: string | undefined | null) =>
@@ -1449,7 +1581,6 @@ function TruckLoadPlanPage() {
         <td class="mono">${esc(it.poNumber)}</td>
         <td>${esc(it.customerName)}</td>
         <td>${esc(it.deliveryAddress || it.deliveryLocation)}</td>
-        <td class="right">${it.quantity.toLocaleString("en-IN")}</td>
         <td class="right">${itemWeight(it).toLocaleString("en-IN")}</td>
         <td>${esc(it.millInvoiceNo)}</td>
       </tr>`).join("");
@@ -1541,8 +1672,7 @@ function TruckLoadPlanPage() {
           <th style="width:100px">PO Number</th>
           <th style="width:100px">Customer</th>
           <th>Delivery Address</th>
-          <th class="right" style="width:60px">Qty (sht)</th>
-          <th class="right" style="width:60px">Weight (kg)</th>
+          <th class="right" style="width:80px">Weight (kg)</th>
           <th style="width:90px">Mill Invoice</th>
         </tr>
       </thead>
@@ -1550,7 +1680,6 @@ function TruckLoadPlanPage() {
         ${itemRows}
         <tr class="totals-row">
           <td colspan="6" class="right" style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;">Total</td>
-          <td class="right">${totalQty.toLocaleString("en-IN")}</td>
           <td class="right">${totalWeight.toLocaleString("en-IN")}</td>
           <td></td>
         </tr>
@@ -1562,7 +1691,6 @@ function TruckLoadPlanPage() {
   <div class="summary-box">
     <div class="sum-item"><span class="sum-label">Purchase Orders</span><span class="sum-val">${uniquePOs}</span></div>
     <div class="sum-item"><span class="sum-label">Line Items</span><span class="sum-val">${sortedItems.length}</span></div>
-    <div class="sum-item"><span class="sum-label">Total Quantity</span><span class="sum-val">${totalQty.toLocaleString("en-IN")} sht</span></div>
     <div class="sum-item"><span class="sum-label">Total Weight</span><span class="sum-val">${totalWeight.toLocaleString("en-IN")} kg</span></div>
     ${plan.truckCapacityKg ? `<div class="sum-item"><span class="sum-label">Truck Capacity</span><span class="sum-val">${plan.truckCapacityKg.toLocaleString("en-IN")} kg</span></div>` : ""}
   </div>
@@ -1669,7 +1797,7 @@ function TruckLoadPlanPage() {
       id: "actions", accessorKey: "id", header: "Actions",
       filterType: "none", enableSorting: false, enableHiding: false, size: 60,
       cell: (info) => {
-        const plan = info.row.original as TruckLoadPlan;
+        const plan = info.row.original as TLPPlanEx;
         return (
           <PlanActionsMenu
             plan={plan}
@@ -1801,7 +1929,7 @@ function TruckLoadPlanPage() {
             enableColumnVisibility={true}
             initialPageSize={10}
             isLoading={isPageLoading}
-            onRowClick={(plan) => { setActivePlan(plan); setShowDetailModal(true); }}
+            onRowClick={(plan) => { setActivePlan(plan as TLPPlanEx); setShowDetailModal(true); }}
             emptyMessage="No load plans yet. Use New Plan to create one."
           />
         </div>

@@ -10,6 +10,8 @@ public interface IRoleRepository
     Task<RoleDetailDto?>            GetByIdAsync(int id);
     Task<List<RoleDropdownDto>>     GetDropdownAsync();
     Task<bool>                      NameExistsAsync(string name, int? excludeId = null);
+    Task<int?>                      FindSoftDeletedByNameAsync(string name);
+    Task                            RestoreAsync(int id, string restoredBy);
     Task<int>                       CreateAsync(Role role);
     Task                            UpdateAsync(Role role);
     Task                            SoftDeleteAsync(int id, string deletedBy);

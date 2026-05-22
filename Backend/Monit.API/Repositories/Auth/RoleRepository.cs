@@ -79,6 +79,25 @@ public class RoleRepository(DbConnectionFactory db) : IRoleRepository
         return await conn.ExecuteScalarAsync<int>(sql, new { Name = name, ExcludeId = excludeId }) > 0;
     }
 
+    public async Task<int?> FindSoftDeletedByNameAsync(string name)
+    {
+        const string sql = "SELECT TOP 1 Id FROM auth.Roles WHERE Name=@Name AND IsDeleted=1";
+        using var conn = db.Create();
+        var id = await conn.ExecuteScalarAsync<int?>(sql, new { Name = name });
+        return id == 0 ? null : id;
+    }
+
+    public async Task RestoreAsync(int id, string restoredBy)
+    {
+        const string sql = @"
+            UPDATE auth.Roles
+            SET IsDeleted=0, DeletedAt=NULL, DeletedBy=NULL,
+                IsActive=1, UpdatedAt=GETUTCDATE(), UpdatedBy=@RestoredBy
+            WHERE Id=@Id";
+        using var conn = db.Create();
+        await conn.ExecuteAsync(sql, new { Id = id, RestoredBy = restoredBy });
+    }
+
     public async Task<int> CreateAsync(Role r)
     {
         const string sql = @"

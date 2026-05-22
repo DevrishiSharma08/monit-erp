@@ -541,7 +541,7 @@ export interface SalesOrderLineDto {
   gsm?: number; size?: string; unit?: string;
   orderedQty: number; qty?: number;
   rate: number; discount: number; finalPrice?: number; amount: number;
-  deliveryAddress?: string; requiredDeliveryDate?: string;
+  deliveryAddress?: string; requiredDeliveryDate?: string; remarks?: string;
   status: string; allocatedQty: number; pendingQty: number;
 }
 
@@ -566,7 +566,7 @@ export interface CreateSOLineDto {
   gsm?: number; size?: string; unit?: string;
   orderedQty: number; qty?: number;
   rate: number; discount?: number; finalPrice?: number; amount: number;
-  deliveryAddress?: string; requiredDeliveryDate?: string;
+  deliveryAddress?: string; requiredDeliveryDate?: string; remarks?: string;
 }
 
 export interface CreateSODto {
@@ -608,6 +608,7 @@ export interface POItemRow {
 export interface PORow {
   id: number; poNumber: string;
   millId: number; millName: string; millCode?: string;
+  millUnitId?: number; millUnitName?: string;
   orderDate: string; poType: string;
   linkedSOId?: number; linkedSONumber?: string;
   deliveryMode?: string; shipmentMode?: string; blindShipment: boolean;
@@ -630,7 +631,7 @@ export interface CreatePOItemDto {
 }
 
 export interface CreatePODto {
-  millId: number; orderDate: string; poType: string;
+  millId: number; millUnitId?: number; orderDate: string; poType: string;
   linkedSOId?: number; deliveryMode?: string;
   shipmentMode?: string; blindShipment: boolean;
   invoiceParty?: string; invoicePartyId?: number;
@@ -680,7 +681,7 @@ export interface MillTrackerRow {
   millId: number; mill: string; millAddress?: string;
   materialId?: number; paper?: string; gsm?: number; size?: string;
   orderedQty: number; readyQty: number; dispatchedQty: number; balanceQty: number;
-  rate: number; totalAmount: number;
+  rate: number; discount?: number; totalAmount: number;
   productionStatus: string; productionProgress: number;
   expectedDelivery?: string; actualDispatchDate?: string;
   lastUpdate?: string; lastUpdatedBy?: string; delayDays?: number;
@@ -712,13 +713,21 @@ export interface BulkImportResultDto {
 
 // ── Truck Load Plans ───────────────────────────────────────────────────────────
 
+export type TlpLoadType = "Load 1" | "Load 2" | "Load 3" | "Last Load";
+
+export interface TruckLoadPlanLoadApiDto {
+  id: number; planId: number;
+  loadType: TlpLoadType; loadSequence: number; address?: string;
+  items: TruckLoadPlanItemApiDto[];
+}
+
 export interface TruckLoadPlanItemApiDto {
-  id: number; planId: number; trackerId?: number;
+  id: number; planId: number; loadId?: number; trackerId?: number;
   poNumber?: string; soNumber?: string;
   paper?: string; gsm?: number; size?: string;
   customerName?: string; mill?: string;
-  quantity: number; weightKg?: number;
-  loadOrder: number;
+  quantity: number; planQty?: number; weightKg?: number;
+  loadOrder: number; loadType?: TlpLoadType;
   deliveryLocation?: string; deliveryAddress?: string;
   millInvoiceNo?: string; deliveryBillNo?: string;
 }
@@ -733,15 +742,20 @@ export interface TruckLoadPlanApiDto {
   plannedLoadDate?: string; plannedDeliveryDate?: string;
   actualLoadDate?: string; actualDeliveryDate?: string;
   status: string; remarks?: string; createdAt: string;
+  loads: TruckLoadPlanLoadApiDto[];
   items: TruckLoadPlanItemApiDto[];
+}
+
+export interface CreateLoadApiDto {
+  loadType: TlpLoadType; loadSequence: number; address?: string;
 }
 
 export interface CreateTruckLoadPlanItemApiDto {
   trackerId?: number; poNumber?: string; soNumber?: string;
   paper?: string; gsm?: number; size?: string;
   customerName?: string; mill?: string;
-  quantity: number; weightKg?: number;
-  loadOrder: number;
+  quantity: number; planQty?: number; weightKg?: number;
+  loadOrder: number; loadType?: TlpLoadType;
   deliveryLocation?: string; deliveryAddress?: string;
   millInvoiceNo?: string; deliveryBillNo?: string;
 }
@@ -754,6 +768,7 @@ export interface CreateTruckLoadPlanApiDto {
   millInvoiceNo?: string; deliveryBillNo?: string;
   plannedLoadDate?: string; plannedDeliveryDate?: string;
   remarks?: string;
+  loads: CreateLoadApiDto[];
   items: CreateTruckLoadPlanItemApiDto[];
 }
 

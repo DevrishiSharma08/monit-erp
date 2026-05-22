@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import {
-  millApi, MillRow,
+  millApi, MillRow, MillUnitDto,
   materialApi, MaterialDropdown,
   rateApi, RateRow,
   customerApi, CustomerSODropdown,
@@ -67,6 +67,8 @@ interface FormItem {
 interface FormState {
   millId: number;
   millName: string;
+  millUnitId?: number;
+  millUnitName?: string;
   orderDate: string;
   poType: string;
   linkedSOId?: number;
@@ -117,6 +119,7 @@ function initFromPO(po: PORow): { form: FormState; items: FormItem[] } {
   return {
     form: {
       millId: po.millId, millName: po.millName,
+      millUnitId: po.millUnitId, millUnitName: po.millUnitName,
       orderDate: po.orderDate, poType: po.poType,
       linkedSOId: po.linkedSOId, linkedSONumber: po.linkedSONumber ?? "",
       deliveryMode: po.deliveryMode ?? "To Godown",
@@ -165,7 +168,8 @@ function initFromSO(so: SalesOrder): { form: Partial<FormState>; items: FormItem
 }
 
 const BLANK_FORM = (): FormState => ({
-  millId: 0, millName: "", orderDate: new Date().toISOString().split("T")[0],
+  millId: 0, millName: "", millUnitId: undefined, millUnitName: undefined,
+  orderDate: new Date().toISOString().split("T")[0],
   poType: "For Stock", linkedSOId: undefined, linkedSONumber: "",
   deliveryMode: "To Godown", shipmentMode: "Normal", blindShipment: false,
   invoiceParty: "", invoicePartyId: undefined,
@@ -346,6 +350,7 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
   const isEdit = !!initialData?.id;
 
   const [mills, setMills]                   = useState<MillRow[]>([]);
+  const [millUnits, setMillUnits]           = useState<MillUnitDto[]>([]);
   const [allMaterials, setAllMaterials]     = useState<MaterialDropdown[]>([]);
   const [millMaterials, setMillMaterials]   = useState<MaterialDropdown[]>([]);
   const [purchaseRates, setPurchaseRates]   = useState<RateRow[]>([]);
@@ -383,12 +388,13 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Mill change → rates, materials, instructions ──────────────────────────
+  // ── Mill change → rates, materials, instructions, units ──────────────────
   useEffect(() => {
-    if (!form.millId) { setPurchaseRates([]); setMillMaterials([]); setInstructions([]); return; }
+    if (!form.millId) { setPurchaseRates([]); setMillMaterials([]); setInstructions([]); setMillUnits([]); return; }
     rateApi.list({ rateType: "Purchase", millId: form.millId }).then((r) => setPurchaseRates(r.items)).catch(() => {});
     materialApi.dropdown(form.millId).then(setMillMaterials).catch(() => {});
     instructionApi.byMill(form.millId).then(setInstructions).catch(() => {});
+    millApi.getById(form.millId).then((d) => setMillUnits(d.units ?? [])).catch(() => {});
   }, [form.millId]);
 
   // ── Auto-apply rates when rates + materials load ───────────────────────────
@@ -433,7 +439,8 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
 
   // ── DTO ───────────────────────────────────────────────────────────────────
   const buildDTO = (): CreatePODto => ({
-    millId: form.millId, orderDate: form.orderDate, poType: form.poType,
+    millId: form.millId, millUnitId: form.millUnitId ?? undefined,
+    orderDate: form.orderDate, poType: form.poType,
     linkedSOId: form.linkedSOId, deliveryMode: form.deliveryMode || undefined,
     shipmentMode: form.shipmentMode, blindShipment: form.blindShipment,
     invoiceParty: form.invoiceParty || undefined, invoicePartyId: form.invoicePartyId,
@@ -471,10 +478,23 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
     setItems([]);
   };
 
-  const handleMillChange = (millIdStr: string) => {
+  const handleMillChange = async (millIdStr: string) => {
     const mill = mills.find((m) => m.id === parseInt(millIdStr));
+    if (!mill) {
+      setMillUnits([]);
+      setForm((prev) => ({ ...prev, millId: 0, millName: "", millUnitId: undefined, millUnitName: undefined }));
+      return;
+    }
+    // Fetch units for the selected mill
+    const detail = await millApi.getById(mill.id).catch(() => null);
+    const units = detail?.units ?? [];
+    setMillUnits(units);
+    const defaultUnit = units.find(u => u.isDefault) ?? (units.length === 1 ? units[0] : undefined);
     setForm((prev) => ({
-      ...prev, millId: mill?.id ?? 0, millName: mill?.name ?? "",
+      ...prev,
+      millId: mill.id, millName: mill.name,
+      millUnitId: defaultUnit?.id,
+      millUnitName: defaultUnit?.unitName,
       paymentTerms: mill?.paymentTerms ?? prev.paymentTerms,
     }));
   };
@@ -690,8 +710,8 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
           <p className="text-sm font-semibold text-gray-700">PO Details</p>
         </div>
 
-        {/* Row 1: Mill | PO Date | PO Type */}
-        <div className="grid grid-cols-3 gap-3">
+        {/* Row 1: Mill | Mill Unit | PO Date | PO Type */}
+        <div className={millUnits.length > 1 ? "grid grid-cols-4 gap-3" : "grid grid-cols-3 gap-3"}>
           <div>
             <label className={labelCls}>Mill <span className="text-red-400">*</span></label>
             <select value={form.millId ? String(form.millId) : ""} onChange={(e) => handleMillChange(e.target.value)} className={inputCls()} required>
@@ -699,6 +719,24 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
               {mills.map((m) => <option key={m.id} value={String(m.id)}>{m.name} ({m.code})</option>)}
             </select>
           </div>
+          {millUnits.length > 1 && (
+            <div>
+              <label className={labelCls}>Mill Unit</label>
+              <select
+                value={form.millUnitId ? String(form.millUnitId) : ""}
+                onChange={(e) => {
+                  const u = millUnits.find(u => u.id === parseInt(e.target.value));
+                  setForm(p => ({ ...p, millUnitId: u?.id, millUnitName: u?.unitName }));
+                }}
+                className={inputCls()}
+              >
+                <option value="">— All units —</option>
+                {millUnits.map((u, i) => (
+                  <option key={u.id ?? i} value={u.id ? String(u.id) : ""}>{u.unitName}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className={labelCls}>PO Date <span className="text-red-400">*</span></label>
             <input type="date" value={form.orderDate} onChange={(e) => setForm((p) => ({ ...p, orderDate: e.target.value }))} className={inputCls()} required />

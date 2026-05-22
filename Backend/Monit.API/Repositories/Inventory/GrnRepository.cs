@@ -186,7 +186,10 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
                 -- PO chain fields
                 CONVERT(NVARCHAR(10), po.OrderDate, 23)                            AS PoDate,
                 mil.Name                                                            AS PoSupplierName,
-                ISNULL(poi.Rate, 0)                                                AS PoRate,
+                CASE WHEN ISNULL(poi.Discount, 0) > 0
+                     THEN ISNULL(poi.Rate, 0) / (1.0 - ISNULL(poi.Discount, 0) / 100.0)
+                     ELSE ISNULL(poi.Rate, 0)
+                END                                                                AS PoRate,
                 -- TLP chain fields
                 CONVERT(NVARCHAR(10), tlp.PlanDate, 23)                           AS TlpDate,
                 tlp.TruckNumber                                                     AS TlpTruckNumber,
