@@ -72,15 +72,22 @@ export function DataGridToolbar<TData>({
   const getExportData = () => {
     const visibleCols = table
       .getAllLeafColumns()
-      .filter((col) => col.getIsVisible() && col.id !== "_select" && col.id !== "_actions");
-    const headers = visibleCols.map((col) =>
+      .filter((col: any) => col.getIsVisible() && col.id !== "_select" && col.id !== "_actions");
+    const headers = visibleCols.map((col: any) =>
       typeof col.columnDef.header === "string" ? col.columnDef.header : col.id
     );
-    const rows = table.getFilteredRowModel().rows.map((row) =>
-      visibleCols.map((col) => {
+    const configMap = new Map(columnConfigs.map((c) => [c.id, c]));
+    const rows = table.getFilteredRowModel().rows.map((row: any) =>
+      visibleCols.map((col: any) => {
+        const config = configMap.get(col.id);
+        if (config?.exportValue) {
+          const v = config.exportValue(row.original);
+          return v === null || v === undefined ? "" : String(v);
+        }
         const val = row.getValue(col.id);
         if (val === null || val === undefined) return "";
         if (typeof val === "boolean") return val ? "Yes" : "No";
+        if (typeof val === "object") return "";
         return String(val);
       })
     );

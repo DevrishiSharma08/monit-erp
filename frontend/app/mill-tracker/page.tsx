@@ -331,36 +331,36 @@ export default function MillTrackerPage() {
   const columns: ColumnConfig<MillOrderTracker>[] = useMemo(() => [
     { id: "rowNo",          accessorKey: "id",              header: "#",            filterType: "none",   enableSorting: false, enableHiding: false, defaultVisible: true, size: 45,
       cell: (info) => <span className="text-xs text-gray-400 tabular-nums">{info.row.index + 1}</span> },
-    { id: "poNumber",       accessorKey: "poNumber",        header: "PO Number",    filterType: "text",   enableSorting: true, enableHiding: false, defaultVisible: true, size: 130, align: "left" as const,
-      cell: (info) => <span className="font-mono font-medium text-xs text-gray-800">{info.getValue() as string}</span> },
-    { id: "poDate",         accessorKey: "poDate",          header: "Order Date",   filterType: "none",   enableSorting: true, defaultVisible: true, size: 95,
+    { id: "poNumber",       accessorKey: "poNumber",        header: "PO Number",    filterType: "text",   enableSorting: true, enableHiding: false, defaultVisible: true, size: 140, align: "left" as const,
+      cell: (info) => <span className="font-mono font-semibold text-xs text-purple-600">{info.getValue() as string}</span> },
+    { id: "poDate",         accessorKey: "poDate",          header: "Order Date",   filterType: "none",   enableSorting: true, defaultVisible: true, size: 100,
       cell: (info) => <span className="text-xs text-gray-600">{info.getValue() as string}</span> },
-    { id: "itemCode",       accessorKey: "mill",            header: "Item Code",    filterType: "text",   enableSorting: false, defaultVisible: true, size: 220, align: "left" as const, noTruncate: true,
+    { id: "itemCode",       accessorKey: "mill",            header: "Item Code",    filterType: "text",   enableSorting: false, defaultVisible: true, size: 240, align: "left" as const, noTruncate: true,
       cell: (info) => { const t = info.row.original; return (
-        <div className="leading-snug">
-          <div className="text-xs font-medium text-gray-800">{t.paper || t.mill}</div>
-          <div className="text-[10px] text-gray-400 mt-0.5">{t.mill}</div>
+        <div className="leading-snug min-w-0">
+          <div className="text-xs font-medium text-gray-800 truncate">{t.paper || t.mill}</div>
+          <div className="text-[10px] text-gray-400 mt-0.5 truncate">{t.mill}</div>
         </div>
       ); } },
     { id: "orderedQty",     accessorKey: "orderedQty",      header: "Ordered",      filterType: "none",   enableSorting: true, defaultVisible: true, size: 80,
       cell: (info) => <span className="tabular-nums text-xs text-gray-700">{(info.getValue() as number).toLocaleString()}</span> },
-    { id: "millSONumber",   accessorKey: "millSONumber",    header: "Mill SO No.",  filterType: "text",   enableSorting: true, defaultVisible: true, size: 110,
-      cell: (info) => info.getValue() ? <span className="font-mono text-xs text-purple-600">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
-    { id: "customerName",   accessorKey: "customerName",    header: "PO Customer",  filterType: "text",   enableSorting: true, defaultVisible: true, size: 150, align: "left" as const,
+    { id: "millSONumber",   accessorKey: "millSONumber",    header: "Mill SO No.",  filterType: "text",   enableSorting: true, defaultVisible: true, size: 120,
+      cell: (info) => info.getValue() ? <span className="font-mono text-xs text-violet-600">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
+    { id: "customerName",   accessorKey: "customerName",    header: "PO Customer",  filterType: "text",   enableSorting: true, defaultVisible: true, size: 140, align: "left" as const,
       cell: (info) => info.getValue() ? <span className="text-xs text-blue-600">{info.getValue() as string}</span> : <span className="text-xs text-gray-400">Stock PO</span> },
-    { id: "soCustomerName", accessorKey: "soCustomerName",  header: "SO Customer",  filterType: "text",   enableSorting: true, defaultVisible: true, size: 150, align: "left" as const,
+    { id: "soCustomerName", accessorKey: "soCustomerName",  header: "SO Customer",  filterType: "text",   enableSorting: true, defaultVisible: true, size: 140, align: "left" as const,
       cell: (info) => info.getValue() ? <span className="text-xs text-gray-700">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
     { id: "readyQty",       accessorKey: "readyQty",        header: "Ready",        filterType: "none",   enableSorting: true, defaultVisible: true, size: 75,
       cell: (info) => { const v = info.getValue() as number; return <span className={`tabular-nums text-xs ${v > 0 ? "text-green-600" : "text-gray-400"}`}>{v.toLocaleString()}</span>; } },
-    { id: "dispatchedQty",  accessorKey: "dispatchedQty",   header: "Dispatched",   filterType: "none",   enableSorting: true, defaultVisible: true, size: 85,
+    { id: "dispatchedQty",  accessorKey: "dispatchedQty",   header: "Dispatched",   filterType: "none",   enableSorting: true, defaultVisible: true, size: 90,
       cell: (info) => { const v = info.getValue() as number; return v > 0 ? <span className="text-xs text-blue-600 tabular-nums">{v.toLocaleString()}</span> : <span className="text-gray-300 text-xs">—</span>; } },
-    { id: "balanceQty",     accessorKey: "balanceQty",      header: "Balance",      filterType: "none",   enableSorting: true, defaultVisible: true, size: 75,
+    { id: "balanceQty",     accessorKey: "balanceQty",      header: "Balance",      filterType: "none",   enableSorting: true, defaultVisible: true, size: 80,
       cell: (info) => { const v = info.getValue() as number; return <span className={`tabular-nums text-xs ${v > 0 ? "text-orange-600" : "text-green-600"}`}>{v.toLocaleString()}</span>; } },
-    { id: "soDeliveryDate", accessorKey: "soDeliveryDate",  header: "SO Del. Date", filterType: "none",   enableSorting: true, defaultVisible: true, size: 100,
+    { id: "soDeliveryDate", accessorKey: "soDeliveryDate",  header: "SO Del. Date", filterType: "none",   enableSorting: true, defaultVisible: true, size: 108,
       cell: (info) => info.getValue() ? <span className="text-xs text-gray-600">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
-    { id: "expectedDelivery",accessorKey: "expectedDelivery",header: "PO Del. Date",filterType: "none",   enableSorting: true, defaultVisible: true, size: 100,
+    { id: "expectedDelivery",accessorKey: "expectedDelivery",header: "PO Del. Date",filterType: "none",   enableSorting: true, defaultVisible: true, size: 108,
       cell: (info) => <span className="text-xs text-gray-600">{info.getValue() as string}</span> },
-    { id: "productionStatus",accessorKey: "productionStatus",header: "Status",      filterType: "select", filterOptions: productionStatusOptions, enableSorting: true, defaultVisible: true, size: 120,
+    { id: "productionStatus",accessorKey: "productionStatus",header: "Status",      filterType: "select", filterOptions: productionStatusOptions, enableSorting: true, defaultVisible: true, size: 125,
       cell: (info) => { const s = info.getValue() as string; return <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[s] || "bg-gray-100 text-gray-600"}`}>{s}</span>; } },
     { id: "actions",        accessorKey: "id",              header: "Actions",      filterType: "none",   enableSorting: false, enableHiding: false, defaultVisible: true, size: 52, sticky: "right",
       cell: (info) => <ThreeDotsMenu tracker={info.row.original}/> },
@@ -397,12 +397,12 @@ export default function MillTrackerPage() {
       <tr className="border-b border-gray-100 hover:bg-blue-50/30 cursor-pointer transition-colors"
         onClick={() => openDetail(tracker)}>
         <td className="px-3 py-2 text-xs text-gray-400 tabular-nums">{rowIndex + 1}</td>
-        <td className="px-3 py-2 font-mono font-medium text-xs text-gray-800">{tracker.poNumber}</td>
+        <td className="px-3 py-2 font-mono font-semibold text-xs text-purple-600">{tracker.poNumber}</td>
         <td className="px-3 py-2 text-xs text-gray-600">{tracker.poDate}</td>
-        <td className="px-3 py-2">
-          <div className="leading-snug">
-            <div className="text-xs font-medium text-gray-800">{tracker.paper || tracker.mill}</div>
-            <div className="text-[10px] text-gray-400 mt-0.5">{tracker.mill}</div>
+        <td className="px-3 py-2 max-w-[240px]">
+          <div className="leading-snug min-w-0">
+            <div className="text-xs font-medium text-gray-800 truncate">{tracker.paper || tracker.mill}</div>
+            <div className="text-[10px] text-gray-400 mt-0.5 truncate">{tracker.mill}</div>
           </div>
         </td>
         <td className="px-3 py-2 text-right text-xs text-gray-700 tabular-nums">{tracker.orderedQty.toLocaleString()}</td>

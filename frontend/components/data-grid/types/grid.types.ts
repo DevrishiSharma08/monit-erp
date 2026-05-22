@@ -64,6 +64,9 @@ export interface ColumnConfig<TData> {
   /** When true, cell text is not truncated — useful for material/item name columns. */
   noTruncate?: boolean;
 
+  /** Custom export serializer — use when the column value is an object/array that needs flattening for CSV/PDF export. */
+  exportValue?: (row: TData) => string | number | null;
+
 }
 
 /**

@@ -153,6 +153,16 @@ export default function PurchaseOrdersPage() {
     {
       id: "items", accessorKey: "items", header: "Material",
       filterType: "none", enableSorting: false, defaultVisible: true, size: 260, align: "left" as const, noTruncate: true,
+      exportValue: (po) => {
+        if (!po.items?.length) return "";
+        const first = po.items[0];
+        const desc = first.description || "";
+        const wt = first.weightKg && first.weightKg > 0
+          ? `${first.weightKg} KG`
+          : `${first.quantity} ${first.unit || ""}`.trim();
+        const extra = po.items.length > 1 ? ` (+${po.items.length - 1} more)` : "";
+        return `${desc} | ${wt}${extra}`;
+      },
       cell: (info) => {
         const po = info.row.original;
         const first = po.items[0];
@@ -176,6 +186,7 @@ export default function PurchaseOrdersPage() {
     {
       id: "itemCount", accessorKey: "items", header: "# Items",
       filterType: "none", enableSorting: false, defaultVisible: true, size: 75,
+      exportValue: (po) => po.items?.length ?? 0,
       cell: (info) => {
         const n = (info.getValue() as any[]).length;
         return (

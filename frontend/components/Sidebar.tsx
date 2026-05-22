@@ -245,7 +245,7 @@ function SectionBlock({
 }) {
   const { isDark } = useTheme();
   const c = navCls(isDark);
-  const { hasPerm } = useAuth();
+  const { hasPermission: hasPerm } = useAuth();
   const visibleItems = section.items.filter((i) => !i.perm || hasPerm(i.perm));
   const active = visibleItems.some((item) =>
     item.type === "leaf"
@@ -363,7 +363,7 @@ interface SidebarProps {
 
 export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
-  const { isCustomer, hasPerm, user } = useAuth();
+  const { isCustomer, hasPermission: hasPerm, user } = useAuth();
   const { isDark } = useTheme();
   const c = navCls(isDark);
   const [collapsed, setCollapsed] = useState(false);
