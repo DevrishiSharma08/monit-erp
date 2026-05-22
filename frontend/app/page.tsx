@@ -62,29 +62,21 @@ function Badge({ s }: { s: string }) {
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
 function KpiCard({
-  title, value, sub, icon: Icon, iconBg, iconColor, accent, href, urgent,
+  title, value, sub, icon: Icon, iconBg, iconColor, href, urgent,
 }: {
   title: string; value: string; sub?: string; urgent?: boolean;
-  icon: React.ElementType; iconBg: string; iconColor: string; accent: string; href: string;
+  icon: React.ElementType; iconBg: string; iconColor: string; href: string;
 }) {
   return (
     <Link href={href}
-      className="group relative overflow-hidden rounded-xl border border-gray-100 bg-white px-4 py-3.5 shadow-sm hover:shadow-md transition-all duration-200">
-      <div className={`absolute inset-y-0 left-0 w-[3px] rounded-l-xl ${accent}`} />
-      <div className="pl-3 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{title}</p>
-          <p className="mt-0.5 text-[22px] font-extrabold tabular-nums leading-tight text-gray-900">{value}</p>
-          {sub && (
-            <p className={`text-[11px] font-medium ${urgent ? "text-rose-500" : "text-gray-400"}`}>{sub}</p>
-          )}
-        </div>
-        <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${iconBg}`}>
-          <Icon className={`h-[18px] w-[18px] ${iconColor}`} strokeWidth={2} />
-        </div>
-      </div>
-      <div className="mt-2 pl-3 flex items-center gap-1 text-[11px] font-semibold text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
-        Open <ArrowRight className="h-3 w-3" />
+      className={`group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:scale-[0.98] ${iconBg}`}>
+      <p className={`text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate ${iconColor}`}>{title}</p>
+      <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{value}</p>
+      {sub && (
+        <p className={`mt-1 text-[10px] sm:text-xs truncate ${urgent ? "text-rose-500" : "text-gray-500"}`}>{sub}</p>
+      )}
+      <div className={`pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] ${iconColor}`}>
+        <Icon className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
       </div>
     </Link>
   );
@@ -224,26 +216,26 @@ export default function ProcurementDashboard() {
     <div className="space-y-4 pb-8">
 
       {/* KPI Row */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         <KpiCard
           title="Open Sales Orders" value={String(data.openSoCount)} sub={fmtL(data.openSoValue)}
           icon={ShoppingCart} iconBg="bg-blue-50" iconColor="text-blue-600"
-          accent="bg-blue-500" href="/orders" />
+          href="/orders" />
         <KpiCard
           title="Open Purchase Orders" value={String(data.openPoCount)} sub={fmtL(data.openPoValue)}
           icon={ShoppingBag} iconBg="bg-violet-50" iconColor="text-violet-600"
-          accent="bg-violet-500" href="/purchase-orders" />
+          href="/purchase-orders" />
         <KpiCard
           title="Pending GRNs" value={String(data.pendingGrnCount)}
           sub={data.pendingGrnCount ? "Awaiting QC / approval" : "All clear"} urgent={data.pendingGrnCount > 0}
           icon={ClipboardCheck} iconBg={data.pendingGrnCount ? "bg-amber-50" : "bg-emerald-50"}
           iconColor={data.pendingGrnCount ? "text-amber-600" : "text-emerald-600"}
-          accent={data.pendingGrnCount ? "bg-amber-400" : "bg-emerald-400"} href="/grn" />
+          href="/grn" />
         <KpiCard
           title="Stock Available" value={`${data.availableStockQty.toLocaleString()} kg`}
           sub={`${data.availableStockLots} lots`}
           icon={Package} iconBg="bg-emerald-50" iconColor="text-emerald-600"
-          accent="bg-emerald-500" href="/stock-lots" />
+          href="/stock-lots" />
       </div>
 
       {/* Pipeline */}
