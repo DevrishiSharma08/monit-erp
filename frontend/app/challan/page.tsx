@@ -227,7 +227,7 @@ export default function ChallanPage() {
         id: "challanDate",
         accessorKey: "challanDate",
         header: "Date",
-        filterType: "date",
+        filterType: "dateRange",
         enableSorting: true,
         defaultVisible: true,
         size: 100,

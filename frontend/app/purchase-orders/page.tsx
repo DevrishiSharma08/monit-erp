@@ -2,10 +2,11 @@
 
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
 import {
   Factory, Clock, CheckCircle2, Truck, Plus, IndianRupee,
   ShoppingCart, ChevronUp, ChevronDown,
-  MoreVertical, Eye, Pencil, Trash2, Printer, Mail, X,
+  MoreVertical, Eye, Pencil, Trash2, Printer, Mail, Share2,
 } from "lucide-react";
 import { EmailModal, EmailFormData, EmailContact } from "@/components/EmailModal";
 import { DataGrid } from "@/components/data-grid/DataGrid";
@@ -17,6 +18,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { useSalesOrder, SalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
 import { poApi, PORow, POItemRow, CreatePODto, millApi } from "@/lib/api-services";
+import { SharePanel, ShareData } from "@/components/ShareMenu";
 import { emailSentCache } from "@/lib/emailSentCache";
 import { cn } from "@/lib/utils";
 
@@ -110,25 +112,25 @@ export default function PurchaseOrdersPage() {
   const columns: ColumnConfig<PORow>[] = useMemo(() => [
     {
       id: "poNumber", accessorKey: "poNumber", header: "PO Number",
-      filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 150,
+      filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 200, align: "left" as const, noTruncate: true,
       cell: (info) => {
         const po = info.row.original;
         return (
-          <span className="flex items-center gap-1.5">
+          <div className="flex flex-col gap-0.5">
             <span className="font-semibold text-gray-900">{info.getValue() as string}</span>
             {(po.shipmentMode === "Blind" || po.blindShipment) && (
-              <span className="inline-flex rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">Blind</span>
+              <span className="inline-flex w-fit rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">Blind</span>
             )}
             {po.shipmentMode === "InvoiceOverride" && (
-              <span className="inline-flex rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-bold text-purple-700">Inv. Override</span>
+              <span className="inline-flex w-fit rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-bold text-purple-700">Inv. Override</span>
             )}
-          </span>
+          </div>
         );
       },
     },
     {
       id: "linkedSONumber", accessorKey: "linkedSONumber", header: "SO Ref / Customer",
-      filterType: "text", enableSorting: false, defaultVisible: true, size: 175,
+      filterType: "text", enableSorting: false, defaultVisible: true, size: 175, align: "left" as const,
       cell: (info) => {
         const po  = info.row.original;
         const ref = info.getValue() as string | undefined;
@@ -146,28 +148,49 @@ export default function PurchaseOrdersPage() {
     },
     {
       id: "millName", accessorKey: "millName", header: "Mill",
-      filterType: "text", enableSorting: true, defaultVisible: true, size: 170,
+      filterType: "text", enableSorting: true, defaultVisible: true, size: 170, align: "left" as const,
     },
     {
       id: "items", accessorKey: "items", header: "Material",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 180,
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 260, align: "left" as const, noTruncate: true,
       cell: (info) => {
         const po = info.row.original;
         const first = po.items[0];
-        if (!first) return <span className="text-gray-300">—</span>;
-        const more = po.items.length > 1 ? ` +${po.items.length - 1}` : "";
+        if (!first) return <span className="text-gray-300 text-xs">—</span>;
+        const weightLine = first.weightKg && first.weightKg > 0
+          ? `${first.weightKg.toLocaleString("en-IN")} KG`
+          : `${first.quantity.toLocaleString("en-IN")} ${first.unit || ""}`.trim();
         return (
-          <span className="text-xs">
-            <span className="font-medium text-gray-800">{first.description || "—"}</span>
-            {first.gsm ? <span className="text-gray-400"> · {first.gsm}g</span> : null}
-            {more && <span className="ml-1 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{more}</span>}
+          <div className="text-xs leading-snug">
+            <div className="font-medium text-gray-900 truncate">
+              {first.description || "—"}
+              {po.items.length > 1 && (
+                <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-400">+{po.items.length - 1}</span>
+              )}
+            </div>
+            <div className="text-[10px] text-gray-400 mt-0.5 tabular-nums">{weightLine}</div>
+          </div>
+        );
+      },
+    },
+    {
+      id: "itemCount", accessorKey: "items", header: "# Items",
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 75,
+      cell: (info) => {
+        const n = (info.getValue() as any[]).length;
+        return (
+          <span className={cn(
+            "inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
+            n === 1 ? "bg-gray-100 text-gray-500" : "bg-violet-50 text-violet-600 ring-1 ring-violet-100"
+          )}>
+            {n}
           </span>
         );
       },
     },
     {
       id: "orderDate", accessorKey: "orderDate", header: "PO Date",
-      filterType: "date", enableSorting: true, defaultVisible: true, size: 105,
+      filterType: "dateRange", enableSorting: true, defaultVisible: true, size: 105,
     },
     {
       id: "poType", accessorKey: "poType", header: "Type",
@@ -189,7 +212,7 @@ export default function PurchaseOrdersPage() {
     },
     {
       id: "expectedDeliveryDate", accessorKey: "expectedDeliveryDate", header: "Delivery Date",
-      filterType: "date", enableSorting: true, defaultVisible: true, size: 120,
+      filterType: "dateRange", enableSorting: true, defaultVisible: true, size: 120,
       cell: (info) => {
         const date = info.getValue() as string | undefined;
         const overdue = date && new Date(date) < new Date() && !["Completed","Dispatched"].includes(info.row.original.status);
@@ -240,7 +263,7 @@ export default function PurchaseOrdersPage() {
     },
     {
       id: "orderDate", accessorKey: "orderDate", header: "SO Date",
-      filterType: "date", enableSorting: true, defaultVisible: true, size: 110,
+      filterType: "dateRange", enableSorting: true, defaultVisible: true, size: 110,
     },
     {
       id: "customer", accessorKey: "customer", header: "Customer",
@@ -432,31 +455,28 @@ export default function PurchaseOrdersPage() {
   return (
     <div className="space-y-6 pb-10">
 
-      {/* ── KPI Cards + New PO button ─────────────────────────────────────── */}
-      <div className="flex flex-wrap items-stretch gap-3">
-        <div className="flex-1 min-w-[130px]"><KpiCard title="Total POs"     value={kpis.total}        subtitle="All time"              icon={Factory}     iconBg="bg-blue-50"    iconColor="text-blue-500"   className="h-full" /></div>
-        <div className="flex-1 min-w-[130px]"><KpiCard title="Pending"       value={kpis.pending}      subtitle="Draft / Sent"          icon={Clock}       iconBg="bg-yellow-50"  iconColor="text-yellow-500" subtitleColor="amber" className="h-full" /></div>
-        <div className="flex-1 min-w-[130px]"><KpiCard title="In Production" value={kpis.inProduction} subtitle="Being manufactured"    icon={Factory}     iconBg="bg-purple-50"  iconColor="text-purple-500" subtitleColor="blue"  className="h-full" /></div>
-        <div className="flex-1 min-w-[130px]"><KpiCard title="Ready"         value={kpis.ready}        subtitle="Ready for dispatch"    icon={CheckCircle2}iconBg="bg-green-50"   iconColor="text-green-500"  subtitleColor="green" className="h-full" /></div>
-        <div className="flex-1 min-w-[130px]"><KpiCard title="Dispatched"    value={kpis.dispatched}   subtitle="In transit / received" icon={Truck}       iconBg="bg-cyan-50"    iconColor="text-cyan-500"   className="h-full" /></div>
-        <div className="flex-1 min-w-[130px]">
-          <KpiCard
-            title="Total Value"
-            value={`₹${(kpis.totalValue / 100000).toFixed(1)}L`}
-            subtitle="All POs combined"
-            icon={IndianRupee}
-            iconBg="bg-emerald-50"
-            iconColor="text-emerald-500"
-            className="h-full"
-          />
-        </div>
+      {/* ── KPI Cards ────────────────────────────────────────────────────── */}
+      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-3">
+        <KpiCard title="Total POs"     value={kpis.total}        subtitle="All time"              icon={Factory}     iconBg="bg-blue-50"    iconColor="text-blue-500"   />
+        <KpiCard title="Pending"       value={kpis.pending}      subtitle="Draft / Sent"          icon={Clock}       iconBg="bg-yellow-50"  iconColor="text-yellow-500" subtitleColor="amber" />
+        <KpiCard title="In Production" value={kpis.inProduction} subtitle="Being manufactured"    icon={Factory}     iconBg="bg-purple-50"  iconColor="text-purple-500" subtitleColor="blue"  />
+        <KpiCard title="Ready"         value={kpis.ready}        subtitle="Ready for dispatch"    icon={CheckCircle2}iconBg="bg-green-50"   iconColor="text-green-500"  subtitleColor="green" />
+        <KpiCard title="Dispatched"    value={kpis.dispatched}   subtitle="In transit / received" icon={Truck}       iconBg="bg-cyan-50"    iconColor="text-cyan-500"   />
+        <KpiCard
+          title="Total Value"
+          value={`₹${(kpis.totalValue / 100000).toFixed(1)}L`}
+          subtitle="All POs combined"
+          icon={IndianRupee}
+          iconBg="bg-emerald-50"
+          iconColor="text-emerald-500"
+        />
 
-        {/* Pending PO KPI */}
+        {/* Pending PO — interactive KPI */}
         <button
           type="button"
           onClick={() => kpis.pendingPO > 0 && setShowPendingPanel((v) => !v)}
           className={cn(
-            "flex-1 min-w-[130px] rounded-xl border p-5 text-left shadow-sm transition-all hover:shadow-md active:scale-[0.98]",
+            "rounded-xl border p-3 sm:p-4 text-left shadow-sm transition-all hover:shadow-md active:scale-[0.98]",
             kpis.pendingPO > 0
               ? showPendingPanel
                 ? "border-blue-300 bg-blue-500 text-white"
@@ -464,19 +484,19 @@ export default function PurchaseOrdersPage() {
               : "border-gray-100 bg-white cursor-default"
           )}
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-1">
             <div className="min-w-0 flex-1">
-              <p className={cn("text-xs font-medium uppercase tracking-wide truncate",
+              <p className={cn("text-[9px] sm:text-xs font-semibold uppercase tracking-wide truncate",
                 kpis.pendingPO > 0 ? showPendingPanel ? "text-blue-100" : "text-blue-700" : "text-gray-400"
               )}>Pending PO</p>
-              <p className={cn("mt-1.5 text-2xl font-bold",
+              <p className={cn("mt-1 text-xl sm:text-2xl font-bold leading-tight",
                 kpis.pendingPO > 0 ? showPendingPanel ? "text-white" : "text-blue-700" : "text-gray-900"
               )}>{kpis.pendingPO}</p>
-              <p className={cn("mt-0.5 text-xs",
+              <p className={cn("mt-0.5 text-[10px] sm:text-xs truncate",
                 kpis.pendingPO > 0 ? showPendingPanel ? "text-blue-100" : "text-blue-600" : "text-gray-400"
               )}>{kpis.pendingPO > 0 ? "SOs awaiting PO" : "All SOs covered"}</p>
             </div>
-            <div className={cn("ml-2 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition-colors",
+            <div className={cn("flex h-8 w-8 sm:h-9 sm:w-9 flex-shrink-0 items-center justify-center rounded-full transition-colors",
               kpis.pendingPO > 0 ? showPendingPanel ? "bg-blue-400" : "bg-blue-100" : "bg-gray-50"
             )}>
               {kpis.pendingPO > 0
@@ -485,13 +505,6 @@ export default function PurchaseOrdersPage() {
               }
             </div>
           </div>
-        </button>
-
-        <button
-          onClick={handleNewPO}
-          className="flex items-center gap-2 self-stretch rounded-xl bg-blue-500 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-blue-200 hover:bg-blue-600 active:scale-[0.97] transition-all whitespace-nowrap"
-        >
-          <Plus className="h-4 w-4" /> New PO
         </button>
       </div>
 
@@ -543,6 +556,16 @@ export default function PurchaseOrdersPage() {
           initialPageSize={10}
           onRowClick={(po) => setViewOrder(po)}
           emptyMessage={loadingPos ? "Loading purchase orders…" : "No purchase orders yet. Raise a PO from a confirmed Sales Order."}
+          toolbarActions={
+            <button
+              onClick={handleNewPO}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 active:scale-[0.97] transition-all whitespace-nowrap"
+            >
+              <Plus className="h-4 w-4 flex-shrink-0" strokeWidth={2.5} />
+              <span className="hidden sm:inline">New PO</span>
+              <span className="sm:hidden">New</span>
+            </button>
+          }
         />
       )}
 
@@ -632,8 +655,10 @@ function PORowActions({ po, onView, onEdit, onDelete, onPrint, onSendMail, mailS
   onSendMail: () => void;
   mailSent: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos]   = useState({ top: 0, right: 0 });
+  const [open, setOpen]           = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [pos, setPos]             = useState({ top: 0, right: 0 });
+  const [shareAnchor, setShareAnchor] = useState<{ top: number; right: number } | null>(null);
   const btnRef  = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -656,7 +681,21 @@ function PORowActions({ po, onView, onEdit, onDelete, onPrint, onSendMail, mailS
     setOpen((v) => !v);
   };
 
-  void po;
+  const handleShare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen(false);
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setShareAnchor({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
+    setShareOpen(true);
+  };
+
+  const shareData: ShareData = {
+    title: po.poNumber,
+    subject: `Purchase Order ${po.poNumber} — ${po.millName}`,
+    text: `Purchase Order: ${po.poNumber}\nMill: ${po.millName}\nDate: ${po.orderDate}\nAmount: ₹${po.totalValue?.toLocaleString("en-IN") ?? "—"}\nStatus: ${po.status}`,
+  };
 
   const menuItems = [
     { icon: Eye,     label: "View",   fn: onView,   cls: "" },
@@ -685,8 +724,16 @@ function PORowActions({ po, onView, onEdit, onDelete, onPrint, onSendMail, mailS
               <Icon className="h-3.5 w-3.5" /> {label}
             </button>
           ))}
+          <div className="my-1 border-t border-gray-100" />
+          <button onClick={handleShare}
+            className="flex w-full items-center gap-2.5 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+            <Share2 className="h-3.5 w-3.5 text-blue-500" /> Share
+          </button>
         </div>,
         document.body
+      )}
+      {shareOpen && shareAnchor && (
+        <SharePanel data={shareData} anchor={shareAnchor} onClose={() => setShareOpen(false)} />
       )}
     </div>
   );
@@ -763,9 +810,8 @@ function SOViewModal({ so, onClose, onRaisePO }: {
 }) {
   const statusCls = SO_STATUS_COLORS[so.status] ?? "bg-gray-100 text-gray-600";
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-6">
-      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
+  return (
+    <PortalModal onClose={onClose}>
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100">
@@ -779,9 +825,7 @@ function SOViewModal({ so, onClose, onRaisePO }: {
               {so.status}
             </span>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400">
-            <X className="h-5 w-5" />
-          </button>
+          <ModalCloseButton onClose={onClose} />
         </div>
 
         <div className="max-h-[calc(100vh-180px)] overflow-y-auto p-5 space-y-4">
@@ -882,9 +926,7 @@ function SOViewModal({ so, onClose, onRaisePO }: {
             <Factory className="h-3.5 w-3.5" /> Raise PO
           </button>
         </div>
-      </div>
-    </div>,
-    document.body
+    </PortalModal>
   );
 }
 
@@ -901,26 +943,63 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
   const isBlind    = shipMode === "Blind";
   const isOverride = shipMode === "InvoiceOverride";
 
+  const statusCls = STATUS_COLOR[po.status] ?? "bg-gray-100 text-gray-600";
+
   return (
-    <Modal isOpen onClose={onClose} title={po.poNumber} size="2xl">
-      <div className="space-y-4 text-sm">
+    <PortalModal onClose={onClose}>
+
+      {/* Header — violet tinted */}
+      <div className="flex items-center justify-between border-b border-violet-100 px-5 py-3.5 bg-violet-50 rounded-t-2xl">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/70 shadow-sm">
+            <Factory className="h-4 w-4 text-violet-600" />
+          </div>
+          <div>
+            <h2 className="text-base font-black text-gray-900">{po.poNumber}</h2>
+            <p className="text-xs text-gray-500">{po.millName} · {po.orderDate}</p>
+          </div>
+          <span className={cn("ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold", statusCls)}>
+            {po.status}
+          </span>
+        </div>
+        <ModalCloseButton onClose={onClose} />
+      </div>
+
+      <div className="max-h-[calc(100vh-160px)] overflow-y-auto p-5 space-y-4">
+
+        {/* Metric cards */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-xl bg-violet-50 border border-violet-100 px-3 py-2.5">
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-violet-400">PO Number</p>
+            <p className="text-sm font-black text-violet-700 mt-0.5">{po.poNumber}</p>
+          </div>
+          <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5">
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-blue-400">Mill</p>
+            <p className="text-sm font-bold text-blue-700 mt-0.5 truncate">{po.millName || "—"}</p>
+          </div>
+          <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5">
+            <p className="text-[9px] font-semibold uppercase tracking-wider text-emerald-400">Total Value</p>
+            <p className="text-sm font-black text-emerald-700 mt-0.5">₹{po.totalValue.toLocaleString("en-IN")}</p>
+          </div>
+        </div>
 
         {/* PO Details — 3-col grid */}
-        <div className="rounded-xl bg-gray-50 p-3 grid grid-cols-3 gap-x-4 gap-y-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">PO Details</p>
+          <div className="grid grid-cols-3 gap-2">
           {[
-            { label: "Mill",              value: po.millName },
             { label: "PO Date",           value: po.orderDate },
             { label: "Expected Delivery", value: po.expectedDeliveryDate || "—" },
             { label: "Payment Terms",     value: po.paymentTerms || "—" },
             { label: "Total Qty",         value: po.totalQuantity.toLocaleString("en-IN") },
-            { label: "Total Value",       value: `₹${po.totalValue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` },
             ...(po.millSONumber ? [{ label: "Mill SO No.", value: po.millSONumber }] : []),
           ].map(({ label, value }) => (
-            <div key={label}>
-              <p className="text-[10px] uppercase tracking-wide text-gray-400">{label}</p>
-              <p className="text-sm font-medium text-gray-800">{value}</p>
+            <div key={label} className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
+              <p className="text-[10px] text-gray-400">{label}</p>
+              <p className="text-xs font-semibold mt-0.5 text-gray-800">{value}</p>
             </div>
           ))}
+          </div>
         </div>
 
         {/* SO Reference + shipment mode info */}
@@ -1122,6 +1201,6 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
           </div>
         </div>
       </div>
-    </Modal>
+    </PortalModal>
   );
 }

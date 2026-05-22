@@ -13,4 +13,5 @@ public interface IPurchaseOrderService
     Task                                    ApproveAsync(int id, string updatedBy);
     Task                                    DeleteAsync(int id, string deletedBy);
     Task<SendMailResponseDto>               SendEmailAsync(int id, SendMailRequestDto dto);
+    Task<byte[]>                            GetPdfAsync(int id);
 }

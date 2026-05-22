@@ -21,9 +21,9 @@ import {
 // Splits search by "/" and checks every token exists anywhere in the row (any order).
 // "75/58.5" and "58.5/75" both match a row containing those values.
 const anyOrderGlobalFilter: FilterFn<unknown> = (row: Row<unknown>, _columnId: string, filterValue: unknown) => {
-  const search = String(filterValue ?? "").trim().toLowerCase();
+  const search = String(filterValue ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   if (!search) return true;
-  const rowStr = JSON.stringify((row as Row<Record<string, unknown>>).original).toLowerCase();
+  const rowStr = JSON.stringify((row as Row<Record<string, unknown>>).original).toLowerCase().replace(/\s+/g, " ");
   const tokens = search.split(/[/\s]+/).filter(Boolean);
   return tokens.every(t => rowStr.includes(t));
 };
@@ -96,6 +96,16 @@ export function useDataGrid<TData>(
         if (config.cell) {
           colDef.cell = config.cell;
         }
+        if (config.filterType === "dateRange") {
+          colDef.filterFn = (row, columnId, filterValue) => {
+            const [from, to] = (filterValue as [string, string]) ?? ["", ""];
+            const val = String(row.getValue(columnId) ?? "");
+            if (!val) return true;
+            if (from && val < from) return false;
+            if (to && val > to) return false;
+            return true;
+          };
+        }
         return colDef;
       }),
     [columnConfigs]
@@ -141,6 +151,7 @@ export function useDataGrid<TData>(
     enableFilters: enableFiltering,
     globalFilterFn: anyOrderGlobalFilter as FilterFn<TData>,
     columnResizeMode: "onChange",
+    enableColumnResizing: true,
   });
 
   return table;

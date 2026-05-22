@@ -36,21 +36,17 @@ function KpiCard({
   icon: React.ElementType; iconBg: string; iconColor: string;
 }) {
   return (
-    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{title}</p>
-          <p className="mt-1 text-xl font-bold text-gray-900">{value}</p>
-          {sub && <p className="mt-0.5 text-xs text-gray-500">{sub}</p>}
-          {trend && (
-            <p className="mt-0.5 text-xs text-green-600 font-medium flex items-center gap-1">
-              <TrendingUp className="h-3 w-3" /> {trend}
-            </p>
-          )}
-        </div>
-        <div className={`flex h-10 w-10 items-center justify-center rounded-full ${iconBg}`}>
-          <Icon className={`h-5 w-5 ${iconColor}`} />
-        </div>
+    <div className={`group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${iconBg}`}>
+      <p className={`text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate ${iconColor}`}>{title}</p>
+      <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{value}</p>
+      {sub && <p className="mt-1 text-[10px] sm:text-xs text-gray-500 truncate">{sub}</p>}
+      {trend && (
+        <p className="mt-0.5 text-[10px] sm:text-xs text-green-600 font-medium flex items-center gap-1">
+          <TrendingUp className="h-3 w-3" /> {trend}
+        </p>
+      )}
+      <div className={`pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] ${iconColor}`}>
+        <Icon className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
       </div>
     </div>
   );
@@ -188,7 +184,7 @@ export default function OwnerDashboard() {
   return (
     <div className="space-y-6 pb-24">
       {/* Primary KPIs */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="kpi-grid grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4 xl:grid-cols-5">
         <KpiCard title="Today's Sales" value={`\u20B9${(stats.todaySales / 1000).toFixed(0)}K`}
           trend="+12% from yesterday"
           icon={IndianRupee} iconBg="bg-blue-50" iconColor="text-blue-600" />
@@ -207,7 +203,7 @@ export default function OwnerDashboard() {
       </div>
 
       {/* Secondary KPIs */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="kpi-grid grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-5">
         <KpiCard title="Pending POs" value={String(businessHealth.pendingPOs)}
           icon={Factory} iconBg="bg-amber-50" iconColor="text-amber-600" />
         <KpiCard title="Low Stock" value={String(stats.lowStock)}

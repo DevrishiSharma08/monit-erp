@@ -15,4 +15,9 @@ public interface IUserRepository
     Task                            UpdateAsync(User user);
     Task                            UpdatePasswordAsync(int id, string password, string updatedBy);
     Task                            SoftDeleteAsync(int id, string deletedBy);
+
+    // Cross-company operations (BothCompaniesAccess sync)
+    Task                            UpsertByUsernameForCompanyAsync(User user, int companyId);
+    Task                            UpdatePasswordByUsernameForCompanyAsync(string username, string password, string updatedBy, int companyId);
+    Task                            SoftDeleteByUsernameForCompanyAsync(string username, string deletedBy, int companyId);
 }

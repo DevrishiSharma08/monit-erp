@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useId } from "react";
-import { Download, Search, X, SlidersHorizontal, Columns3, ChevronDown, Check } from "lucide-react";
+import { Search, X, SlidersHorizontal, Columns3, ChevronDown, Check } from "lucide-react";
+import { ExportMenu } from "@/components/ExportMenu";
 import { ReportChart, ChartType, ChartDataPoint } from "./ReportChart";
 import { cn } from "@/lib/utils";
 
@@ -128,22 +129,14 @@ export function ReportPageLayout({
     setFilterValues({});
   }
 
-  function handleExport() {
-    if (!exportData || exportData.length === 0) return;
-    const csv = exportData
-      .map((row) =>
-        row
-          .map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`)
-          .join(",")
-      )
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${exportFilename}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  function getReportExportData() {
+    if (!exportData || exportData.length < 2) return { headers: [], rows: [] };
+    const [headerRow, ...dataRows] = exportData;
+    return {
+      headers: headerRow.map((h) => String(h ?? "")),
+      rows:    dataRows.map((row) => row.map((cell) => String(cell ?? ""))),
+      title:   exportFilename,
+    };
   }
 
   return (
@@ -403,21 +396,13 @@ export function ReportPageLayout({
             </button>
           )}
 
-          {/* ── Export CSV — always visible ── */}
-          <button
-            onClick={handleExport}
-            disabled={!hasExportData}
-            title={hasExportData ? "Download as CSV" : "No export data configured"}
-            className={cn(
-              "ml-auto flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
-              hasExportData
-                ? "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 shadow-sm"
-                : "cursor-not-allowed border-gray-100 bg-gray-50 text-gray-300"
-            )}
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export CSV
-          </button>
+          {/* ── Export (CSV / Excel / DOCX / PDF) ── */}
+          {hasExportData && (
+            <ExportMenu
+              getData={getReportExportData}
+              filename={exportFilename}
+            />
+          )}
         </div>
       </div>
 

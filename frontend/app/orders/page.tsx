@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { SalesOrder, SOLine as SalesOrderLine } from "@/context/SalesOrderContext";
 import {
   ShoppingCart, AlertCircle, CheckCircle2, Package, Plus, MoreVertical,
-  Eye, Pencil, Trash2, X, Clock, Mail,
+  Eye, Pencil, Trash2, X, Clock, Mail, Share2, IndianRupee,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
@@ -15,9 +15,10 @@ import { salesOrderApi, customerApi } from "@/lib/api-services";
 import { emailSentCache } from "@/lib/emailSentCache";
 import { useSalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
-import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import { createPortal } from "react-dom";
+import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
+import { SharePanel, ShareData } from "@/components/ShareMenu";
 import { useRef, useEffect } from "react";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -39,7 +40,7 @@ const SO_STATUS_OPTIONS = Object.keys(SO_STATUS_COLORS).map((v) => ({ label: v, 
 // ─── Row Actions ──────────────────────────────────────────────────────────────
 
 function RowActions({
-  onView, onEdit, onDelete, onSend, status, emailSent,
+  onView, onEdit, onDelete, onSend, status, emailSent, shareData,
 }: {
   onView: () => void;
   onEdit: () => void;
@@ -47,9 +48,12 @@ function RowActions({
   onSend?: () => void;
   status?: string;
   emailSent?: boolean;
+  shareData?: ShareData;
 }) {
   const [open, setOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, right: 0 });
+  const [shareAnchor, setShareAnchor] = useState<{ top: number; right: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -72,6 +76,16 @@ function RowActions({
   }, [open]);
 
   const act = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); setOpen(false); fn(); };
+
+  const handleShare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen(false);
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setShareAnchor({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
+    setShareOpen(true);
+  };
 
   return (
     <>
@@ -105,8 +119,20 @@ function RowActions({
               <Icon className="h-3.5 w-3.5" /> {label}
             </button>
           ))}
+          {shareData && (
+            <>
+              <div className="my-1 border-t border-gray-100" />
+              <button onClick={handleShare}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                <Share2 className="h-3.5 w-3.5 text-blue-500" /> Share
+              </button>
+            </>
+          )}
         </div>,
         document.body
+      )}
+      {shareOpen && shareAnchor && shareData && (
+        <SharePanel data={shareData} anchor={shareAnchor} onClose={() => setShareOpen(false)} />
       )}
     </>
   );
@@ -114,103 +140,139 @@ function RowActions({
 
 // ─── View SO Modal ────────────────────────────────────────────────────────────
 
-function ViewSOModal({ so, onEdit, onSend, onClose, emailSent, canViewCosts }: { so: SalesOrder; onEdit: () => void; onSend?: () => void; onClose: () => void; emailSent?: boolean; canViewCosts: boolean }) {
-  const statusCls = SO_STATUS_COLORS[so.status] ?? "bg-gray-100 text-gray-600";
+// Maps SO status to header bg tint
+const STATUS_HEADER_BG: Record<string, string> = {
+  "Approval Pending":    "bg-orange-50",
+  "Draft":               "bg-gray-50",
+  "Pending Allocation":  "bg-amber-50",
+  "Partially Allocated": "bg-blue-50",
+  "Fully Allocated":     "bg-cyan-50",
+  "In Dispatch":         "bg-purple-50",
+  "Partially Delivered": "bg-indigo-50",
+  "Completed":           "bg-green-50",
+  "Closed":              "bg-gray-50",
+  "Cancelled":           "bg-rose-50",
+};
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-6">
-      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
+function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrder; onEdit: () => void; onSend?: () => void; onClose: () => void; emailSent?: boolean }) {
+  const statusCls   = SO_STATUS_COLORS[so.status] ?? "bg-gray-100 text-gray-600";
+  const headerBg    = STATUS_HEADER_BG[so.status] ?? "bg-blue-50";
+  const deliveryCls = so.deliveryMode === "From Stock"
+    ? "bg-green-50 text-green-600"
+    : so.deliveryMode === "Direct Mill Delivery"
+    ? "bg-blue-50 text-blue-600"
+    : "bg-purple-50 text-purple-600";
+
+  return (
+    <PortalModal onClose={onClose}>
+        {/* Status-tinted header */}
+        <div className={cn("flex items-center justify-between border-b border-gray-100 px-5 py-3.5 rounded-t-2xl", headerBg)}>
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/70 shadow-sm">
               <ShoppingCart className="h-4 w-4 text-blue-600" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-gray-900">{so.soNumber}</h2>
+              <h2 className="text-base font-black text-gray-900">{so.soNumber}</h2>
               <p className="text-xs text-gray-500">{so.customer} · {so.orderDate}</p>
             </div>
             <span className={cn("ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold", statusCls)}>
               {so.status}
             </span>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400"><X className="h-5 w-5" /></button>
+          <ModalCloseButton onClose={onClose} />
         </div>
 
         <div className="max-h-[calc(100vh-160px)] overflow-y-auto p-5 space-y-4">
-          {/* Header fields */}
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Order Details</p>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {[
-                { label: "SO Number",      value: so.soNumber,               blue: true },
-                { label: "Order Date",     value: so.orderDate },
-                { label: "Customer",       value: so.customer },
-                { label: "Contact",        value: so.contactPerson || "—" },
-                { label: "Salesman",       value: so.salesman },
-                { label: "Payment Terms",  value: so.paymentTerms || "—" },
-                { label: "Delivery Mode",  value: so.deliveryMode },
-                { label: "Delivery Terms", value: so.deliveryTerms || "—" },
-                {
-                  label: "Delivery Party",
-                  value: (so as any).deliveryParty || so.customer,
-                },
-                {
-                  label: "Delivery Address",
-                  value: so.lines[0]?.deliveryAddress || "—",
-                },
-              ].map(({ label, value, blue }) => (
-                <div key={label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-                  <p className="text-[10px] text-gray-400">{label}</p>
-                  <p className={cn("text-xs font-semibold mt-0.5 text-gray-900", blue && "text-blue-700")}>{value}</p>
-                </div>
-              ))}
+
+          {/* Colored summary metrics */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5">
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-blue-400">SO Number</p>
+              <p className="text-sm font-black text-blue-700 mt-0.5">{so.soNumber}</p>
+            </div>
+            <div className="rounded-xl bg-violet-50 border border-violet-100 px-3 py-2.5">
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-violet-400">Customer</p>
+              <p className="text-sm font-bold text-violet-700 mt-0.5 truncate">{so.customer}</p>
+            </div>
+            <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5">
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-emerald-400">Order Value</p>
+              <p className="text-sm font-black text-emerald-700 mt-0.5">₹{so.totalValue.toLocaleString("en-IN")}</p>
             </div>
           </div>
 
-          {/* Items */}
+          {/* Detail fields */}
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Order Details</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {([
+                { label: "Order Date",     value: so.orderDate,                       accent: "" },
+                { label: "Salesman",       value: so.salesman,                        accent: "" },
+                { label: "Contact",        value: so.contactPerson || "—",            accent: "" },
+                { label: "Payment Terms",  value: so.paymentTerms || "—",            accent: "" },
+                { label: "Delivery Terms", value: so.deliveryTerms || "—",           accent: "" },
+                { label: "Delivery Party", value: (so as any).deliveryParty || so.customer, accent: "" },
+                { label: "Delivery Address", value: so.lines[0]?.deliveryAddress || "—", accent: "" },
+              ] as { label: string; value: string; accent: string }[]).map(({ label, value }) => (
+                <div key={label} className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
+                  <p className="text-[10px] text-gray-400">{label}</p>
+                  <p className="text-xs font-semibold mt-0.5 text-gray-800">{value}</p>
+                </div>
+              ))}
+              {/* Delivery Mode — colored badge style */}
+              <div className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
+                <p className="text-[10px] text-gray-400">Delivery Mode</p>
+                <span className={cn("mt-1 inline-flex rounded-md px-2 py-0.5 text-xs font-semibold", deliveryCls)}>
+                  {so.deliveryMode}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Order Lines */}
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Order Lines</p>
             <div className="rounded-xl border border-gray-200 overflow-hidden">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-3 py-2 text-left font-semibold text-gray-600">#</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-500">#</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">Material</th>
-                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Qty / Weight</th>
-                    {canViewCosts && <th className="px-3 py-2 text-right font-semibold text-gray-600">Rate</th>}
-                    {canViewCosts && <th className="px-3 py-2 text-right font-semibold text-gray-500">Disc %</th>}
-                    {canViewCosts && <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>}
+                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Qty / Wt</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Rate</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-500">Disc</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-500">Req. Date</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-500">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {so.lines.map((line) => (
-                    <tr key={line.id} className="border-t border-gray-100">
+                  {so.lines.map((line, idx) => (
+                    <tr key={line.id} className={idx % 2 === 0 ? "bg-white border-t border-gray-100" : "bg-slate-50/60 border-t border-gray-100"}>
                       <td className="px-3 py-2.5 text-gray-400">{line.lineNumber}</td>
                       <td className="px-3 py-2.5">
-                        <p className="font-medium text-gray-900">{line.materialCode || line.materialId}</p>
-                        {line.gsm && <p className="text-gray-400">{line.gsm}g · {line.size}</p>}
+                        <p className="font-semibold text-gray-900">{line.materialCode || line.materialId}</p>
+                        {line.gsm && <p className="text-[10px] text-gray-400 mt-0.5">{line.gsm}g · {line.size}</p>}
                       </td>
                       <td className="px-3 py-2.5 text-right font-medium text-gray-900">
                         {line.qty !== undefined && line.qty > 0 ? (
-                          <span>
-                            {line.qty.toLocaleString()} Sheets
-                            {line.weightKg ? (
-                              <span className="block text-xs text-gray-400">{line.weightKg.toLocaleString()} KG</span>
-                            ) : null}
-                          </span>
+                          <>
+                            <span className="text-blue-700 font-semibold">{line.qty.toLocaleString()} Sh</span>
+                            {line.weightKg && <span className="block text-[10px] text-gray-400">{line.weightKg.toLocaleString()} KG</span>}
+                          </>
                         ) : (
-                          <span>{(line.weightKg ?? line.orderedQty).toLocaleString()} KG</span>
+                          <span className="text-blue-700 font-semibold">{(line.weightKg ?? line.orderedQty).toLocaleString()} KG</span>
                         )}
                       </td>
-                      {canViewCosts && <td className="px-3 py-2.5 text-right text-gray-700">₹{line.rate.toLocaleString("en-IN")}</td>}
-                      {canViewCosts && <td className="px-3 py-2.5 text-right text-gray-500">{line.discount && line.discount > 0 ? `${line.discount}%` : "—"}</td>}
-                      {canViewCosts && <td className="px-3 py-2.5 text-right font-bold text-gray-900">₹{line.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</td>}
+                      <td className="px-3 py-2.5 text-right text-gray-700">₹{line.rate.toLocaleString("en-IN")}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-500">
+                        {line.discount && line.discount > 0 ? <span className="text-amber-600 font-medium">{line.discount}%</span> : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-bold text-gray-900">
+                        ₹{line.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </td>
                       <td className="px-3 py-2.5 text-gray-600">{line.requiredDeliveryDate}</td>
                       <td className="px-3 py-2.5">
-                        <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                        <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium", SO_STATUS_COLORS[line.status] ?? "bg-gray-100 text-gray-600")}>
                           {line.status}
                         </span>
                       </td>
@@ -218,31 +280,26 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent, canViewCosts }: {
                   ))}
                 </tbody>
                 <tfoot>
-                  {canViewCosts && (
-                    <tr className="bg-blue-50 border-t-2 border-blue-200">
-                      <td colSpan={5} className="px-3 py-2.5 text-right text-xs font-semibold text-blue-700">
-                        Order Total
-                      </td>
-                      <td className="px-3 py-2.5 text-right text-sm font-black text-blue-800">
-                        ₹{so.totalValue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                      </td>
-                      <td colSpan={2} />
-                    </tr>
-                  )}
+                  <tr className="bg-emerald-50 border-t-2 border-emerald-200">
+                    <td colSpan={8} className="px-4 py-2.5 text-right">
+                      <span className="text-xs font-semibold text-emerald-700 mr-4">Order Total</span>
+                      <span className="text-sm font-black text-emerald-800">₹{so.totalValue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                    </td>
+                  </tr>
                 </tfoot>
               </table>
             </div>
           </div>
 
           {so.remarks && (
-            <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-              <p className="text-[10px] text-gray-400">Remarks</p>
+            <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+              <p className="text-[10px] text-amber-500 font-semibold">Remarks</p>
               <p className="text-xs text-gray-700 mt-0.5">{so.remarks}</p>
             </div>
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-3.5 bg-gray-50 rounded-b-2xl">
+        <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-3.5 bg-gray-50/80 rounded-b-2xl">
           {onSend && so.status !== "Approval Pending" && (
             <button
               onClick={emailSent ? undefined : onSend}
@@ -261,9 +318,7 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent, canViewCosts }: {
             <Pencil className="h-3.5 w-3.5" /> Edit
           </button>
         </div>
-      </div>
-    </div>,
-    document.body
+    </PortalModal>
   );
 }
 
@@ -271,7 +326,6 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent, canViewCosts }: {
 
 export default function OrdersPage() {
   const { success } = useToast();
-  const { canViewCosts } = useAuth();
   const { salesOrders, reload, deleteSalesOrder } = useSalesOrder();
 
   const [showForm, setShowForm]         = useState(false);
@@ -371,12 +425,12 @@ export default function OrdersPage() {
   const columns: ColumnConfig<SalesOrder>[] = useMemo(() => [
     {
       id: "soNumber", accessorKey: "soNumber", header: "SO #",
-      filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 130,
+      filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 130, align: "left" as const,
       cell: (info) => <span className="font-semibold text-blue-700">{info.getValue() as string}</span>,
     },
     {
       id: "orderDate", accessorKey: "orderDate", header: "Date",
-      filterType: "date", enableSorting: true, defaultVisible: true, size: 100,
+      filterType: "dateRange", enableSorting: true, defaultVisible: true, size: 100,
     },
     {
       id: "customer", accessorKey: "customer", header: "Customer",
@@ -389,29 +443,35 @@ export default function OrdersPage() {
     },
     {
       id: "lines", accessorKey: "lines", header: "Items",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 260,
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 260, align: "left" as const, noTruncate: true,
       cell: (info) => {
         const lines = info.getValue() as SalesOrderLine[];
-        const preview = lines.slice(0, 2);
+        const first = lines[0];
+        if (!first) return <span className="text-gray-400 text-xs">—</span>;
+        const code = first.materialCode || first.materialId || "—";
+        const qty = (first as any).weightKg
+          ? `${(first as any).weightKg.toLocaleString("en-IN")} KG`
+          : `${first.orderedQty.toLocaleString("en-IN")}`;
         return (
-          <div className="space-y-1 py-0.5">
-            {preview.map((l, i) => {
-              const shortCode = l.materialCode || l.materialId || "—";
-              const qty = (l as any).weightKg
-                ? `${(l as any).weightKg.toLocaleString("en-IN")} KG`
-                : `${l.orderedQty.toLocaleString("en-IN")}`;
-              return (
-                <div key={i} className="flex items-center gap-1.5 text-xs">
-                  <span className="font-medium text-gray-800 truncate max-w-[170px]">{shortCode}</span>
-                  <span className="flex-shrink-0 text-gray-400">·</span>
-                  <span className="flex-shrink-0 text-gray-500">{qty}</span>
-                </div>
-              );
-            })}
-            {lines.length > 2 && (
-              <span className="text-[10px] text-gray-400">+{lines.length - 2} more item{lines.length - 2 !== 1 ? "s" : ""}</span>
-            )}
+          <div className="text-xs leading-snug">
+            <div className="font-medium text-gray-900">{code}</div>
+            <div className="text-gray-500 mt-0.5">· {qty}</div>
           </div>
+        );
+      },
+    },
+    {
+      id: "lineCount", accessorKey: "lines", header: "# Items",
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 75,
+      cell: (info) => {
+        const n = (info.getValue() as SalesOrderLine[]).length;
+        return (
+          <span className={cn(
+            "inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
+            n === 1 ? "bg-gray-100 text-gray-500" : "bg-blue-50 text-blue-600 ring-1 ring-blue-100"
+          )}>
+            {n}
+          </span>
         );
       },
     },
@@ -439,12 +499,12 @@ export default function OrdersPage() {
     },
     {
       id: "totalValue", accessorKey: "totalValue", header: "Amount",
-      filterType: "none", enableSorting: true, defaultVisible: canViewCosts, size: 130,
-      cell: (info) => canViewCosts ? (
+      filterType: "none", enableSorting: true, defaultVisible: true, size: 130,
+      cell: (info) => (
         <span className="font-semibold text-gray-900">
           ₹{(info.getValue() as number).toLocaleString("en-IN", { minimumFractionDigits: 0 })}
         </span>
-      ) : <span className="text-gray-300 select-none">••••••</span>,
+      ),
     },
     {
       id: "status", accessorKey: "status", header: "Status",
@@ -472,6 +532,17 @@ export default function OrdersPage() {
             onDelete={() => setDeleteConfirmId(so.id)}
             onSend={() => openEmailModal(so)}
             emailSent={emailSentIds.has(so.id)}
+            shareData={(() => {
+              const itemLines = so.lines.map((l, i) => {
+                const qty = l.weightKg ? `${l.weightKg.toLocaleString("en-IN")} KG` : `${l.orderedQty.toLocaleString("en-IN")}`;
+                return `  ${i + 1}. ${l.materialCode || l.materialId} — ${qty} @ ₹${l.rate.toLocaleString("en-IN")}`;
+              }).join("\n");
+              return {
+                title: so.soNumber,
+                subject: `Sales Order ${so.soNumber} — ${so.customer}`,
+                text: `Sales Order: ${so.soNumber}\nCustomer: ${so.customer}\nDate: ${so.orderDate}\nItems:\n${itemLines}\nTotal: ₹${so.totalValue?.toLocaleString("en-IN") ?? "—"}\nStatus: ${so.status}`,
+              };
+            })()}
           />
         );
       },
@@ -482,91 +553,35 @@ export default function OrdersPage() {
   return (
     <div className="space-y-6 pb-10">
 
-      {/* KPI Cards + New SO button */}
-      <div className="flex flex-wrap items-stretch gap-3">
-        <div className="flex-1 min-w-[140px] rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Total Orders</p>
-              <p className="mt-1.5 text-2xl font-bold text-gray-900">{kpis.total}</p>
-              <p className="mt-0.5 text-xs text-gray-400">{kpis.totalKg.toLocaleString("en-IN")} KG total</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50">
-              <ShoppingCart className="h-5 w-5 text-blue-500" />
-            </div>
-          </div>
-        </div>
-        <div className="flex-1 min-w-[140px] rounded-xl border border-orange-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-orange-400">Approval Pending</p>
-              <p className="mt-1.5 text-2xl font-bold text-orange-600">{kpis.approvalPending}</p>
-              <p className="mt-0.5 text-xs text-orange-400">{kpis.approvalKg.toLocaleString("en-IN")} KG · awaiting approval</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-50">
-              <Clock className="h-5 w-5 text-orange-500" />
-            </div>
-          </div>
-        </div>
-        <div
-          onClick={() => setStatusFilter(prev => prev === "Pending Allocation" ? null : "Pending Allocation")}
-          className={cn(
-            "flex-1 min-w-[140px] rounded-xl border bg-white p-5 shadow-sm cursor-pointer transition-all hover:shadow-md",
-            statusFilter === "Pending Allocation"
-              ? "border-amber-400 ring-2 ring-amber-200"
-              : "border-amber-100 hover:border-amber-300"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-amber-400">Pending Allocation</p>
-              <p className="mt-1.5 text-2xl font-bold text-amber-600">{kpis.pendingAllocation}</p>
-              <p className="mt-0.5 text-xs text-amber-500">{kpis.pendingKg.toLocaleString("en-IN")} KG · awaiting PO</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-50">
-              <AlertCircle className="h-5 w-5 text-amber-500" />
+      {/* KPI Cards */}
+      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
+        {[
+          { label: "Total Orders",      value: kpis.total,            sub: `${kpis.totalKg.toLocaleString("en-IN")} KG`,        icon: ShoppingCart, iconBg: "bg-blue-50",   iconColor: "text-blue-500"   },
+          { label: "Awaiting Approval", value: kpis.approvalPending,  sub: `${kpis.approvalKg.toLocaleString("en-IN")} KG`,     icon: Clock,        iconBg: "bg-orange-50", iconColor: "text-orange-500" },
+          { label: "No Stock Linked",   value: kpis.pendingAllocation,sub: `${kpis.pendingKg.toLocaleString("en-IN")} KG`,      icon: AlertCircle,  iconBg: "bg-amber-50",  iconColor: "text-amber-500", clickable: true },
+          { label: "Ready to Dispatch", value: kpis.allocated,        sub: `${kpis.allocatedKg.toLocaleString("en-IN")} KG`,   icon: Package,      iconBg: "bg-sky-50",    iconColor: "text-sky-500"    },
+          { label: "Delivered",         value: kpis.completed,        sub: `${kpis.completedKg.toLocaleString("en-IN")} KG`,   icon: CheckCircle2, iconBg: "bg-green-50",  iconColor: "text-green-500"  },
+          { label: "Total Value",       value: `₹${(kpis.totalValue / 100000).toFixed(1)}L`, sub: `${salesOrders.length} orders`, icon: IndianRupee, iconBg: "bg-emerald-50", iconColor: "text-emerald-500" },
+        ].map((card) => (
+          <div
+            key={card.label}
+            onClick={card.clickable ? () => setStatusFilter(prev => prev === "Pending Allocation" ? null : "Pending Allocation") : undefined}
+            className={cn(
+              "group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm",
+              "transition-all duration-200 hover:-translate-y-1 hover:shadow-lg",
+              card.iconBg,
+              card.clickable && "cursor-pointer active:scale-[0.98]",
+              card.clickable && statusFilter === "Pending Allocation" && "ring-2 ring-amber-400"
+            )}
+          >
+            <p className={cn("text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate", card.iconColor)}>{card.label}</p>
+            <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{card.value}</p>
+            <p className="mt-1 text-[10px] sm:text-xs text-gray-500 truncate">{card.sub}</p>
+            <div className={cn("pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18]", card.iconColor)}>
+              <card.icon className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
             </div>
           </div>
-        </div>
-        <div className="flex-1 min-w-[140px] rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Allocated</p>
-              <p className="mt-1.5 text-2xl font-bold text-blue-700">{kpis.allocated}</p>
-              <p className="mt-0.5 text-xs text-blue-500">{kpis.allocatedKg.toLocaleString("en-IN")} KG · ready for dispatch</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50">
-              <Package className="h-5 w-5 text-blue-500" />
-            </div>
-          </div>
-        </div>
-        <div className="flex-1 min-w-[140px] rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Completed</p>
-              <p className="mt-1.5 text-2xl font-bold text-green-700">{kpis.completed}</p>
-              <p className="mt-0.5 text-xs text-green-500">{kpis.completedKg.toLocaleString("en-IN")} KG · dispatched + closed</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-50">
-              <CheckCircle2 className="h-5 w-5 text-green-500" />
-            </div>
-          </div>
-        </div>
-        <div className="flex-1 min-w-[140px] rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Total Value</p>
-            <p className="mt-1.5 text-2xl font-bold text-gray-900">
-              ₹{(kpis.totalValue / 100000).toFixed(1)}L
-            </p>
-            <p className="mt-0.5 text-xs text-gray-500">{salesOrders.length} orders</p>
-          </div>
-        </div>
-        <button
-          onClick={handleNewSO}
-          className="flex items-center gap-2 self-stretch rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-blue-200 hover:bg-blue-700 active:scale-[0.97] transition-all whitespace-nowrap"
-        >
-          <Plus className="h-4 w-4" /> New Sales Order
-        </button>
+        ))}
       </div>
 
       {/* Delete confirm */}
@@ -609,7 +624,18 @@ export default function OrdersPage() {
         enableColumnVisibility={true}
         initialPageSize={15}
         onRowClick={(so) => setViewOrder(so)}
-        emptyMessage="No sales orders yet. Click 'New Sales Order' to create the first one."
+        highlightRow={(so) => so.id === viewOrder?.id}
+        emptyMessage="No sales orders yet. Create the first one."
+        toolbarActions={
+          <button
+            onClick={handleNewSO}
+            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 active:scale-[0.97] transition-all whitespace-nowrap"
+          >
+            <Plus className="h-4 w-4 flex-shrink-0" strokeWidth={2.5} />
+            <span className="hidden sm:inline">New SO</span>
+            <span className="sm:hidden">New</span>
+          </button>
+        }
       />
 
       {/* Create / Edit Form Modal */}
@@ -636,7 +662,6 @@ export default function OrdersPage() {
           onSend={() => { openEmailModal(viewOrder); setViewOrder(null); }}
           onClose={() => setViewOrder(null)}
           emailSent={emailSentIds.has(viewOrder.id)}
-          canViewCosts={canViewCosts}
         />
       )}
 
@@ -650,6 +675,7 @@ export default function OrdersPage() {
           onClose={() => { setEmailOrder(null); setEmailContacts([]); }}
         />
       )}
+
     </div>
   );
 }

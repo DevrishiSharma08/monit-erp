@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
@@ -6,13 +7,15 @@ import {
   warehouseApi, WarehouseDropdown, WarehouseBinDto,
 } from "@/lib/api-services";
 import {
-  Package, PackageCheck, PackageMinus, AlertTriangle, X,
+  Package, PackageCheck, PackageMinus, AlertTriangle,
   MoreVertical, Eye, Pencil, Trash2, Printer, CheckCircle2,
-  MapPin, Loader2, RefreshCw, Plus, Minus, Warehouse,
+  MapPin, Loader2, RefreshCw, Plus, Minus, Warehouse, Share2,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { createPortal } from "react-dom";
+import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
+import { SharePanel, ShareData } from "@/components/ShareMenu";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -143,22 +146,20 @@ function ViewStockLotModal({
   }, [lotId]);
 
   if (loading) return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/65 backdrop-blur-sm">
       <Loader2 className="h-8 w-8 animate-spin text-white" />
     </div>, document.body
   );
   if (!lot) return null;
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50">
-      <div className="flex min-h-full items-center justify-center p-4">
-      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
+  return (
+    <PortalModal onClose={onClose}>
 
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100">
-              <Package className="h-4 w-4 text-blue-600" />
+        {/* Header — emerald tinted */}
+        <div className="flex items-center justify-between border-b border-emerald-100 px-5 py-3.5 bg-emerald-50 rounded-t-2xl">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100">
+              <Package className="h-4 w-4 text-emerald-600" />
             </div>
             <div>
               <h2 className="text-base font-bold text-gray-900 font-mono">{lot.lotNumber}</h2>
@@ -169,10 +170,25 @@ function ViewStockLotModal({
               <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${getQualityColor(lot.qualityGrade)}`}>{lot.qualityGrade}</span>
             )}
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400"><X className="h-5 w-5" /></button>
+          <ModalCloseButton onClose={onClose} />
         </div>
 
         <div className="max-h-[calc(100vh-160px)] overflow-y-auto p-5 space-y-4">
+          {/* Metric cards */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500">Lot Number</p>
+              <p className="text-sm font-black text-emerald-900 font-mono mt-0.5 truncate">{lot.lotNumber}</p>
+            </div>
+            <div className="rounded-xl bg-indigo-50 border border-indigo-100 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">Warehouse</p>
+              <p className="text-sm font-bold text-indigo-900 mt-0.5 truncate">{lot.warehouseName || "—"}</p>
+            </div>
+            <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-500">Available Qty</p>
+              <p className="text-sm font-black text-blue-800 mt-0.5">{lot.availableQty.toLocaleString()} <span className="text-xs font-normal text-blue-600">sheets</span></p>
+            </div>
+          </div>
 
           {/* Flow Chain */}
           {(lot.customerName || lot.linkedSoNumber || lot.poNumber || lot.loadPlanNumber) && (
@@ -381,10 +397,7 @@ function ViewStockLotModal({
             <button onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Close</button>
           </div>
         </div>
-      </div>
-      </div>
-    </div>,
-    document.body
+    </PortalModal>
   );
 }
 
@@ -412,15 +425,14 @@ function EditStockLotModal({
     }
   };
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+  return (
+    <PortalModal onClose={onClose} maxWidth="max-w-md">
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <div>
             <h2 className="text-base font-bold text-gray-900">Adjust Quantity</h2>
             <p className="text-xs text-gray-500 mt-0.5 font-mono">{lot.lotNumber}</p>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400"><X className="h-5 w-5" /></button>
+          <ModalCloseButton onClose={onClose} />
         </div>
         <div className="p-5">
           <label className="block text-xs font-medium text-gray-700 mb-1">Current Qty (Physical Count)</label>
@@ -443,9 +455,7 @@ function EditStockLotModal({
             Save
           </button>
         </div>
-      </div>
-    </div>,
-    document.body
+    </PortalModal>
   );
 }
 
@@ -526,9 +536,8 @@ function AssignBinModal({
     }
   };
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-6">
-      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+  return (
+    <PortalModal onClose={onClose} maxWidth="max-w-2xl">
 
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
@@ -541,7 +550,7 @@ function AssignBinModal({
               <p className="text-xs text-gray-500 mt-0.5 font-mono">{lot.lotNumber} · {lot.paper} · {lot.gsm}g · {lot.size}</p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400"><X className="h-5 w-5" /></button>
+          <ModalCloseButton onClose={onClose} />
         </div>
 
         <div className="p-5 space-y-4">
@@ -703,19 +712,19 @@ function AssignBinModal({
             )}
           </div>
         </div>
-      </div>
-    </div>,
-    document.body
+    </PortalModal>
   );
 }
 
 // ─── Row Actions ──────────────────────────────────────────────────────────────
 
-function RowActions({ onView, onEdit, onAssignBin, onPrint, onDelete }: {
-  onView: () => void; onEdit: () => void; onAssignBin: () => void; onPrint: () => void; onDelete: () => void;
+function RowActions({ onView, onEdit, onAssignBin, onPrint, onDelete, shareData }: {
+  onView: () => void; onEdit: () => void; onAssignBin: () => void; onPrint: () => void; onDelete: () => void; shareData?: ShareData;
 }) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ top: 0, right: 0 });
+  const [open, setOpen]           = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [pos, setPos]             = useState({ top: 0, right: 0 });
+  const [shareAnchor, setShareAnchor] = useState<{ top: number; right: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -739,6 +748,16 @@ function RowActions({ onView, onEdit, onAssignBin, onPrint, onDelete }: {
 
   const action = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); setOpen(false); fn(); };
 
+  const handleShare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen(false);
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setShareAnchor({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
+    setShareOpen(true);
+  };
+
   return (
     <>
       <button ref={btnRef} onClick={toggle}
@@ -760,8 +779,20 @@ function RowActions({ onView, onEdit, onAssignBin, onPrint, onDelete }: {
               <Icon className="h-3.5 w-3.5" /> {label}
             </button>
           ))}
+          {shareData && (
+            <>
+              <div className="my-1 border-t border-gray-100" />
+              <button onClick={handleShare}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                <Share2 className="h-3.5 w-3.5 text-blue-500" /> Share
+              </button>
+            </>
+          )}
         </div>,
         document.body
+      )}
+      {shareOpen && shareAnchor && shareData && (
+        <SharePanel data={shareData} anchor={shareAnchor} onClose={() => setShareOpen(false)} />
       )}
     </>
   );
@@ -866,7 +897,7 @@ export default function StockLotsPage() {
     },
     {
       id: "grnDate", accessorKey: "grnDate", header: "Received",
-      filterType: "date", enableSorting: true, defaultVisible: true, size: 120,
+      filterType: "dateRange", enableSorting: true, defaultVisible: true, size: 120,
       cell: (info) => {
         const d = new Date(info.getValue() as string);
         const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
@@ -986,6 +1017,11 @@ export default function StockLotsPage() {
             onEdit={() => setEditLot(lot)}
             onPrint={() => handlePrintRow(lot.id)}
             onDelete={async () => { if (confirm(`Delete lot ${lot.lotNumber}?`)) await handleDelete(lot.id); }}
+            shareData={{
+              title: lot.lotNumber,
+              subject: `Stock Lot ${lot.lotNumber} — ${lot.paper}`,
+              text: `Stock Lot: ${lot.lotNumber}\nGRN: ${lot.grnNumber}\nMill: ${lot.millName}\nMaterial: ${lot.paper}${lot.gsm ? ` ${lot.gsm}GSM` : ""}${lot.size ? ` ${lot.size}` : ""}\nAvailable Qty: ${lot.availableQty}\nWarehouse: ${lot.warehouseName ?? "—"}${lot.binLocation ? ` (${lot.binLocation})` : ""}`,
+            }}
           />
         );
       },
@@ -996,89 +1032,51 @@ export default function StockLotsPage() {
     <div className="space-y-6 pb-24">
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="kpi-grid grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-6">
 
-        {/* Pending Bin */}
+        {/* Pending Bin — special interactive card */}
         <button
           onClick={() => setShowPendingBin((v) => !v)}
-          className={`rounded-xl p-4 text-left transition-all shadow-sm relative overflow-hidden ${
+          className={`group relative overflow-hidden rounded-2xl p-3 sm:p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:scale-[0.98] ${
             showPendingBin
-              ? "bg-amber-600 shadow-amber-200 shadow-lg"
+              ? "bg-amber-500 shadow-amber-200"
               : pendingBin.length > 0
-              ? "bg-gradient-to-br from-amber-400 to-orange-500 shadow-amber-100 shadow-md hover:shadow-lg hover:-translate-y-0.5"
-              : "bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200"
+              ? "bg-amber-50 border border-white/80"
+              : "bg-gray-100 border border-white/80"
           }`}
         >
           {pendingBin.length > 0 && !showPendingBin && (
             <span className="absolute top-2.5 right-2.5 flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
             </span>
           )}
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={`text-xs font-semibold uppercase tracking-wide ${pendingBin.length > 0 || showPendingBin ? "text-white/80" : "text-gray-400"}`}>Pending Bin</p>
-              <p className={`mt-1.5 text-3xl font-black ${pendingBin.length > 0 || showPendingBin ? "text-white" : "text-gray-500"}`}>{pendingBin.length}</p>
-              <p className={`mt-0.5 text-xs font-medium ${pendingBin.length > 0 || showPendingBin ? "text-white/70" : "text-gray-400"}`}>
-                {showPendingBin ? "Click to hide" : pendingBin.length > 0 ? "Needs bin" : "All assigned"}
-              </p>
-            </div>
-            <div className={`flex h-11 w-11 items-center justify-center rounded-full ${pendingBin.length > 0 || showPendingBin ? "bg-white/20" : "bg-gray-200"}`}>
-              <MapPin className={`h-5 w-5 ${pendingBin.length > 0 || showPendingBin ? "text-white" : "text-gray-400"}`} />
-            </div>
+          <p className={`text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate ${showPendingBin ? "text-white/80" : "text-amber-500"}`}>Pending Bin</p>
+          <p className={`mt-1.5 text-2xl sm:text-4xl font-black leading-none tabular-nums animate-kpi-value ${showPendingBin ? "text-white" : pendingBin.length > 0 ? "text-amber-700" : "text-gray-500"}`}>{pendingBin.length}</p>
+          <p className={`mt-1 text-[10px] sm:text-xs truncate ${showPendingBin ? "text-white/70" : "text-gray-500"}`}>
+            {showPendingBin ? "Click to hide" : pendingBin.length > 0 ? "Needs bin" : "All assigned"}
+          </p>
+          <div className={`pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] ${showPendingBin ? "text-white" : "text-amber-500"}`}>
+            <MapPin className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
           </div>
         </button>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Total Lots</p>
-              <p className="mt-1.5 text-2xl font-bold text-gray-900">{kpis.total}</p>
+        {[
+          { label: "Total Lots",    value: kpis.total,     sub: "In warehouse",  icon: Package,      iconBg: "bg-blue-50",   iconColor: "text-blue-500"   },
+          { label: "Available",     value: kpis.available, sub: "Lots ready",    icon: PackageCheck, iconBg: "bg-green-50",  iconColor: "text-green-500"  },
+          { label: "Allocated",     value: kpis.allocated, sub: "Reserved",      icon: AlertTriangle,iconBg: "bg-orange-50", iconColor: "text-orange-500" },
+          { label: "Exhausted",     value: kpis.exhausted, sub: "Empty lots",    icon: PackageMinus, iconBg: "bg-gray-100",  iconColor: "text-gray-500"   },
+          { label: "Total Stock",   value: `${(kpis.totalQty/1000).toFixed(1)}K`, sub: `Avail: ${(kpis.availQty/1000).toFixed(1)}K kg`, icon: Package, iconBg: "bg-emerald-50", iconColor: "text-emerald-500" },
+        ].map(({ label, value, sub, icon: Icon, iconBg, iconColor }) => (
+          <div key={label} className={`group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${iconBg}`}>
+            <p className={`text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate ${iconColor}`}>{label}</p>
+            <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{value}</p>
+            <p className="mt-1 text-[10px] sm:text-xs text-gray-500 truncate">{sub}</p>
+            <div className={`pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] ${iconColor}`}>
+              <Icon className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50"><Package className="h-5 w-5 text-blue-500" /></div>
           </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Available</p>
-              <p className="mt-1.5 text-2xl font-bold text-gray-900">{kpis.available}</p>
-              <p className="mt-0.5 text-xs text-green-600">Lots ready</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-50"><PackageCheck className="h-5 w-5 text-green-500" /></div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Allocated</p>
-              <p className="mt-1.5 text-2xl font-bold text-gray-900">{kpis.allocated}</p>
-              <p className="mt-0.5 text-xs text-orange-600">Reserved</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-50"><AlertTriangle className="h-5 w-5 text-orange-500" /></div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Exhausted</p>
-              <p className="mt-1.5 text-2xl font-bold text-gray-900">{kpis.exhausted}</p>
-              <p className="mt-0.5 text-xs text-gray-500">Empty lots</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-50"><PackageMinus className="h-5 w-5 text-gray-400" /></div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Total Stock</p>
-            <p className="mt-1.5 text-2xl font-bold text-gray-900">{(kpis.totalQty / 1000).toFixed(1)}K</p>
-            <p className="mt-0.5 text-xs text-gray-500">Available: <span className="font-semibold text-green-600">{(kpis.availQty / 1000).toFixed(1)}K</span></p>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* Pending Bin Panel */}

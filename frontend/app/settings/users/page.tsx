@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Search, Plus, Save, Eye, EyeOff, Pencil, Trash2, Shield, AlertTriangle, Loader2, KeyRound } from "lucide-react";
+import { Search, Plus, Save, Eye, EyeOff, Pencil, Trash2, Shield, AlertTriangle, Loader2, KeyRound, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Modal } from "@/components/Modal";
 import { ActionMenu } from "@/components/ActionMenu";
@@ -39,13 +39,14 @@ export default function UserManagementPage() {
   const [deleteId,  setDeleteId]    = useState<number | null>(null);
   const [resetItem, setResetItem]   = useState<UserRow | null>(null);
 
-  const [uUsername, setUUsername] = useState("");
-  const [uName,     setUName]     = useState("");
-  const [uEmail,    setUEmail]    = useState("");
-  const [uRoleId,   setURoleId]   = useState<number | "">("");
-  const [uActive,   setUActive]   = useState(true);
-  const [uPwd,      setUPwd]      = useState("");
-  const [showPwd,   setShowPwd]   = useState(false);
+  const [uUsername,      setUUsername]      = useState("");
+  const [uName,          setUName]          = useState("");
+  const [uEmail,         setUEmail]         = useState("");
+  const [uRoleId,        setURoleId]        = useState<number | "">("");
+  const [uActive,        setUActive]        = useState(true);
+  const [uBothCompanies, setUBothCompanies] = useState(false);
+  const [uPwd,           setUPwd]           = useState("");
+  const [showPwd,        setShowPwd]        = useState(false);
   const [newPwd,    setNewPwd]    = useState("");
   const [showNewPwd,setShowNewPwd]= useState(false);
 
@@ -64,7 +65,7 @@ export default function UserManagementPage() {
   function openAdd() {
     setEditItem(null);
     setUUsername(""); setUName(""); setUEmail("");
-    setURoleId(roles[0]?.id ?? ""); setUActive(true);
+    setURoleId(roles[0]?.id ?? ""); setUActive(true); setUBothCompanies(false);
     setUPwd(""); setShowPwd(false);
     setShowModal(true);
   }
@@ -72,7 +73,7 @@ export default function UserManagementPage() {
   function openEdit(u: UserRow) {
     setEditItem(u);
     setUUsername(u.username); setUName(u.name); setUEmail(u.email ?? "");
-    setURoleId(u.roleId); setUActive(u.isActive);
+    setURoleId(u.roleId); setUActive(u.isActive); setUBothCompanies(u.bothCompaniesAccess);
     setUPwd(""); setShowPwd(false);
     setShowModal(true);
   }
@@ -86,13 +87,14 @@ export default function UserManagementPage() {
         const u = await userApi.update(editItem.id, {
           name: uName.trim(), email: uEmail.trim() || undefined,
           roleId: uRoleId as number, isActive: uActive,
+          bothCompaniesAccess: uBothCompanies,
         });
         setData((prev) => prev.map((x) => x.id === u.id ? u : x));
       } else {
         const c = await userApi.create({
           username: uUsername.trim(), password: uPwd,
           name: uName.trim(), email: uEmail.trim() || undefined,
-          roleId: uRoleId as number,
+          roleId: uRoleId as number, bothCompaniesAccess: uBothCompanies,
         });
         setData((prev) => [...prev, c]);
       }
@@ -165,7 +167,16 @@ export default function UserManagementPage() {
           <tbody className="divide-y divide-gray-50">
             {filtered.map((u) => (
               <tr key={u.id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-4 py-3 font-semibold text-gray-900">{u.name}</td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-900">{u.name}</span>
+                    {u.bothCompaniesAccess && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 border border-indigo-200 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+                        <Building2 className="h-3 w-3" /> Both
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td className="px-4 py-3 font-mono text-xs text-gray-600">{u.username}</td>
                 <td className="px-4 py-3 text-gray-500">{u.email ?? "—"}</td>
                 <td className="px-4 py-3">
@@ -182,12 +193,19 @@ export default function UserManagementPage() {
                 </td>
                 <td className="px-4 py-3 text-gray-500">{fmtDate(u.createdAt)}</td>
                 <td className="px-4 py-3 text-right">
-                  <ActionMenu items={[
-                    { label: "View",           icon: Eye,      onClick: () => setViewItem(u)   },
-                    { label: "Edit",           icon: Pencil,   onClick: () => openEdit(u)      },
-                    { label: "Reset Password", icon: KeyRound, onClick: () => { setResetItem(u); setNewPwd(""); setShowNewPwd(false); } },
-                    { label: "Delete",         icon: Trash2,   onClick: () => setDeleteId(u.id), variant: "danger" },
-                  ]} />
+                  <ActionMenu
+                    items={[
+                      { label: "View",           icon: Eye,      onClick: () => setViewItem(u)   },
+                      { label: "Edit",           icon: Pencil,   onClick: () => openEdit(u)      },
+                      { label: "Reset Password", icon: KeyRound, onClick: () => { setResetItem(u); setNewPwd(""); setShowNewPwd(false); } },
+                      { label: "Delete",         icon: Trash2,   onClick: () => setDeleteId(u.id), variant: "danger" },
+                    ]}
+                    shareData={{
+                      title: u.username,
+                      subject: `User: ${u.name} (${u.username})`,
+                      text: `User: ${u.name}\nUsername: ${u.username}\nEmail: ${u.email ?? "—"}\nRole: ${u.role}\nStatus: ${u.isActive ? "Active" : "Inactive"}`,
+                    }}
+                  />
                 </td>
               </tr>
             ))}
@@ -256,6 +274,23 @@ export default function UserManagementPage() {
               </div>
             )}
           </div>
+
+          {/* Both Companies Access */}
+          <div className="flex items-center justify-between rounded-lg border border-indigo-100 bg-indigo-50/50 px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <Building2 className="h-4 w-4 text-indigo-500 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-gray-800">Both Companies Access</p>
+                <p className="text-[11px] text-gray-500">User can log in to either company</p>
+              </div>
+            </div>
+            <button type="button" onClick={() => setUBothCompanies((v) => !v)}
+              className={cn("relative h-5 w-9 rounded-full transition-colors cursor-pointer flex-shrink-0",
+                uBothCompanies ? "bg-indigo-500" : "bg-gray-200")}>
+              <div className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
+                uBothCompanies ? "translate-x-4" : "translate-x-0.5")} />
+            </button>
+          </div>
           {!isEdit && (
             <div>
               <label className={labelCls}>Password *</label>
@@ -288,13 +323,14 @@ export default function UserManagementPage() {
           }>
           <div className="rounded-xl bg-white p-4 shadow-sm space-y-3">
             {[
-              { label: "Full Name", value: viewItem.name     },
-              { label: "Username",  value: viewItem.username },
-              { label: "Email",     value: viewItem.email    },
-              { label: "Role",      value: viewItem.role     },
-              { label: "Status",    value: viewItem.isActive ? "Active" : "Inactive" },
-              { label: "Created",   value: fmtDate(viewItem.createdAt) },
-              { label: "Last Login",value: viewItem.lastLoginAt ? fmtDate(viewItem.lastLoginAt) : "Never" },
+              { label: "Full Name",    value: viewItem.name     },
+              { label: "Username",     value: viewItem.username },
+              { label: "Email",        value: viewItem.email    },
+              { label: "Role",         value: viewItem.role     },
+              { label: "Status",       value: viewItem.isActive ? "Active" : "Inactive" },
+              { label: "Both Companies", value: viewItem.bothCompaniesAccess ? "Yes" : "No" },
+              { label: "Created",      value: fmtDate(viewItem.createdAt) },
+              { label: "Last Login",   value: viewItem.lastLoginAt ? fmtDate(viewItem.lastLoginAt) : "Never" },
             ].map(({ label, value }) => (
               <div key={label} className="flex items-start gap-3">
                 <span className="w-24 flex-shrink-0 text-xs font-medium text-gray-400 pt-0.5">{label}</span>

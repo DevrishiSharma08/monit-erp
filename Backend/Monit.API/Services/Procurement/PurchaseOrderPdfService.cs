@@ -13,195 +13,274 @@ public class PurchaseOrderPdfService : IPurchaseOrderPdfService
         QuestPDF.Settings.License = LicenseType.Community;
     }
 
-    public byte[] Generate(PurchaseOrderListDto po, string companyName, string companyAddress)
+    public byte[] Generate(PurchaseOrderListDto po, string companyName, string companyAddress, string companyGst)
     {
-        var shipMode = po.ShipmentMode ?? (po.BlindShipment ? "Blind" : "Normal");
-        var billTo   = shipMode == "Blind"           ? companyName :
-                       shipMode == "InvoiceOverride" ? (po.InvoiceParty ?? "—") :
-                       po.DirectCustomer ?? "—";
-
         return Document.Create(container =>
         {
             container.Page(page =>
             {
-                page.Size(PageSizes.A4);
-                page.Margin(1.5f, Unit.Centimetre);
-                page.DefaultTextStyle(t => t.FontSize(9).FontFamily("Arial"));
+                page.Size(new PageSize(297, 210, Unit.Millimetre));
+                page.Margin(15, Unit.Millimetre);
+                page.DefaultTextStyle(t => t.FontSize(8).FontFamily("Arial"));
 
-                // ── Header ────────────────────────────────────────────────────
+                // ── Header ─────────────────────────────────────────────────────
                 page.Header().Column(col =>
                 {
-                    col.Item().Row(row =>
-                    {
-                        row.RelativeItem().Column(c =>
-                        {
-                            c.Item().Text(companyName).FontSize(16).Bold().FontColor(Colors.Blue.Darken3);
-                            c.Item().Text(companyAddress).FontSize(8).FontColor(Colors.Grey.Darken1);
-                        });
-                        row.ConstantItem(130).AlignRight().Column(c =>
-                        {
-                            c.Item().Text("PURCHASE ORDER").FontSize(13).Bold().FontColor(Colors.Blue.Darken3);
-                            c.Item().Text(po.PONumber).FontSize(11).Bold().FontColor(Colors.Blue.Darken1);
-                        });
-                    });
-                    col.Item().PaddingTop(6).LineHorizontal(1.5f).LineColor(Colors.Blue.Darken3);
+                    col.Item().AlignCenter().Text(companyName)
+                       .FontSize(15).Bold().FontColor(Colors.Blue.Darken3);
+                    if (!string.IsNullOrWhiteSpace(companyAddress))
+                        col.Item().AlignCenter().Text(companyAddress)
+                           .FontSize(8).FontColor(Colors.Grey.Darken1);
+                    col.Item().PaddingTop(3).AlignCenter().Text("PURCHASE ORDER")
+                       .FontSize(11).Bold().FontColor(Colors.Blue.Darken2);
+                    col.Item().PaddingTop(4).LineHorizontal(1.5f).LineColor(Colors.Blue.Darken3);
                 });
 
-                // ── Content ───────────────────────────────────────────────────
+                // ── Content ────────────────────────────────────────────────────
                 page.Content().PaddingTop(8).Column(col =>
                 {
-                    // Info grid
+                    // Order No + Date row
                     col.Item().Table(t =>
                     {
-                        t.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); c.RelativeColumn(); c.RelativeColumn(); });
-
-                        void InfoCell(string label, string? value)
-                        {
-                            t.Cell().Column(c =>
-                            {
-                                c.Item().Text(label).FontSize(7).FontColor(Colors.Grey.Darken1);
-                                c.Item().Text(value ?? "—").FontSize(9).SemiBold();
-                            });
-                        }
-
-                        InfoCell("Mill",             po.MillName);
-                        InfoCell("PO Type",          po.POType);
-                        InfoCell("Date",             po.OrderDate);
-                        InfoCell("Status",           "Confirmed");
-                        InfoCell("Payment Terms",    po.PaymentTerms);
-                        InfoCell("Expected Delivery",po.ExpectedDeliveryDate);
-                        InfoCell("Bill To",          billTo);
-                        InfoCell("Ship To",          po.DirectDeliveryAddress);
-                        if (!string.IsNullOrWhiteSpace(po.LinkedSONumber))
-                            InfoCell("SO Reference", po.LinkedSONumber);
+                        t.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); });
+                        t.Cell().Text($"Order No : {po.PONumber}").Bold().FontSize(9);
+                        t.Cell().AlignRight().Text($"Purchase Order Date : {po.OrderDate}").Bold().FontSize(9);
                     });
 
-                    col.Item().PaddingVertical(8).LineHorizontal(0.5f).LineColor(Colors.Grey.Lighten2);
+                    col.Item().PaddingVertical(5);
 
-                    // Items heading
-                    col.Item().PaddingBottom(4).Text("Items").FontSize(10).Bold().FontColor(Colors.Blue.Darken2);
-
-                    // Items table
+                    // Party table (Order To | Billed To | Shipped To)
                     col.Item().Table(t =>
                     {
                         t.ColumnsDefinition(c =>
                         {
-                            c.ConstantColumn(22);   // #
-                            c.RelativeColumn(5);     // Description
-                            c.RelativeColumn(2);     // GSM
-                            c.RelativeColumn(2);     // Size
-                            c.RelativeColumn(2.5f);  // Qty
-                            c.RelativeColumn(1.5f);  // Unit
-                            c.RelativeColumn(2.5f);  // Rate
-                            c.RelativeColumn(3);     // Amount
+                            c.RelativeColumn(); c.RelativeColumn(); c.RelativeColumn();
                         });
 
-                        void HeaderCell(string text) =>
-                            t.Cell()
-                             .Background(Colors.Blue.Darken3)
-                             .Padding(5)
-                             .Text(text).FontSize(8).Bold().FontColor(Colors.White);
+                        void Hdr(string title) =>
+                            t.Cell().Background(Colors.Blue.Darken3)
+                             .Border(0.5f).BorderColor(Colors.Blue.Darken3)
+                             .Padding(5).AlignCenter()
+                             .Text(title).FontSize(9).Bold().FontColor(Colors.White);
 
-                        HeaderCell("#");
-                        HeaderCell("Description");
-                        HeaderCell("GSM");
-                        HeaderCell("Size");
-                        HeaderCell("Qty");
-                        HeaderCell("Unit");
-                        HeaderCell("Rate (₹)");
-                        HeaderCell("Amount (₹)");
+                        Hdr("Order To"); Hdr("Billed To"); Hdr("Shipped To");
 
-                        bool alt = false;
+                        // Order To = Mill
+                        t.Cell().Border(0.5f).BorderColor(Colors.Grey.Medium).Padding(6).Column(c =>
+                        {
+                            c.Item().Text(po.MillName).SemiBold().FontSize(9);
+                            c.Item().Text("GST: —").FontSize(8).FontColor(Colors.Grey.Darken1);
+                        });
+
+                        // Billed To = ALWAYS Monit company
+                        t.Cell().Border(0.5f).BorderColor(Colors.Grey.Medium).Padding(6).Column(c =>
+                        {
+                            c.Item().Text(companyName).SemiBold().FontSize(9);
+                            if (!string.IsNullOrWhiteSpace(companyAddress))
+                                c.Item().Text(companyAddress).FontSize(8);
+                            c.Item().Text($"GST: {companyGst}").FontSize(8).FontColor(Colors.Grey.Darken1);
+                        });
+
+                        // Shipped To = Client / Direct Customer
+                        t.Cell().Border(0.5f).BorderColor(Colors.Grey.Medium).Padding(6).Column(c =>
+                        {
+                            c.Item().Text(po.DirectCustomer ?? "—").SemiBold().FontSize(9);
+                            if (!string.IsNullOrWhiteSpace(po.DirectDeliveryAddress))
+                                c.Item().Text(po.DirectDeliveryAddress).FontSize(8);
+                            c.Item().Text("GST: —").FontSize(8).FontColor(Colors.Grey.Darken1);
+                        });
+                    });
+
+                    col.Item().PaddingTop(5)
+                       .Text("Note: Please deliver the following material subject to Terms, Condition & Instruction specified in the order.")
+                       .FontSize(7.5f).Italic().FontColor(Colors.Grey.Darken2);
+
+                    col.Item().PaddingVertical(4);
+
+                    // Items table (11 columns — no Mill column, mill is in Order To)
+                    col.Item().Table(t =>
+                    {
+                        t.ColumnsDefinition(c =>
+                        {
+                            c.ConstantColumn(20);    // SR No
+                            c.RelativeColumn(4f);    // Particular
+                            c.RelativeColumn(1.3f);  // GSM
+                            c.RelativeColumn(1.5f);  // Length
+                            c.RelativeColumn(1.5f);  // Width
+                            c.RelativeColumn(1.8f);  // Quantity
+                            c.RelativeColumn(1.2f);  // Grain
+                            c.RelativeColumn(1.8f);  // Rate
+                            c.RelativeColumn(1.5f);  // Discount
+                            c.RelativeColumn(1.8f);  // Packing
+                            c.RelativeColumn(2.5f);  // Remarks
+                        });
+
+                        void HdrCell(string text) =>
+                            t.Cell().Background(Colors.Blue.Darken3)
+                             .Border(0.5f).BorderColor(Colors.Blue.Darken3)
+                             .Padding(4).AlignCenter()
+                             .Text(text).FontSize(7.5f).Bold().FontColor(Colors.White);
+
+                        HdrCell("SR No"); HdrCell("Particular"); HdrCell("GSM");
+                        HdrCell("Length"); HdrCell("Width"); HdrCell("Quantity");
+                        HdrCell("Grain"); HdrCell("Rate\n(Rs/KGS)");
+                        HdrCell("Discount\n(%)"); HdrCell("Packing\nType"); HdrCell("Remarks");
+
                         for (int i = 0; i < po.Items.Count; i++)
                         {
-                            alt = !alt;
-                            var bg   = alt ? "#FFFFFF" : "#EEF2FF";
                             var item = po.Items[i];
+                            var bg   = (i % 2 == 1) ? "#EEF4FF" : "#FFFFFF";
+                            var (particular, _) = ParseMaterial(item.Description);
+                            var (length, width) = ParseSize(item.Size);
 
-                            void DataCell(string val, bool right = false)
-                        {
-                            var cell = t.Cell()
-                                        .Background(bg)
-                                        .BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2)
-                                        .Padding(4);
-                            if (right) cell.AlignRight().Text(val).FontSize(8);
-                            else       cell.Text(val).FontSize(8);
-                        }
-
-                            var baseRate = (item.Discount ?? 0) > 0
-                                ? item.Rate / (1 - (item.Discount ?? 0) / 100)
+                            // PO stores final (post-discount) rate; back-calculate base rate for display
+                            var discPct  = item.Discount ?? 0m;
+                            var baseRate = discPct > 0 && discPct < 100
+                                ? item.Rate / (1 - discPct / 100m)
                                 : item.Rate;
+                            var qty = item.WeightKg is > 0
+                                ? $"{item.WeightKg!.Value:N2} KG"
+                                : $"{item.Quantity:N2} {item.Unit ?? ""}".Trim();
 
-                            DataCell((i + 1).ToString());
-                            DataCell(item.Description ?? "—");
-                            DataCell(item.GSM?.ToString() ?? "—");
-                            DataCell(item.Size ?? "—");
-                            if (item.WeightKg is > 0)
+                            void DC(string val, bool right = false, bool bold = false)
                             {
-                                DataCell(item.WeightKg!.Value.ToString("N2"), right: true);
-                                DataCell("KG");
+                                var cell = t.Cell()
+                                            .Background(bg)
+                                            .Border(0.5f).BorderColor(Colors.Grey.Lighten1)
+                                            .Padding(3);
+                                if (bold && right) cell.AlignRight().Text(val).FontSize(7.5f).Bold();
+                                else if (bold)     cell.Text(val).FontSize(7.5f).Bold();
+                                else if (right)    cell.AlignRight().Text(val).FontSize(7.5f);
+                                else               cell.Text(val).FontSize(7.5f);
                             }
-                            else
-                            {
-                                DataCell(item.Quantity.ToString("N2"), right: true);
-                                DataCell(item.Unit ?? "—");
-                            }
-                            DataCell(baseRate.ToString("N2"), right: true);
-                            DataCell(item.Amount.ToString("N2"), right: true);
+
+                            DC((i + 1).ToString(), right: true);
+                            DC(particular);
+                            DC(item.GSM?.ToString() ?? "—");
+                            DC(length);
+                            DC(width);
+                            DC(qty, right: true);
+                            DC("—");  // Grain (not in DTO)
+                            DC(baseRate.ToString("N2"), right: true);
+                            DC(discPct > 0 ? $"{discPct:N2}%" : "—", right: true);
+                            DC("—");  // Packing Type (not in DTO)
+                            DC(item.Remark ?? "");
                         }
+
+                        // Total row — "Order Id" spans cols 1-4, "Total:" col 5, qty col 6, rest empty
+                        t.Cell().ColumnSpan(4)
+                         .Background(Colors.Blue.Lighten4)
+                         .Border(0.5f).BorderColor(Colors.Grey.Medium)
+                         .Padding(3)
+                         .Text($"Order Id : {po.MillSONumber ?? "—"}").FontSize(8).Bold();
+                        t.Cell()
+                         .Background(Colors.Blue.Lighten4)
+                         .Border(0.5f).BorderColor(Colors.Grey.Medium)
+                         .Padding(3).AlignRight()
+                         .Text("Total :").FontSize(8).Bold();
+                        t.Cell()
+                         .Background(Colors.Blue.Lighten4)
+                         .Border(0.5f).BorderColor(Colors.Grey.Medium)
+                         .Padding(3).AlignRight()
+                         .Text($"{po.TotalQuantity:N2} KGS").FontSize(8).Bold();
+                        for (var j = 0; j < 5; j++)
+                            t.Cell().Background(Colors.Blue.Lighten4)
+                             .Border(0.5f).BorderColor(Colors.Grey.Medium).Padding(3).Text("");
                     });
 
-                    // Totals row
-                    col.Item().PaddingTop(4).AlignRight()
-                       .Text($"Total Value: ₹ {po.TotalValue:N2}")
-                       .FontSize(10).Bold().FontColor(Colors.Blue.Darken2);
+                    col.Item().PaddingVertical(5);
 
-                    // Special instructions
-                    if (!string.IsNullOrWhiteSpace(po.SpecialInstructions))
+                    // Terms table (5 columns)
+                    col.Item().Table(t =>
                     {
-                        col.Item().PaddingTop(8).Column(c =>
+                        t.ColumnsDefinition(c =>
                         {
-                            c.Item().Text("Special Instructions").FontSize(8).SemiBold().FontColor(Colors.Grey.Darken1);
-                            c.Item().Text(po.SpecialInstructions).FontSize(8);
+                            c.RelativeColumn(); c.RelativeColumn(); c.RelativeColumn();
+                            c.RelativeColumn(); c.RelativeColumn();
                         });
-                    }
 
-                    if (!string.IsNullOrWhiteSpace(po.Remarks))
-                    {
-                        col.Item().PaddingTop(6).Column(c =>
-                        {
-                            c.Item().Text("Remarks").FontSize(8).SemiBold().FontColor(Colors.Grey.Darken1);
-                            c.Item().Text(po.Remarks).FontSize(8);
-                        });
-                    }
+                        void THdr(string title) =>
+                            t.Cell().Background(Colors.Blue.Darken3)
+                             .Border(0.5f).BorderColor(Colors.Blue.Darken3)
+                             .Padding(4).AlignCenter()
+                             .Text(title).FontSize(8).Bold().FontColor(Colors.White);
 
-                    // Signature block
-                    col.Item().PaddingTop(30).Row(row =>
+                        void TVal(string? val) =>
+                            t.Cell().Border(0.5f).BorderColor(Colors.Grey.Medium)
+                             .Padding(5).Text(val ?? "—").FontSize(8);
+
+                        THdr("Payment Terms"); THdr("Remarks"); THdr("Delivery Date");
+                        THdr("Transit Insurance"); THdr("Instruction");
+
+                        TVal(po.PaymentTerms);
+                        TVal(po.Remarks);
+                        TVal(po.ExpectedDeliveryDate);
+                        TVal("—");  // Transit Insurance (not in PO DTO)
+                        TVal(po.SpecialInstructions);
+                    });
+
+                    col.Item().PaddingTop(14);
+
+                    // Signature row
+                    col.Item().Table(t =>
                     {
-                        row.RelativeItem().Column(c =>
+                        t.ColumnsDefinition(c =>
                         {
-                            c.Item().LineHorizontal(0.5f).LineColor(Colors.Grey.Medium);
-                            c.Item().PaddingTop(2).Text("Mill Acknowledgement").FontSize(8).FontColor(Colors.Grey.Darken1);
+                            c.RelativeColumn(); c.RelativeColumn(); c.RelativeColumn();
                         });
-                        row.ConstantItem(20);
-                        row.RelativeItem().Column(c =>
+
+                        t.Cell().Border(0.5f).BorderColor(Colors.Grey.Medium).Padding(6).Column(c =>
                         {
-                            c.Item().LineHorizontal(0.5f).LineColor(Colors.Grey.Medium);
-                            c.Item().PaddingTop(2).Text($"For {companyName}").FontSize(8).FontColor(Colors.Grey.Darken1);
+                            c.Item().Height(28).Text("");
+                            c.Item().Text($"For, {companyName}").FontSize(8).SemiBold();
+                        });
+                        t.Cell().Border(0.5f).BorderColor(Colors.Grey.Medium).Padding(6).Column(c =>
+                        {
+                            c.Item().Height(28).Text("");
+                            c.Item().Text("Prepared By").FontSize(8).SemiBold();
+                        });
+                        t.Cell().Border(0.5f).BorderColor(Colors.Grey.Medium).Padding(6).Column(c =>
+                        {
+                            c.Item().Height(28).Text("");
+                            c.Item().Text("Verified Signatory").FontSize(8).SemiBold();
+                            c.Item().Text("Authorized Signatory").FontSize(8).SemiBold();
                         });
                     });
+
+                    col.Item().PaddingTop(8)
+                       .Text("NB: The Core ID is 15cm (6\") AND the Reel OD is 120cm Maximum in case of Reel-size")
+                       .FontSize(7.5f).Italic().FontColor(Colors.Grey.Darken1);
                 });
 
-                // ── Footer ────────────────────────────────────────────────────
+                // ── Footer ─────────────────────────────────────────────────────
                 page.Footer().AlignCenter().Text(t =>
                 {
-                    t.Span("Page ").FontSize(8).FontColor(Colors.Grey.Medium);
-                    t.CurrentPageNumber().FontSize(8);
-                    t.Span(" of ").FontSize(8).FontColor(Colors.Grey.Medium);
-                    t.TotalPages().FontSize(8);
-                    t.Span($"   |   {companyName}").FontSize(8).FontColor(Colors.Grey.Medium);
+                    t.Span("Page ").FontSize(7).FontColor(Colors.Grey.Medium);
+                    t.CurrentPageNumber().FontSize(7);
+                    t.Span(" of ").FontSize(7).FontColor(Colors.Grey.Medium);
+                    t.TotalPages().FontSize(7);
+                    t.Span($"   |   {companyName}   |   GST: {companyGst}")
+                     .FontSize(7).FontColor(Colors.Grey.Medium);
                 });
             });
         }).GeneratePdf();
+    }
+
+    private static (string particular, string mill) ParseMaterial(string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return ("—", "—");
+        var parts = code.Split('/');
+        return (
+            parts.Length > 1 ? parts[1].Trim() : parts[0].Trim(),
+            parts.Length > 0 ? parts[0].Trim() : "—"
+        );
+    }
+
+    private static (string length, string width) ParseSize(string? size)
+    {
+        if (string.IsNullOrWhiteSpace(size)) return ("—", "—");
+        var sep = size.IndexOfAny(['x', 'X', '×']);
+        if (sep < 0) return (size.Trim(), "—");
+        return (size[..sep].Trim(), size[(sep + 1)..].Trim());
     }
 }

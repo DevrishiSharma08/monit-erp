@@ -3,6 +3,9 @@ namespace Monit.API.Models.Entities.Config;
 public class CompanyConfig
 {
     public int      Id                 { get; set; } = 1;
+    public string?  CompanyName        { get; set; }
+    public string?  Address            { get; set; }
+    public string?  GstNumber          { get; set; }
     public string?  InsurancePolicyNo  { get; set; }
     public string?  InsurancePolicyFy  { get; set; }
     public string?  InsuranceIssuer    { get; set; }

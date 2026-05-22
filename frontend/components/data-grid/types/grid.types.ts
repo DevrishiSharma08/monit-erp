@@ -4,7 +4,7 @@ import { ReactNode } from "react";
 /**
  * Filter type options for column filtering
  */
-export type FilterType = "text" | "select" | "date" | "number-range" | "none";
+export type FilterType = "text" | "select" | "date" | "dateRange" | "number-range" | "none";
 
 /**
  * Filter option for select-type filters
@@ -57,6 +57,13 @@ export interface ColumnConfig<TData> {
 
   /** Pin column to left or right edge (sticky) */
   sticky?: "left" | "right";
+
+  /** Text alignment for this column's header and cells. Defaults to "center". */
+  align?: "left" | "center" | "right";
+
+  /** When true, cell text is not truncated — useful for material/item name columns. */
+  noTruncate?: boolean;
+
 }
 
 /**
@@ -88,6 +95,9 @@ export interface DataGridProps<TData> {
   /** Callback when a row is clicked */
   onRowClick?: (row: TData) => void;
 
+  /** When truthy for a row, that row gets a persistent blue highlight (e.g. while its modal is open) */
+  highlightRow?: (row: TData) => boolean;
+
   /** Initial page size for pagination */
   initialPageSize?: number;
 
@@ -105,6 +115,12 @@ export interface DataGridProps<TData> {
 
   /** Hides the built-in toolbar entirely — use when the parent page provides its own toolbar */
   hideToolbar?: boolean;
+
+  /** Show the Export dropdown (CSV / Excel / DOCX / PDF). Defaults to true. */
+  enableExport?: boolean;
+
+  /** Base filename used for exported files (no extension). Defaults to tableName. */
+  exportFilename?: string;
 
   /** External column visibility state — when provided the built-in Columns button is hidden */
   externalColumnVisibility?: Record<string, boolean>;

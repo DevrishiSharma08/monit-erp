@@ -56,4 +56,13 @@ public class PurchaseOrdersController(IPurchaseOrderService svc) : ControllerBas
     public async Task<IActionResult> SendEmail(int id, [FromBody] SendMailRequestDto dto)
         => Ok(ApiResponse<SendMailResponseDto>.Ok(
             await svc.SendEmailAsync(id, dto), "Email sent successfully."));
+
+    [HttpGet("{id:int}/pdf")]
+    public async Task<IActionResult> DownloadPdf(int id)
+    {
+        var po       = await svc.GetByIdAsync(id);
+        var pdfBytes = await svc.GetPdfAsync(id);
+        var fileName = $"PO_{po.PONumber.Replace("/", "-")}_{DateTime.Today:yyyyMMdd}.pdf";
+        return File(pdfBytes, "application/pdf", fileName);
+    }
 }

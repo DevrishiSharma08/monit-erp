@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex flex-1 flex-col overflow-hidden min-w-0 bg-gray-50">
         <Header onMobileMenuToggle={() => setMobileOpen((o) => !o)} />
         <main className="flex-1 overflow-y-auto bg-gray-50 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
-          <div key={pathname} className="animate-fade-in p-5 lg:p-6">
+          <div key={pathname} className="animate-fade-in p-3 sm:p-5 lg:p-6">
             {children}
           </div>
         </main>

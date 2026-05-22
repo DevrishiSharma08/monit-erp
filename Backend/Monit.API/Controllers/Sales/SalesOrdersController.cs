@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Monit.API.Common.Helpers;
 using Monit.API.Common.Response;
 using Monit.API.Models.DTOs.Mail;
 using Monit.API.Models.DTOs.Sales;
@@ -18,11 +19,24 @@ public class SalesOrdersController(ISalesOrderService svc) : ControllerBase
 
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] SalesOrderFilterRequest filter)
-        => Ok(ApiResponse<PagedResult<SalesOrderListDto>>.Ok(await svc.GetAllAsync(filter)));
+    {
+        var result = await svc.GetAllAsync(filter);
+        bool hideCost  = RoleGuard.ShouldHideCost(User);
+        bool hidePhone = RoleGuard.ShouldHidePhone(User);
+        if (hideCost || hidePhone)
+            foreach (var so in result.Items)
+                MaskSensitiveFields(so, hideCost, hidePhone);
+        return Ok(ApiResponse<PagedResult<SalesOrderListDto>>.Ok(result));
+    }
 
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
-        => Ok(ApiResponse<SalesOrderListDto>.Ok(await svc.GetByIdAsync(id)));
+    {
+        var result = await svc.GetByIdAsync(id);
+        if (RoleGuard.ShouldHideCost(User) || RoleGuard.ShouldHidePhone(User))
+            MaskSensitiveFields(result, RoleGuard.ShouldHideCost(User), RoleGuard.ShouldHidePhone(User));
+        return Ok(ApiResponse<SalesOrderListDto>.Ok(result));
+    }
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateSalesOrderDto dto)
@@ -49,4 +63,29 @@ public class SalesOrdersController(ISalesOrderService svc) : ControllerBase
     public async Task<IActionResult> SendEmail(int id, [FromBody] SendMailRequestDto dto)
         => Ok(ApiResponse<SendMailResponseDto>.Ok(
             await svc.SendEmailAsync(id, dto), "Email sent successfully."));
+
+    [HttpGet("{id:int}/pdf")]
+    public async Task<IActionResult> DownloadPdf(int id)
+    {
+        var so       = await svc.GetByIdAsync(id);
+        var pdfBytes = await svc.GetPdfAsync(id);
+        var fileName = $"SO_{so.SONumber.Replace("/", "-")}_{DateTime.Today:yyyyMMdd}.pdf";
+        return File(pdfBytes, "application/pdf", fileName);
+    }
+
+    private static void MaskSensitiveFields(SalesOrderListDto so, bool hideCost, bool hidePhone)
+    {
+        if (hideCost)
+        {
+            so.TotalValue = 0;
+            foreach (var line in so.Lines)
+            {
+                line.Rate       = 0;
+                line.Discount   = 0;
+                line.FinalPrice = 0;
+                line.Amount     = 0;
+            }
+        }
+        if (hidePhone) so.CustomerPhone = null;
+    }
 }

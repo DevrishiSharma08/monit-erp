@@ -116,7 +116,7 @@ export default function TallyExportPage() {
         id: "exportDate",
         accessorKey: "exportDate",
         header: "Date",
-        filterType: "date",
+        filterType: "dateRange",
         enableSorting: true,
         defaultVisible: true,
         size: 110,

@@ -25,7 +25,14 @@ import { useDataGrid } from "./hooks/useDataGrid";
 import { useColumnVisibility } from "./hooks/useColumnVisibility";
 import { useColumnFilters } from "./hooks/useColumnFilters";
 import { useColumnOrder } from "./hooks/useColumnOrder";
+import { useRowDensity } from "./hooks/useRowDensity";
 import { Loader2 } from "lucide-react";
+
+const DENSITY_CELL_CLS = {
+  compact:     "px-2 py-1",
+  normal:      "px-3 py-2.5",
+  comfortable: "px-3 py-4",
+} as const;
 
 function DataGridInner<TData>({
   data,
@@ -35,6 +42,8 @@ function DataGridInner<TData>({
   enablePagination = true,
   enableColumnReordering = true,
   enableColumnVisibility = true,
+  enableExport = true,
+  exportFilename,
   onRowClick,
   initialPageSize = 10,
   isLoading = false,
@@ -44,6 +53,7 @@ function DataGridInner<TData>({
   hideToolbar = false,
   externalColumnVisibility,
   onExternalColumnVisibilityChange,
+  highlightRow,
 }: DataGridProps<TData>) {
   const [sorting, setSorting] = useState<any[]>([]);
   const [globalFilter, setGlobalFilter] = useState("");
@@ -71,6 +81,8 @@ function DataGridInner<TData>({
     tableName,
     defaultColumnOrder
   );
+
+  const [rowDensity, setRowDensity] = useRowDensity(tableName);
 
   // Map column id → config for sticky lookup
   const configMap = useMemo(
@@ -115,6 +127,8 @@ function DataGridInner<TData>({
     }
   }
 
+  const cellPadding = DENSITY_CELL_CLS[rowDensity];
+
   // Loading state
   if (isLoading) {
     return (
@@ -134,8 +148,12 @@ function DataGridInner<TData>({
             columnConfigs={columnConfigs}
             enableFilters={enableFilters}
             enableColumnVisibility={enableColumnVisibility && !externalColumnVisibility}
+            enableExport={enableExport}
+            exportFilename={exportFilename ?? tableName}
             onClearFilters={clearFilters}
             toolbarActions={toolbarActions}
+            rowDensity={rowDensity}
+            onRowDensityChange={setRowDensity}
           />
         )}
         <div className="rounded-lg border bg-white shadow-sm">
@@ -160,6 +178,8 @@ function DataGridInner<TData>({
           enableColumnVisibility={enableColumnVisibility && !externalColumnVisibility}
           onClearFilters={clearFilters}
           toolbarActions={toolbarActions}
+          rowDensity={rowDensity}
+          onRowDensityChange={setRowDensity}
         />
       )}
 
@@ -173,8 +193,8 @@ function DataGridInner<TData>({
             onDragEnd={handleDragEnd}
           >
             <table
-              className="text-left text-sm w-full"
-              style={{ tableLayout: "auto" }}
+              className="text-sm w-full"
+              style={{ tableLayout: "fixed", minWidth: table.getTotalSize() || undefined }}
             >
               <thead className="border-b-2 border-gray-200 bg-gradient-to-b from-slate-50 to-gray-50">
                 {table.getHeaderGroups().map((headerGroup) => (
@@ -188,8 +208,10 @@ function DataGridInner<TData>({
                         return (
                         <th
                           key={header.id}
+                          style={{ width: header.getSize() }}
                           className={cn(
                             "relative px-3 py-3 font-semibold text-gray-700 select-none whitespace-nowrap text-[11px] uppercase tracking-wider",
+                            hCfg?.align === "left" ? "text-left" : hCfg?.align === "right" ? "text-right" : "text-center",
                             hCfg?.sticky === "right" && "sticky right-0 z-20 bg-slate-50 border-l border-gray-200 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.06)]",
                             hCfg?.sticky === "left"  && "sticky left-0 z-20 bg-slate-50 border-r border-gray-200 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]",
                           )}
@@ -204,25 +226,24 @@ function DataGridInner<TData>({
                                   : header.id
                               }
                               enableReordering={enableColumnReordering}
+                              align={hCfg?.align}
                             />
                           )}
-                          {/* Resize handle — invisible line, visible only on hover */}
-                          {header.column.getCanResize() && (
+                          {/* Resize handle */}
+                          <div
+                            onMouseDown={header.getResizeHandler()}
+                            onTouchStart={header.getResizeHandler()}
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute right-0 top-0 h-full w-3 cursor-col-resize touch-none select-none flex items-center justify-end group"
+                          >
                             <div
-                              onMouseDown={header.getResizeHandler()}
-                              onTouchStart={header.getResizeHandler()}
-                              onClick={(e) => e.stopPropagation()}
-                              className="absolute right-0 top-0 h-full w-3 cursor-col-resize touch-none select-none flex items-center justify-end group"
-                            >
-                              <div
-                                className={`h-4/5 w-px transition-colors ${
-                                  header.column.getIsResizing()
-                                    ? "bg-blue-500"
-                                    : "bg-transparent group-hover:bg-blue-400"
-                                }`}
-                              />
-                            </div>
-                          )}
+                              className={`h-4/5 w-0.5 rounded-full transition-colors ${
+                                header.column.getIsResizing()
+                                  ? "bg-blue-500"
+                                  : "bg-transparent group-hover:bg-blue-300"
+                              }`}
+                            />
+                          </div>
                         </th>
                         );
                       })}
@@ -236,9 +257,13 @@ function DataGridInner<TData>({
                   return (
                   <tr
                     key={row.id}
-                    className={`border-b transition-colors duration-100 cursor-pointer group ${
-                      isEven ? "bg-white" : "bg-slate-50/50"
-                    } hover:bg-blue-50/60`}
+                    className={cn(
+                      "border-b transition-colors duration-100 cursor-pointer group",
+                      highlightRow?.(row.original)
+                        ? "bg-blue-50 border-l-2 border-l-blue-400"
+                        : isEven ? "bg-white" : "bg-slate-50/50",
+                      "hover:bg-blue-50/60"
+                    )}
                     onClick={() => onRowClick && onRowClick(row.original)}
                   >
                     {row.getVisibleCells().map((cell) => {
@@ -248,8 +273,12 @@ function DataGridInner<TData>({
                       return (
                       <td
                         key={cell.id}
+                        style={{ width: cell.column.getSize() }}
                         className={cn(
-                          "px-3 py-2.5 text-gray-600 whitespace-nowrap group-hover:text-gray-900 transition-colors duration-100",
+                          cellPadding,
+                          "text-gray-600 group-hover:text-gray-900 transition-colors duration-100",
+                          !cCfg?.noTruncate && "overflow-hidden whitespace-nowrap text-ellipsis",
+                          cCfg?.align === "left" ? "text-left" : cCfg?.align === "right" ? "text-right" : "text-center",
                           stickyR && cn(
                             "sticky right-0 z-10 border-l border-gray-200 group-hover:!bg-blue-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.06)]",
                             isEven ? "bg-white" : "bg-slate-50",

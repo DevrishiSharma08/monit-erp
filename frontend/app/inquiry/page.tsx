@@ -92,7 +92,7 @@ export default function InquiryPage() {
         id: "inquiryDate",
         accessorKey: "inquiryDate",
         header: "Date",
-        filterType: "date",
+        filterType: "dateRange",
         enableSorting: true,
         defaultVisible: true,
         size: 110,
@@ -296,7 +296,7 @@ export default function InquiryPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="kpi-grid grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
         <KpiCard
           title="Total Inquiries"
           value={kpis.total}

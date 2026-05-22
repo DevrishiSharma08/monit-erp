@@ -4,5 +4,5 @@ namespace Monit.API.Services.Interfaces;
 
 public interface IPurchaseOrderPdfService
 {
-    byte[] Generate(PurchaseOrderListDto po, string companyName, string companyAddress);
+    byte[] Generate(PurchaseOrderListDto po, string companyName, string companyAddress, string companyGst);
 }

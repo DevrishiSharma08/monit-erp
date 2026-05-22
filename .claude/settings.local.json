@@ -13,7 +13,8 @@
       "Bash(powershell.exe -Command \"Set-Location 'E:\\\\Monit\\\\frontend'; npm run build\":*)",
       "Bash(ls:*)",
       "Bash(npx tsc:*)",
-      "Bash(dir \"d:\\\\Monit Papers\\\\Monit\\\\Backend\\\\Migrations\")"
+      "Bash(dir \"d:\\\\Monit Papers\\\\Monit\\\\Backend\\\\Migrations\")",
+      "Bash(sqlcmd -S \"160.187.166.14,1433\" -U Indus -P \"Param@99811\" -d MonitPaperDB -Q \"SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES ORDER BY TABLE_SCHEMA, TABLE_NAME\")"
     ]
   }
 }

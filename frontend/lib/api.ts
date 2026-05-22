@@ -54,7 +54,10 @@ async function doFetch<T>(
   // No body
   if (res.status === 204) return undefined as T;
 
-  const body = (await res.json()) as ApiEnvelope<T>;
+  const text = await res.text();
+  if (!text.trim()) throw new ApiError(res.status, `Request failed (${res.status})`);
+
+  const body = JSON.parse(text) as ApiEnvelope<T>;
 
   if (!res.ok || !body.success) {
     // errors[0] gives the specific message (e.g. "Invalid username or password.")
@@ -108,17 +111,43 @@ export function notifyAuthSettled(): void {
 
 // ─── Public ───────────────────────────────────────────────────────────────────
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}, _retried = false): Promise<T> {
+export async function apiDownload(path: string): Promise<{ blob: Blob; filename: string }> {
+  if (!path.startsWith("/api/v1/auth/")) {
+    await _authSettlePromise;
+  }
+  const doGet = async (token: string | null) => {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${BASE_URL}${path}`, { credentials: "include", headers });
+    if (!res.ok) throw new ApiError(res.status, `Download failed (${res.status})`);
+    const cd = res.headers.get("content-disposition") ?? "";
+    const match = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    const filename = match ? match[1].replace(/['"]/g, "") : "download.pdf";
+    return { blob: await res.blob(), filename };
+  };
+  try {
+    return await doGet(_accessToken);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      const newToken = await refreshOnce();
+      if (!newToken) throw err;
+      return doGet(newToken);
+    }
+    throw err;
+  }
+}
+
+export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!path.startsWith("/api/v1/auth/")) {
     await _authSettlePromise;
   }
   try {
     return await doFetch<T>(path, options);
   } catch (err) {
-    if (err instanceof ApiError && err.status === 401 && !_retried) {
+    if (err instanceof ApiError && err.status === 401) {
       const newToken = await refreshOnce();
       if (!newToken) throw err;
-      return apiFetch<T>(path, options, true);
+      return doFetch<T>(path, options, newToken);
     }
     throw err;
   }

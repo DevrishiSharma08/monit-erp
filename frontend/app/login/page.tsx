@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState } from "react";
 import {
-  Eye, EyeOff, Loader2, Package,
+  Eye, EyeOff, Loader2, Package, Building2,
   ShoppingCart, BarChart3, Truck, TrendingUp,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -11,15 +11,16 @@ import { useToast } from "@/context/ToastContext";
 export default function LoginPage() {
   const { login } = useAuth();
   const { error: toastError } = useToast();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPw, setShowPw]     = useState(false);
-  const [loading, setLoading]   = useState(false);
+  const [username,  setUsername]  = useState("");
+  const [password,  setPassword]  = useState("");
+  const [companyId, setCompanyId] = useState<1 | 2>(1);
+  const [showPw,    setShowPw]    = useState(false);
+  const [loading,   setLoading]   = useState(false);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: { preventDefault(): void }) => {
     e.preventDefault();
     setLoading(true);
-    const result = await login(username, password);
+    const result = await login(username, password, companyId);
     setLoading(false);
     if (!result.success) toastError(result.message ?? "Login failed");
   };
@@ -190,6 +191,25 @@ export default function LoginPage() {
             <div className="rounded-2xl border border-gray-200 bg-white p-7 shadow-sm">
               <form onSubmit={handleSubmit} className="space-y-5">
 
+                {/* 1. Company */}
+                <div>
+                  <label className="mb-1.5 block text-[10px] font-extrabold uppercase tracking-widest text-gray-400">
+                    Company
+                  </label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+                    <select
+                      value={companyId}
+                      onChange={(e) => setCompanyId(Number(e.target.value) as 1 | 2)}
+                      className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-4 py-2.5 text-sm text-gray-900 transition-all focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    >
+                      <option value={1}>Monit Paper Agency</option>
+                      <option value={2}>Monit Paper Associates</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* 2. Username */}
                 <div>
                   <label className="mb-1.5 block text-[10px] font-extrabold uppercase tracking-widest text-gray-400">
                     Username
@@ -202,6 +222,7 @@ export default function LoginPage() {
                   />
                 </div>
 
+                {/* 3. Password */}
                 <div>
                   <label className="mb-1.5 block text-[10px] font-extrabold uppercase tracking-widest text-gray-400">
                     Password

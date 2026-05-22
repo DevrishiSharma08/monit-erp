@@ -17,7 +17,7 @@ public class UserRepository(DbConnectionFactory db) : IUserRepository
         var countSql = $"SELECT COUNT(*) FROM auth.Users u WHERE {where}";
         var dataSql  = $@"
             SELECT u.Id, u.Username, u.Name, u.Email, u.RoleId, u.Role,
-                   u.IsActive, u.LastLoginAt, u.CreatedAt
+                   u.IsActive, u.BothCompaniesAccess, u.LastLoginAt, u.CreatedAt
             FROM   auth.Users u
             WHERE  {where}
             ORDER  BY {orderBy}
@@ -35,7 +35,7 @@ public class UserRepository(DbConnectionFactory db) : IUserRepository
     public async Task<List<UserListDto>> GetAllForExportAsync(UserFilterRequest f)
     {
         var (where, param) = BuildWhere(f);
-        var sql = $"SELECT u.Id, u.Username, u.Name, u.Email, u.RoleId, u.Role, u.IsActive, u.LastLoginAt, u.CreatedAt FROM auth.Users u WHERE {where} ORDER BY u.Name ASC";
+        var sql = $"SELECT u.Id, u.Username, u.Name, u.Email, u.RoleId, u.Role, u.IsActive, u.BothCompaniesAccess, u.LastLoginAt, u.CreatedAt FROM auth.Users u WHERE {where} ORDER BY u.Name ASC";
         using var conn = db.Create();
         return (await conn.QueryAsync<UserListDto>(sql, param)).ToList();
     }
@@ -44,7 +44,7 @@ public class UserRepository(DbConnectionFactory db) : IUserRepository
     {
         const string sql = @"
             SELECT u.Id, u.Username, u.Name, u.Email, u.RoleId, u.Role,
-                   u.CustomerName, u.IsActive, u.LastLoginAt,
+                   u.CustomerName, u.IsActive, u.BothCompaniesAccess, u.LastLoginAt,
                    u.CreatedAt, u.CreatedBy, u.UpdatedAt, u.UpdatedBy
             FROM   auth.Users u
             WHERE  u.Id = @Id AND u.IsDeleted = 0";
@@ -70,10 +70,10 @@ public class UserRepository(DbConnectionFactory db) : IUserRepository
     {
         const string sql = @"
             INSERT INTO auth.Users
-                (Username, Email, Password, Name, RoleId, Role, CustomerName, IsActive, CreatedAt, CreatedBy)
+                (Username, Email, Password, Name, RoleId, Role, CustomerName, IsActive, BothCompaniesAccess, CreatedAt, CreatedBy)
             OUTPUT INSERTED.Id
             VALUES
-                (@Username, @Email, @Password, @Name, @RoleId, @Role, @CustomerName, @IsActive, @CreatedAt, @CreatedBy)";
+                (@Username, @Email, @Password, @Name, @RoleId, @Role, @CustomerName, @IsActive, @BothCompaniesAccess, @CreatedAt, @CreatedBy)";
         using var conn = db.Create();
         return await conn.ExecuteScalarAsync<int>(sql, u);
     }
@@ -82,14 +82,15 @@ public class UserRepository(DbConnectionFactory db) : IUserRepository
     {
         const string sql = @"
             UPDATE auth.Users SET
-                Name         = @Name,
-                Email        = @Email,
-                RoleId       = @RoleId,
-                Role         = @Role,
-                CustomerName = @CustomerName,
-                IsActive     = @IsActive,
-                UpdatedAt    = @UpdatedAt,
-                UpdatedBy    = @UpdatedBy
+                Name                = @Name,
+                Email               = @Email,
+                RoleId              = @RoleId,
+                Role                = @Role,
+                CustomerName        = @CustomerName,
+                IsActive            = @IsActive,
+                BothCompaniesAccess = @BothCompaniesAccess,
+                UpdatedAt           = @UpdatedAt,
+                UpdatedBy           = @UpdatedBy
             WHERE Id = @Id AND IsDeleted = 0";
         using var conn = db.Create();
         await conn.ExecuteAsync(sql, u);
@@ -107,6 +108,48 @@ public class UserRepository(DbConnectionFactory db) : IUserRepository
         const string sql = "UPDATE auth.Users SET IsDeleted=1,DeletedAt=GETUTCDATE(),DeletedBy=@DeletedBy WHERE Id=@Id AND IsDeleted=0";
         using var conn = db.Create();
         await conn.ExecuteAsync(sql, new { Id = id, DeletedBy = deletedBy });
+    }
+
+    public async Task UpsertByUsernameForCompanyAsync(User u, int companyId)
+    {
+        const string sql = @"
+            MERGE auth.Users AS target
+            USING (SELECT @Username AS Username) AS src
+                ON target.Username = src.Username AND target.IsDeleted = 0
+            WHEN MATCHED THEN UPDATE SET
+                Name                = @Name,
+                Email               = @Email,
+                Password            = CASE WHEN @Password IS NOT NULL AND @Password <> ''
+                                          THEN @Password ELSE target.Password END,
+                RoleId              = @RoleId,
+                Role                = @Role,
+                CustomerName        = @CustomerName,
+                IsActive            = @IsActive,
+                BothCompaniesAccess = 1,
+                UpdatedAt           = GETUTCDATE(),
+                UpdatedBy           = @UpdatedBy
+            WHEN NOT MATCHED THEN INSERT
+                (Username, Email, Password, Name, RoleId, Role, CustomerName,
+                 IsActive, BothCompaniesAccess, CreatedAt, CreatedBy, UpdatedAt, UpdatedBy)
+            VALUES
+                (@Username, @Email, @Password, @Name, @RoleId, @Role, @CustomerName,
+                 @IsActive, 1, GETUTCDATE(), ISNULL(@CreatedBy, @UpdatedBy), GETUTCDATE(), @UpdatedBy);";
+        using var conn = await db.CreateForCompanyAsync(companyId);
+        await conn.ExecuteAsync(sql, u);
+    }
+
+    public async Task UpdatePasswordByUsernameForCompanyAsync(string username, string password, string updatedBy, int companyId)
+    {
+        const string sql = "UPDATE auth.Users SET Password=@Password, UpdatedAt=GETUTCDATE(), UpdatedBy=@UpdatedBy WHERE Username=@Username AND IsDeleted=0";
+        using var conn = db.CreateForCompany(companyId);
+        await conn.ExecuteAsync(sql, new { Username = username, Password = password, UpdatedBy = updatedBy });
+    }
+
+    public async Task SoftDeleteByUsernameForCompanyAsync(string username, string deletedBy, int companyId)
+    {
+        const string sql = "UPDATE auth.Users SET IsDeleted=1, DeletedAt=GETUTCDATE(), DeletedBy=@DeletedBy WHERE Username=@Username AND IsDeleted=0";
+        using var conn = db.CreateForCompany(companyId);
+        await conn.ExecuteAsync(sql, new { Username = username, DeletedBy = deletedBy });
     }
 
     private static (string, DynamicParameters) BuildWhere(UserFilterRequest f)

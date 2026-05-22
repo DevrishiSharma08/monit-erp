@@ -22,16 +22,12 @@ function KpiCard({
   icon: React.ElementType; iconBg: string; iconColor: string;
 }) {
   return (
-    <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{title}</p>
-          <p className="mt-1.5 text-2xl font-bold text-gray-900">{value}</p>
-          {sub && <p className="mt-0.5 text-xs text-gray-500">{sub}</p>}
-        </div>
-        <div className={`flex h-10 w-10 items-center justify-center rounded-full ${iconBg}`}>
-          <Icon className={`h-5 w-5 ${iconColor}`} />
-        </div>
+    <div className={`group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${iconBg}`}>
+      <p className={`text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate ${iconColor}`}>{title}</p>
+      <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{value}</p>
+      {sub && <p className="mt-1 text-[10px] sm:text-xs text-gray-500 truncate">{sub}</p>}
+      <div className={`pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] ${iconColor}`}>
+        <Icon className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
       </div>
     </div>
   );
@@ -140,7 +136,7 @@ export default function AccountsDashboard() {
   return (
     <div className="space-y-6 pb-24">
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="kpi-grid grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard title="Sales Invoices" value={String(salesStats.total)}
           sub={`\u20B9${(salesStats.totalAmt / 100000).toFixed(1)}L total`}
           icon={Receipt} iconBg="bg-blue-50" iconColor="text-blue-500" />

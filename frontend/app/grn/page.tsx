@@ -8,14 +8,16 @@ import {
   millTrackerApi, MillTrackerRow,
 } from "@/lib/api-services";
 import {
-  PackageCheck, Clock, AlertTriangle, CheckCircle, X, FileText,
+  PackageCheck, Clock, AlertTriangle, CheckCircle, FileText,
   Truck, MapPin, Plus, Printer, Search, MoreVertical, Eye,
   Pencil, Trash2, CheckCircle2, Ban, Loader2, ArrowRight, ChevronDown,
-  ShieldAlert, ShieldCheck, EyeOff,
+  ShieldAlert, ShieldCheck, EyeOff, Share2,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { createPortal } from "react-dom";
+import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
+import { SharePanel, ShareData } from "@/components/ShareMenu";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -369,9 +371,8 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
     { value: "Split",          label: "Split",          desc: "Part to stock, part direct" },
   ];
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-6">
-      <div className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl">
+  return (
+    <PortalModal onClose={onClose} maxWidth="max-w-5xl">
 
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
@@ -390,7 +391,7 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400"><X className="h-5 w-5" /></button>
+          <ModalCloseButton onClose={onClose} />
         </div>
 
         {confirming ? (
@@ -821,9 +822,7 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
             </>
           )}
         </div>
-      </div>
-    </div>,
-    document.body
+    </PortalModal>
   );
 }
 
@@ -850,15 +849,14 @@ function EditGRNModal({
     }
   };
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+  return (
+    <PortalModal onClose={onClose} maxWidth="max-w-md">
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <div>
             <h2 className="text-base font-bold text-gray-900">Edit GRN — {grn.grnNumber}</h2>
             <p className="text-xs text-gray-500 mt-0.5">{grn.paper} · {grn.gsm}g · {grn.size}</p>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400"><X className="h-5 w-5" /></button>
+          <ModalCloseButton onClose={onClose} />
         </div>
         <div className="p-5 space-y-4">
           <div>
@@ -883,9 +881,7 @@ function EditGRNModal({
             Save Changes
           </button>
         </div>
-      </div>
-    </div>,
-    document.body
+    </PortalModal>
   );
 }
 
@@ -906,13 +902,13 @@ function ViewGRNModal({
   const billing = getBillingModeLabel(grn.billingMode, grn.blindShipment);
   const BillingIcon = billing.Icon;
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-6">
-      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
+  return (
+    <PortalModal onClose={onClose}>
+        {/* Header — teal tinted */}
+        <div className="flex items-center justify-between border-b border-teal-100 px-5 py-3.5 bg-teal-50 rounded-t-2xl">
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100">
-              <PackageCheck className="h-4 w-4 text-blue-600" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-100">
+              <PackageCheck className="h-4 w-4 text-teal-600" />
             </div>
             <div>
               <h2 className="text-base font-bold text-gray-900">{grn.grnNumber}</h2>
@@ -929,10 +925,25 @@ function ViewGRNModal({
               <BillingIcon className="h-3 w-3" /> {billing.label}
             </span>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400"><X className="h-5 w-5" /></button>
+          <ModalCloseButton onClose={onClose} />
         </div>
 
         <div className="max-h-[calc(100vh-160px)] overflow-y-auto p-5 space-y-4">
+          {/* Metric cards */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-xl bg-teal-50 border border-teal-100 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-teal-500">GRN Number</p>
+              <p className="text-sm font-black text-teal-900 font-mono mt-0.5 truncate">{grn.grnNumber}</p>
+            </div>
+            <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-500">Mill / Supplier</p>
+              <p className="text-sm font-bold text-blue-900 mt-0.5 truncate">{grn.millName}</p>
+            </div>
+            <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500">Received Qty</p>
+              <p className="text-sm font-black text-emerald-800 mt-0.5">{grn.receivedQty.toLocaleString()} <span className="text-xs font-normal text-emerald-600">sheets</span></p>
+            </div>
+          </div>
 
           {/* Flow Chain */}
           {(d?.linkedSoNumber || d?.loadPlanNumber) && (
@@ -1145,19 +1156,19 @@ function ViewGRNModal({
             <button onClick={onClose} className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Close</button>
           </div>
         </div>
-      </div>
-    </div>,
-    document.body
+    </PortalModal>
   );
 }
 
 // ─── Row Actions Dropdown ──────────────────────────────────────────────────────
 
-function RowActions({ onView, onEdit, onDelete }: {
-  onView: () => void; onEdit: () => void; onDelete: () => void;
+function RowActions({ onView, onEdit, onDelete, shareData }: {
+  onView: () => void; onEdit: () => void; onDelete: () => void; shareData?: ShareData;
 }) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ top: 0, right: 0 });
+  const [open, setOpen]           = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [pos, setPos]             = useState({ top: 0, right: 0 });
+  const [shareAnchor, setShareAnchor] = useState<{ top: number; right: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -1181,6 +1192,16 @@ function RowActions({ onView, onEdit, onDelete }: {
 
   const action = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); setOpen(false); fn(); };
 
+  const handleShare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen(false);
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setShareAnchor({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
+    setShareOpen(true);
+  };
+
   return (
     <>
       <button ref={btnRef} onClick={toggle}
@@ -1200,8 +1221,20 @@ function RowActions({ onView, onEdit, onDelete }: {
               <Icon className="h-3.5 w-3.5" /> {label}
             </button>
           ))}
+          {shareData && (
+            <>
+              <div className="my-1 border-t border-gray-100" />
+              <button onClick={handleShare}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                <Share2 className="h-3.5 w-3.5 text-blue-500" /> Share
+              </button>
+            </>
+          )}
         </div>,
         document.body
+      )}
+      {shareOpen && shareAnchor && shareData && (
+        <SharePanel data={shareData} anchor={shareAnchor} onClose={() => setShareOpen(false)} />
       )}
     </>
   );
@@ -1317,25 +1350,25 @@ export default function GRNPage() {
   const columns: ColumnConfig<GrnRow>[] = useMemo(() => [
     {
       id: "grnNumber", accessorKey: "grnNumber", header: "GRN #",
-      filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 130,
+      filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 130, align: "left" as const,
       cell: (info) => <span className="font-semibold text-blue-700">{info.getValue() as string}</span>,
     },
     {
       id: "grnDate", accessorKey: "grnDate", header: "Date",
-      filterType: "date", enableSorting: true, defaultVisible: true, size: 100,
+      filterType: "dateRange", enableSorting: true, defaultVisible: true, size: 100,
     },
     {
       id: "poNumber", accessorKey: "poNumber", header: "PO #",
-      filterType: "text", enableSorting: true, defaultVisible: true, size: 140,
+      filterType: "text", enableSorting: true, defaultVisible: true, size: 140, align: "left" as const,
       cell: (info) => <span className="text-blue-600 font-medium">{info.getValue() as string}</span>,
     },
     {
       id: "millName", accessorKey: "millName", header: "Mill",
-      filterType: "text", enableSorting: true, defaultVisible: true, size: 130,
+      filterType: "text", enableSorting: true, defaultVisible: true, size: 130, align: "left" as const,
     },
     {
       id: "paper", accessorKey: "paper", header: "Paper",
-      filterType: "text", enableSorting: true, defaultVisible: true, size: 150,
+      filterType: "text", enableSorting: true, defaultVisible: true, size: 150, align: "left" as const, noTruncate: true,
     },
     {
       id: "spec", accessorKey: "gsm", header: "Spec",
@@ -1344,17 +1377,16 @@ export default function GRNPage() {
     },
     {
       id: "routing", accessorKey: "grnDeliveryMode", header: "Routing",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 130,
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 160,
       cell: (info) => {
         const g = info.row.original;
+        const label = g.grnDeliveryMode === "StockIn" ? "To Stock" : g.grnDeliveryMode === "DirectToClient" ? "Direct" : "Split";
         return (
-          <div className="text-xs space-y-0.5">
-            <span className={`inline-flex rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${getDeliveryModeColor(g.grnDeliveryMode)}`}>
-              {g.grnDeliveryMode === "StockIn" ? "To Stock" : g.grnDeliveryMode === "DirectToClient" ? "Direct" : "Split"}
-            </span>
-            {g.stockQty > 0 && <p className="text-teal-700">{g.stockQty.toLocaleString()} → stock</p>}
-            {g.directQty > 0 && <p className="text-purple-700">{g.directQty.toLocaleString()} → client</p>}
-          </div>
+          <span className="inline-flex items-center gap-1.5 text-xs">
+            <span className={`inline-flex rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${getDeliveryModeColor(g.grnDeliveryMode)}`}>{label}</span>
+            {g.stockQty > 0 && <span className="text-teal-700">{g.stockQty.toLocaleString()}→stk</span>}
+            {g.directQty > 0 && <span className="text-purple-700">{g.directQty.toLocaleString()}→cli</span>}
+          </span>
         );
       },
     },
@@ -1364,34 +1396,35 @@ export default function GRNPage() {
       cell: (info) => {
         const g = info.row.original;
         return (
-          <div className="text-sm">
+          <span className="text-sm">
             <span className="text-gray-500">{g.orderedQty.toLocaleString()}</span>
             <span className="mx-1 text-gray-300">/</span>
             <span className={`font-semibold ${g.balanceQty > 0 ? "text-red-600" : "text-green-700"}`}>{g.receivedQty.toLocaleString()}</span>
             {g.balanceQty > 0 && <span className="ml-1 text-xs text-red-500">(-{g.balanceQty.toLocaleString()})</span>}
-          </div>
+          </span>
         );
       },
     },
     {
       id: "warehouseName", accessorKey: "warehouseName", header: "Warehouse",
-      filterType: "text", enableSorting: true, defaultVisible: true, size: 120,
+      filterType: "text", enableSorting: true, defaultVisible: true, size: 120, align: "left" as const,
       cell: (info) => <span>{(info.getValue() as string) || <span className="text-gray-300">—</span>}</span>,
     },
     {
       id: "customerName", accessorKey: "customerName", header: "Customer",
-      filterType: "text", enableSorting: true, defaultVisible: false, size: 130,
+      filterType: "text", enableSorting: true, defaultVisible: false, size: 130, align: "left" as const,
       cell: (info) => {
         const g = info.row.original;
+        const name = g.effectiveClientName || g.customerName;
         return (
-          <div className="text-xs">
-            <p>{g.effectiveClientName || g.customerName || <span className="text-gray-300">—</span>}</p>
+          <span className="text-xs">
+            <span>{name || <span className="text-gray-300">—</span>}</span>
             {g.billingMode !== "Normal" && (
-              <span className={`text-[10px] ${g.billingMode === "Blind" || g.blindShipment ? "text-red-500" : "text-orange-500"}`}>
-                {g.billingMode === "Blind" || g.blindShipment ? "Blind" : "Override"}
+              <span className={`ml-1 text-[10px] font-semibold ${g.billingMode === "Blind" || g.blindShipment ? "text-red-500" : "text-orange-500"}`}>
+                [{g.billingMode === "Blind" || g.blindShipment ? "Blind" : "Override"}]
               </span>
             )}
-          </div>
+          </span>
         );
       },
     },
@@ -1428,6 +1461,11 @@ export default function GRNPage() {
             onView={() => openView(grn)}
             onEdit={() => openEdit(grn)}
             onDelete={() => handleDeleteGRN(grn.id)}
+            shareData={{
+              title: grn.grnNumber,
+              subject: `GRN ${grn.grnNumber} — ${grn.millName}`,
+              text: `GRN: ${grn.grnNumber}\nPO: ${grn.poNumber}\nMill: ${grn.millName}\nMaterial: ${grn.paper}\nReceived Qty: ${grn.receivedQty}\nDate: ${grn.grnDate}\nStatus: ${grn.status}`,
+            }}
           />
         );
       },
@@ -1447,80 +1485,78 @@ export default function GRNPage() {
     <div className="space-y-6 pb-24">
 
       {/* KPI Row */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-8">
+      <div className="kpi-grid grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-4 lg:grid-cols-8">
 
         <button onClick={() => { setShowPending((v) => !v); setPendingSearch(""); }}
-          className={`rounded-xl border-2 p-4 text-left transition-all ${showPending ? "border-amber-400 bg-amber-500 shadow-md" : pendingTlps.length > 0 ? "border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 hover:border-amber-300" : "border-gray-100 bg-white hover:border-gray-200"}`}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={`text-xs font-medium uppercase tracking-wide ${showPending ? "text-amber-100" : "text-gray-400"}`}>Pending GRN</p>
-              <p className={`mt-1.5 text-2xl font-bold ${showPending ? "text-white" : pendingTlps.length > 0 ? "text-amber-600" : "text-gray-900"}`}>{pendingTlps.length}</p>
-              <p className={`mt-0.5 text-xs ${showPending ? "text-amber-100" : "text-amber-500"}`}>{showPending ? "Click to hide" : "Shipments waiting"}</p>
-            </div>
-            <div className={`flex h-10 w-10 items-center justify-center rounded-full ${showPending ? "bg-amber-400" : "bg-amber-100"}`}>
-              <Truck className={`h-5 w-5 ${showPending ? "text-white" : "text-amber-600"}`} />
-            </div>
+          className={`group relative overflow-hidden rounded-2xl border-2 p-3 sm:p-5 text-left transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:scale-[0.98] ${showPending ? "border-amber-400 bg-amber-500 shadow-md" : "border-amber-200 bg-amber-50 hover:border-amber-300"}`}>
+          <p className={`text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider ${showPending ? "text-white/80" : "text-amber-600"}`}>Pending GRN</p>
+          <p className={`mt-1.5 text-2xl sm:text-4xl font-black leading-none tabular-nums animate-kpi-value ${showPending ? "text-white" : "text-gray-900"}`}>{pendingTlps.length}</p>
+          <p className={`mt-1 text-[10px] sm:text-xs ${showPending ? "text-white/60" : "text-amber-500"}`}>{showPending ? "Click to hide" : "Shipments waiting"}</p>
+          <div className={`pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] ${showPending ? "text-white" : "text-amber-500"}`}>
+            <Truck className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
           </div>
         </button>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Stock Updated</p>
-              <p className="mt-1.5 text-2xl font-bold text-green-700">{kpis.stockUpdated}</p>
-              <p className="mt-0.5 text-xs text-green-600">In inventory</p></div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-50"><PackageCheck className="h-5 w-5 text-green-500" /></div>
+        <div className="group relative overflow-hidden rounded-2xl border border-white/80 bg-green-50 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
+          <p className="text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider text-green-600">Stock Updated</p>
+          <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{kpis.stockUpdated}</p>
+          <p className="mt-1 text-[10px] sm:text-xs text-gray-500">In inventory</p>
+          <div className="pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] text-green-500">
+            <PackageCheck className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Discrepancy</p>
-              <p className="mt-1.5 text-2xl font-bold text-red-700">{kpis.discrepancy}</p>
-              <p className="mt-0.5 text-xs text-red-600">Issues found</p></div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-50"><AlertTriangle className="h-5 w-5 text-red-500" /></div>
+        <div className="group relative overflow-hidden rounded-2xl border border-white/80 bg-red-50 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
+          <p className="text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider text-red-600">Discrepancy</p>
+          <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{kpis.discrepancy}</p>
+          <p className="mt-1 text-[10px] sm:text-xs text-gray-500">Issues found</p>
+          <div className="pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] text-red-500">
+            <AlertTriangle className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Draft</p>
-              <p className="mt-1.5 text-2xl font-bold text-gray-700">{kpis.draft}</p>
-              <p className="mt-0.5 text-xs text-gray-500">New arrivals</p></div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-50"><FileText className="h-5 w-5 text-gray-400" /></div>
+        <div className="group relative overflow-hidden rounded-2xl border border-white/80 bg-gray-50 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
+          <p className="text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider text-gray-500">Draft</p>
+          <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{kpis.draft}</p>
+          <p className="mt-1 text-[10px] sm:text-xs text-gray-500">New arrivals</p>
+          <div className="pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] text-gray-400">
+            <FileText className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">QC Pending</p>
-              <p className="mt-1.5 text-2xl font-bold text-yellow-700">{kpis.qcPending}</p>
-              <p className="mt-0.5 text-xs text-yellow-600">On hold</p></div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-50"><Clock className="h-5 w-5 text-yellow-500" /></div>
+        <div className="group relative overflow-hidden rounded-2xl border border-white/80 bg-yellow-50 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
+          <p className="text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider text-yellow-600">QC Pending</p>
+          <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{kpis.qcPending}</p>
+          <p className="mt-1 text-[10px] sm:text-xs text-gray-500">On hold</p>
+          <div className="pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] text-yellow-500">
+            <Clock className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div><p className="text-xs font-medium uppercase tracking-wide text-gray-400">Approved</p>
-              <p className="mt-1.5 text-2xl font-bold text-blue-700">{kpis.approved}</p>
-              <p className="mt-0.5 text-xs text-blue-600">QC passed</p></div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50"><CheckCircle className="h-5 w-5 text-blue-500" /></div>
+        <div className="group relative overflow-hidden rounded-2xl border border-white/80 bg-blue-50 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
+          <p className="text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider text-blue-600">Approved</p>
+          <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{kpis.approved}</p>
+          <p className="mt-1 text-[10px] sm:text-xs text-gray-500">QC passed</p>
+          <div className="pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] text-blue-500">
+            <CheckCircle className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">→ Stock</p>
-            <p className="mt-1.5 text-2xl font-bold text-teal-700">{(kpis.totalStock / 1000).toFixed(1)}K</p>
-            <p className="mt-0.5 text-xs text-teal-600">sheets to inventory</p>
+        <div className="group relative overflow-hidden rounded-2xl border border-white/80 bg-teal-50 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
+          <p className="text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider text-teal-600">→ Stock</p>
+          <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{(kpis.totalStock / 1000).toFixed(1)}K</p>
+          <p className="mt-1 text-[10px] sm:text-xs text-gray-500">sheets to inventory</p>
+          <div className="pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] text-teal-500">
+            <PackageCheck className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-gray-400">→ Client Direct</p>
-            <p className="mt-1.5 text-2xl font-bold text-purple-700">{(kpis.totalDirect / 1000).toFixed(1)}K</p>
-            <p className="mt-0.5 text-xs text-purple-600">sheets bypassed stock</p>
+        <div className="group relative overflow-hidden rounded-2xl border border-white/80 bg-purple-50 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
+          <p className="text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider text-purple-600">→ Client Direct</p>
+          <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{(kpis.totalDirect / 1000).toFixed(1)}K</p>
+          <p className="mt-1 text-[10px] sm:text-xs text-gray-500">sheets bypassed stock</p>
+          <div className="pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] text-purple-500">
+            <MapPin className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
           </div>
         </div>
       </div>
@@ -1599,6 +1635,16 @@ export default function GRNPage() {
             initialPageSize={10}
             onRowClick={(grn) => openView(grn)}
             emptyMessage="No GRNs yet. Create GRNs from dispatched shipments above."
+            toolbarActions={
+              <button
+                onClick={() => { setShowPending(true); setPendingSearch(""); }}
+                className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-amber-600 active:scale-95 transition-all whitespace-nowrap"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Add GRN</span>
+                <span className="sm:hidden">Add</span>
+              </button>
+            }
           />
         </div>
       )}

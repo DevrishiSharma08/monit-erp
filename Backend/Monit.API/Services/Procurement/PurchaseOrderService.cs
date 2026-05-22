@@ -13,6 +13,7 @@ public class PurchaseOrderService(
     IMillTrackerRepository     millTrackerRepo,
     IEmailService              emailSvc,
     IPurchaseOrderPdfService   pdfSvc,
+    ICompanyConfigService      companyCfgSvc,
     AppConfig                  cfg) : IPurchaseOrderService
 {
     public Task<PagedResult<PurchaseOrderListDto>> GetAllAsync(PurchaseOrderFilterRequest filter)
@@ -66,7 +67,7 @@ public class PurchaseOrderService(
             throw new ArgumentException("At least one recipient is required.");
 
         var po       = await GetByIdAsync(id);
-        var pdfBytes = pdfSvc.Generate(po, cfg.CompanyName, cfg.CompanyAddress);
+        var pdfBytes = await BuildPdfAsync(po);
         var fileName = $"PO_{po.PONumber.Replace("/", "-")}_{DateTime.Today:yyyyMMdd}.pdf";
 
         await emailSvc.SendAsync(dto, pdfBytes, fileName);
@@ -77,6 +78,22 @@ public class PurchaseOrderService(
             Success     = true,
             EmailSentAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
         };
+    }
+
+    public async Task<byte[]> GetPdfAsync(int id)
+    {
+        var po = await GetByIdAsync(id);
+        return await BuildPdfAsync(po);
+    }
+
+    private async Task<byte[]> BuildPdfAsync(PurchaseOrderListDto po)
+    {
+        var c = await companyCfgSvc.GetAsync(1);
+        return pdfSvc.Generate(
+            po,
+            c.CompanyName ?? cfg.CompanyName,
+            c.Address     ?? cfg.CompanyAddress,
+            c.GstNumber   ?? "");
     }
 
     private static PurchaseOrderListDto MapToListDto(CreatePurchaseOrderDto dto) => new()

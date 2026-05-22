@@ -10,13 +10,16 @@ interface DataGridColumnHeaderProps<TData, TValue> {
   column: Column<TData, TValue>;
   title: string;
   enableReordering?: boolean;
+  align?: "left" | "center" | "right";
 }
 
 export function DataGridColumnHeader<TData, TValue>({
   column,
   title,
   enableReordering = true,
+  align,
 }: DataGridColumnHeaderProps<TData, TValue>) {
+  const justifyCls = align === "left" ? "justify-start" : align === "right" ? "justify-end" : "justify-center";
   const {
     attributes,
     listeners,
@@ -41,7 +44,7 @@ export function DataGridColumnHeader<TData, TValue>({
         ref={setNodeRef}
         style={style}
         className={cn(
-          "flex items-center gap-2",
+          `flex items-center gap-2 ${justifyCls}`,
           isDragging && "cursor-grabbing"
         )}
       >
@@ -67,7 +70,7 @@ export function DataGridColumnHeader<TData, TValue>({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "flex items-center gap-2",
+        `flex items-center gap-2 ${justifyCls}`,
         isDragging && "cursor-grabbing"
       )}
     >

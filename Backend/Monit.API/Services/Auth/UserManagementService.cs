@@ -1,4 +1,3 @@
-using BCrypt.Net;
 using Monit.API.Common.Helpers;
 using Monit.API.Common.Middleware;
 using Monit.API.Common.Response;
@@ -10,12 +9,14 @@ using Monit.API.Services.Interfaces;
 namespace Monit.API.Services.Auth;
 
 public class UserManagementService(
-    IUserRepository  userRepo,
-    IRoleRepository  roleRepo,
-    IAuthRepository  authRepo,
-    IExportService   exportService,
-    AppConfig        appConfig) : IUserManagementService
+    IUserRepository      userRepo,
+    IRoleRepository      roleRepo,
+    IExportService       exportService,
+    AppConfig            appConfig,
+    IHttpContextAccessor http) : IUserManagementService
 {
+    private int  CurrentCompanyId  => int.TryParse(http.HttpContext?.User?.FindFirst("company_id")?.Value, out var id) ? id : 1;
+    private static int OtherCompany(int current) => current == 1 ? 2 : 1;
     public Task<PagedResult<UserListDto>> GetAllAsync(UserFilterRequest f) => userRepo.GetAllAsync(f);
     public Task<List<UserDropdownDto>>    GetDropdownAsync()                => userRepo.GetDropdownAsync();
 
@@ -29,23 +30,31 @@ public class UserManagementService(
         if (await userRepo.UsernameExistsAsync(dto.Username.Trim()))
             throw new ConflictException($"Username '{dto.Username}' is already taken.");
 
-        // Verify role exists
         var role = await roleRepo.GetByIdAsync(dto.RoleId)
             ?? throw new ValidationException("Selected role does not exist.");
 
-        var id = await userRepo.CreateAsync(new User
+        var user = new User
         {
-            Username     = dto.Username.Trim().ToLower(),
-            Password     = BCrypt.Net.BCrypt.HashPassword(dto.Password),
-            Name         = dto.Name.Trim(),
-            Email        = dto.Email?.Trim().ToLower(),
-            RoleId       = dto.RoleId,
-            Role         = role.Name,
-            CustomerName = dto.CustomerName?.Trim(),
-            IsActive     = true,
-            CreatedAt    = DateTime.UtcNow,
-            CreatedBy    = createdBy
-        });
+            Username            = dto.Username.Trim().ToLower(),
+            Password            = dto.Password,
+            Name                = dto.Name.Trim(),
+            Email               = dto.Email?.Trim().ToLower(),
+            RoleId              = dto.RoleId,
+            Role                = role.Name,
+            CustomerName        = dto.CustomerName?.Trim(),
+            IsActive            = true,
+            BothCompaniesAccess = dto.BothCompaniesAccess,
+            CreatedAt           = DateTime.UtcNow,
+            CreatedBy           = createdBy,
+            UpdatedAt           = DateTime.UtcNow,
+            UpdatedBy           = createdBy,
+        };
+
+        var id = await userRepo.CreateAsync(user);
+
+        if (dto.BothCompaniesAccess)
+            await userRepo.UpsertByUsernameForCompanyAsync(user, OtherCompany(CurrentCompanyId));
+
         return await GetByIdAsync(id);
     }
 
@@ -61,7 +70,6 @@ public class UserManagementService(
         var role = await roleRepo.GetByIdAsync(dto.RoleId)
             ?? throw new ValidationException("Selected role does not exist.");
 
-        // Prevent demoting the last active admin
         if (existing.Role == "Admin" && role.Name != "Admin")
         {
             var adminCount = (await userRepo.GetAllAsync(new UserFilterRequest { Role = "Admin", IsActive = true })).Total;
@@ -69,28 +77,37 @@ public class UserManagementService(
                 throw new ValidationException("Cannot change the role of the last active Admin.");
         }
 
-        await userRepo.UpdateAsync(new User
+        var user = new User
         {
-            Id           = id,
-            Name         = dto.Name.Trim(),
-            Email        = dto.Email?.Trim().ToLower(),
-            RoleId       = dto.RoleId,
-            Role         = role.Name,
-            CustomerName = dto.CustomerName?.Trim(),
-            IsActive     = dto.IsActive,
-            UpdatedAt    = DateTime.UtcNow,
-            UpdatedBy    = updatedBy
-        });
+            Id                  = id,
+            Username            = existing.Username,
+            Name                = dto.Name.Trim(),
+            Email               = dto.Email?.Trim().ToLower(),
+            RoleId              = dto.RoleId,
+            Role                = role.Name,
+            CustomerName        = dto.CustomerName?.Trim(),
+            IsActive            = dto.IsActive,
+            BothCompaniesAccess = dto.BothCompaniesAccess,
+            UpdatedAt           = DateTime.UtcNow,
+            UpdatedBy           = updatedBy
+        };
+
+        await userRepo.UpdateAsync(user);
+
+        if (dto.BothCompaniesAccess)
+            await userRepo.UpsertByUsernameForCompanyAsync(user, OtherCompany(CurrentCompanyId));
+
         return await GetByIdAsync(id);
     }
 
     public async Task ResetPasswordAsync(int id, ResetPasswordDto dto, string updatedBy)
     {
-        await GetByIdAsync(id); // ensure exists
+        var user = await GetByIdAsync(id);
         if (string.IsNullOrWhiteSpace(dto.NewPassword))
             throw new ValidationException("New password cannot be empty.");
-        await userRepo.UpdatePasswordAsync(id, BCrypt.Net.BCrypt.HashPassword(dto.NewPassword), updatedBy);
-        await authRepo.RevokeRefreshTokenAsync(id);
+        await userRepo.UpdatePasswordAsync(id, dto.NewPassword, updatedBy);
+        if (user.BothCompaniesAccess)
+            await userRepo.UpdatePasswordByUsernameForCompanyAsync(user.Username, dto.NewPassword, updatedBy, OtherCompany(CurrentCompanyId));
     }
 
     public async Task DeleteAsync(int id, string deletedBy)
@@ -105,6 +122,8 @@ public class UserManagementService(
         }
 
         await userRepo.SoftDeleteAsync(id, deletedBy);
+        if (user.BothCompaniesAccess)
+            await userRepo.SoftDeleteByUsernameForCompanyAsync(user.Username, deletedBy, OtherCompany(CurrentCompanyId));
     }
 
     public async Task<byte[]> ExportAsync(UserFilterRequest filter, string format)

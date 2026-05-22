@@ -18,6 +18,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { Modal } from "@/components/Modal";
+import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
 import { useToast } from "@/context/ToastContext";
 import { cn } from "@/lib/utils";
 import {
@@ -109,31 +110,50 @@ function TrackerDetailModal({ tracker, onClose }: { tracker: MillOrderTracker; o
   const dispatchWeight = calcWeightKg(tracker.gsm, tracker.size, tracker.dispatchedQty);
 
   return (
-    <div className="space-y-4">
-      {/* PO & Mill Header */}
-      <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3.5">
-        <div className="flex items-start justify-between">
+    <PortalModal onClose={onClose}>
+      {/* Header — blue tinted */}
+      <div className="flex items-center justify-between border-b border-blue-100 px-5 py-3.5 bg-blue-50 rounded-t-2xl flex-shrink-0">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100">
+            <Truck className="h-4 w-4 text-blue-600" />
+          </div>
           <div>
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="font-mono text-sm font-bold text-gray-900">{tracker.poNumber}</span>
-              {tracker.soNumber && <span className="text-xs text-purple-500">→ {tracker.soNumber}</span>}
-              <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                TRACKER_STATUS_BADGE[tracker.productionStatus] ?? "bg-gray-100 text-gray-600")}>
-                {tracker.productionStatus}
-              </span>
-            </div>
+            <h2 className="text-base font-bold text-gray-900 font-mono">{tracker.poNumber}</h2>
             <p className="text-xs text-gray-500">{tracker.mill} · PO Date: {tracker.poDate}</p>
           </div>
+          <span className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
+            TRACKER_STATUS_BADGE[tracker.productionStatus] ?? "bg-gray-100 text-gray-600")}>
+            {tracker.productionStatus}
+          </span>
+          {tracker.soNumber && <span className="text-xs text-purple-500 font-medium">→ SO: {tracker.soNumber}</span>}
           {!!tracker.delayDays && tracker.delayDays > 0 && (
-            <div className="flex items-center gap-1 rounded-lg bg-red-50 border border-red-100 px-2.5 py-1 flex-shrink-0">
+            <div className="flex items-center gap-1 rounded-lg bg-red-50 border border-red-100 px-2.5 py-1">
               <AlertCircle className="h-3.5 w-3.5 text-red-500" />
               <span className="text-xs font-semibold text-red-600">{tracker.delayDays}d delay</span>
             </div>
           )}
         </div>
+        <ModalCloseButton onClose={onClose} />
       </div>
 
-      {/* Material */}
+      <div className="max-h-[calc(100vh-160px)] overflow-y-auto p-5 space-y-4">
+        {/* Metric cards */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-500">PO Number</p>
+            <p className="text-sm font-black text-blue-900 font-mono mt-0.5 truncate">{tracker.poNumber}</p>
+          </div>
+          <div className="rounded-xl bg-violet-50 border border-violet-100 px-3 py-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-violet-500">Customer</p>
+            <p className="text-sm font-bold text-violet-900 mt-0.5 truncate">{tracker.customerName ?? "—"}</p>
+          </div>
+          <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500">Ready / Ordered</p>
+            <p className="text-sm font-black text-emerald-800 mt-0.5">{tracker.readyQty.toLocaleString()} / {tracker.orderedQty.toLocaleString()}</p>
+          </div>
+        </div>
+
+        {/* Material */}
       <div>
         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Material</p>
         <div className="grid grid-cols-3 gap-2">
@@ -216,11 +236,8 @@ function TrackerDetailModal({ tracker, onClose }: { tracker: MillOrderTracker; o
         </div>
       )}
 
-      <div className="flex justify-end pt-2 border-t border-gray-100">
-        <button onClick={onClose}
-          className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Close</button>
       </div>
-    </div>
+    </PortalModal>
   );
 }
 
@@ -1587,32 +1604,32 @@ export default function TruckLoadPlanPage() {
   const columns: ColumnConfig<TruckLoadPlan>[] = useMemo(() => [
     {
       id: "planNumber", accessorKey: "planNumber", header: "Plan #",
-      filterType: "text", enableSorting: true, enableHiding: false, size: 130,
+      filterType: "text", enableSorting: true, enableHiding: false, size: 130, align: "left" as const,
       cell: (info) => <span className="font-semibold text-gray-900">{info.getValue() as string}</span>,
     },
     {
       id: "planDate", accessorKey: "planDate", header: "Date",
-      filterType: "date", enableSorting: true, size: 110,
+      filterType: "dateRange", enableSorting: true, size: 110,
     },
     {
       id: "truckNumber", accessorKey: "truckNumber", header: "Truck",
-      filterType: "text", enableSorting: false, size: 120,
+      filterType: "text", enableSorting: false, size: 120, align: "left" as const,
       cell: (info) => {
         const v  = info.getValue() as string | undefined;
         const tt = (info.row.original as TruckLoadPlan).truckType;
         return v
-          ? <div><span className="font-mono text-xs font-semibold">{v}</span>{tt && <p className="text-[11px] text-gray-400">{tt}</p>}</div>
+          ? <span className="font-mono text-xs font-semibold">{v}{tt && <span className="ml-1 text-[11px] text-gray-400 font-normal">({tt})</span>}</span>
           : <span className="text-xs text-amber-600">Not set</span>;
       },
     },
     {
       id: "transporterName", accessorKey: "transporterName", header: "Transporter",
-      filterType: "text", enableSorting: false, size: 150,
+      filterType: "text", enableSorting: false, size: 150, align: "left" as const,
       cell: (info) => <span className="text-gray-600 text-sm">{(info.getValue() as string) ?? "—"}</span>,
     },
     {
       id: "origin", accessorKey: "origin", header: "Origin",
-      filterType: "text", enableSorting: false, size: 160,
+      filterType: "text", enableSorting: false, size: 160, align: "left" as const,
       cell: (info) => <span className="text-gray-600 text-xs truncate max-w-[140px] block">{info.getValue() as string}</span>,
     },
     {
@@ -1652,7 +1669,7 @@ export default function TruckLoadPlanPage() {
     },
     {
       id: "plannedLoadDate", accessorKey: "plannedLoadDate", header: "Load Date",
-      filterType: "date", enableSorting: true, size: 110,
+      filterType: "dateRange", enableSorting: true, size: 110,
     },
     {
       id: "status", accessorKey: "status", header: "Status",
@@ -1696,66 +1713,50 @@ export default function TruckLoadPlanPage() {
   return (
     <div className="space-y-6 pb-10">
 
-      {/* ── KPI + New Plan row ─────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-stretch gap-3">
+      {/* ── KPI row ────────────────────────────────────────────────────────── */}
+      <div className="kpi-grid grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-5">
 
         {/* Pending Dispatch KPI */}
         <button
           onClick={() => { setShowPending((v) => !v); if (showPending) setSelectedIds(new Set()); }}
           className={cn(
-            "flex-1 min-w-[140px] rounded-xl border-2 p-4 text-left transition-all hover:shadow-md active:scale-[0.98]",
+            "group relative overflow-hidden rounded-2xl border-2 p-3 sm:p-5 text-left transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:scale-[0.98]",
             showPending
-              ? "border-orange-400 bg-orange-500 text-white shadow-md shadow-orange-200"
-              : "border-orange-200 bg-gradient-to-br from-orange-50 to-amber-50 hover:border-orange-400"
+              ? "border-orange-400 bg-orange-500 shadow-md shadow-orange-200"
+              : "border-orange-200 bg-orange-50 hover:border-orange-300"
           )}
         >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={cn("text-xs font-medium uppercase tracking-wide", showPending ? "text-white/70" : "text-orange-600")}>
-                Pending Dispatch
-              </p>
-              <p className={cn("mt-1.5 text-2xl font-bold", showPending ? "text-white" : "text-orange-700")}>{kpis.pending}</p>
-              <p className={cn("mt-0.5 text-xs", showPending ? "text-white/60" : "text-orange-400")}>
-                {showPending ? "Click to hide" : "Click to plan"}
-              </p>
-            </div>
-            <div className={cn("flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full", showPending ? "bg-white/20" : "bg-orange-100")}>
-              <Package className={cn("h-5 w-5", showPending ? "text-white" : "text-orange-500")} />
-            </div>
+          <p className={cn("text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider", showPending ? "text-white/80" : "text-orange-600")}>
+            Pending Dispatch
+          </p>
+          <p className={cn("mt-1.5 text-2xl sm:text-4xl font-black leading-none tabular-nums", showPending ? "text-white" : "text-gray-900")}>{kpis.pending}</p>
+          <p className={cn("mt-1 text-[10px] sm:text-xs", showPending ? "text-white/60" : "text-orange-400")}>
+            {showPending ? "Click to hide" : "Click to plan"}
+          </p>
+          <div className={cn("pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18]", showPending ? "text-white" : "text-orange-500")}>
+            <Package className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
           </div>
         </button>
 
         {/* Status KPI cards */}
-        {statusKpis.map(({ key, label, icon: Icon, iconBg, iconColor, activeBg, activeBorder, hover }) => {
+        {statusKpis.map(({ key, label, icon: Icon, iconBg, iconColor, activeBg, activeBorder }) => {
           const isActive = activeStatusFilter === label;
           return (
             <button key={key}
               onClick={() => setActiveStatusFilter(isActive ? null : label)}
               className={cn(
-                "flex-1 min-w-[120px] rounded-xl border p-4 text-left transition-all hover:shadow-md active:scale-[0.98]",
-                isActive ? `${activeBorder} ${activeBg} text-white shadow-md` : `border-gray-100 bg-white ${hover}`
+                "group relative overflow-hidden rounded-2xl border p-3 sm:p-5 text-left transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:scale-[0.98]",
+                isActive ? `${activeBorder} ${activeBg} shadow-md` : `border-white/80 ${iconBg}`
               )}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className={cn("text-xs font-medium uppercase tracking-wide", isActive ? "text-white/70" : "text-gray-400")}>{label}</p>
-                  <p className={cn("mt-1.5 text-2xl font-bold", isActive ? "text-white" : "text-gray-900")}>{kpis[key]}</p>
-                </div>
-                <div className={cn("flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full", isActive ? "bg-white/20" : iconBg)}>
-                  <Icon className={cn("h-5 w-5", isActive ? "text-white" : iconColor)} />
-                </div>
+              <p className={cn("text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider", isActive ? "text-white/80" : iconColor)}>{label}</p>
+              <p className={cn("mt-1.5 text-2xl sm:text-4xl font-black leading-none tabular-nums animate-kpi-value", isActive ? "text-white" : "text-gray-900")}>{kpis[key]}</p>
+              <div className={cn("pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18]", isActive ? "text-white" : iconColor)}>
+                <Icon className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
               </div>
             </button>
           );
         })}
-
-        {/* New Plan button */}
-        <button
-          onClick={() => { setShowPending((v) => !v); if (showPending) setSelectedIds(new Set()); }}
-          className="flex items-center gap-2 self-stretch rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-blue-200 hover:bg-blue-700 active:scale-[0.97] transition-all whitespace-nowrap"
-        >
-          <Plus className="h-4 w-4" /> New Plan
-        </button>
       </div>
 
       {/* ── Pending Section ────────────────────────────────────────────────── */}
@@ -1802,6 +1803,16 @@ export default function TruckLoadPlanPage() {
             isLoading={isPageLoading}
             onRowClick={(plan) => { setActivePlan(plan); setShowDetailModal(true); }}
             emptyMessage="No load plans yet. Use New Plan to create one."
+            toolbarActions={
+              <button
+                onClick={() => { setShowPending((v) => !v); if (showPending) setSelectedIds(new Set()); }}
+                className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 active:scale-95 transition-all whitespace-nowrap"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">New Plan</span>
+                <span className="sm:hidden">New</span>
+              </button>
+            }
           />
         </div>
       )}
@@ -1820,15 +1831,12 @@ export default function TruckLoadPlanPage() {
       </Modal>
 
       {/* ── Tracker Detail Modal ───────────────────────────────────────────── */}
-      <Modal isOpen={showTrackerModal && !!activeTracker} onClose={() => { setShowTrackerModal(false); setActiveTracker(null); }}
-        title={`Tracker — ${activeTracker?.poNumber ?? ""}`} size="md">
-        {activeTracker && (
-          <TrackerDetailModal
-            tracker={activeTracker}
-            onClose={() => { setShowTrackerModal(false); setActiveTracker(null); }}
-          />
-        )}
-      </Modal>
+      {showTrackerModal && activeTracker && (
+        <TrackerDetailModal
+          tracker={activeTracker}
+          onClose={() => { setShowTrackerModal(false); setActiveTracker(null); }}
+        />
+      )}
 
       {/* ── Plan Detail Drill-Down ─────────────────────────────────────────── */}
       <Modal isOpen={showDetailModal && !!activePlan} onClose={() => { setShowDetailModal(false); setActivePlan(null); }}

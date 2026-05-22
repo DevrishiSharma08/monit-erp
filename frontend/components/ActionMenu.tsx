@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { MoreVertical } from "lucide-react";
+import { MoreVertical, Share2 } from "lucide-react";
+import { SharePanel, ShareData } from "@/components/ShareMenu";
 
 export interface ActionItem {
   label: string;
@@ -13,8 +14,10 @@ export interface ActionItem {
 
 interface DropdownPos { top: number; left: number; openUp: boolean; }
 
-export function ActionMenu({ items }: { items: ActionItem[] }) {
+export function ActionMenu({ items, shareData }: { items: ActionItem[]; shareData?: ShareData }) {
   const [open, setOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareAnchor, setShareAnchor] = useState<{ top: number; left?: number; right?: number } | null>(null);
   const [pos, setPos] = useState<DropdownPos>({ top: 0, left: 0, openUp: false });
   const btnRef = useRef<HTMLButtonElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
@@ -35,15 +38,26 @@ export function ActionMenu({ items }: { items: ActionItem[] }) {
     e.stopPropagation();
     if (!open && btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect();
-      const dropdownHeight = items.length * 40 + 16;
+      const extraItems = shareData ? 1 : 0;
+      const dropdownHeight = (items.length + extraItems) * 40 + 16;
       const openUp = window.innerHeight - rect.bottom < dropdownHeight;
       setPos({
         top: openUp ? rect.top - dropdownHeight : rect.bottom + 4,
-        left: rect.right - 144, // 144 = min-w
+        left: rect.right - 160,
         openUp,
       });
     }
     setOpen((o) => !o);
+  };
+
+  const handleShare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen(false);
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setShareAnchor({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
+    setShareOpen(true);
   };
 
   return (
@@ -60,7 +74,7 @@ export function ActionMenu({ items }: { items: ActionItem[] }) {
         <div
           ref={dropRef}
           style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 9999 }}
-          className="min-w-[144px] rounded-xl border border-gray-100 bg-white py-1 shadow-lg"
+          className="min-w-[160px] rounded-xl border border-gray-100 bg-white py-1 shadow-lg"
         >
           {items.map((item) => (
             <button
@@ -76,8 +90,28 @@ export function ActionMenu({ items }: { items: ActionItem[] }) {
               {item.label}
             </button>
           ))}
+          {shareData && (
+            <>
+              <div className="my-1 border-t border-gray-100" />
+              <button
+                onClick={handleShare}
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <Share2 className="h-3.5 w-3.5 flex-shrink-0 text-blue-500" />
+                Share
+              </button>
+            </>
+          )}
         </div>,
         document.body
+      )}
+
+      {shareOpen && shareAnchor && shareData && (
+        <SharePanel
+          data={shareData}
+          anchor={shareAnchor}
+          onClose={() => setShareOpen(false)}
+        />
       )}
     </>
   );

@@ -138,13 +138,36 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
     return () => document.removeEventListener("mousedown", handle);
   }, [profileOpen]);
 
+  const h = {
+    bg:         isDark ? "bg-[#111827]"  : "bg-white",
+    border:     isDark ? "border-white/5": "border-gray-200",
+    iconBtn:    isDark ? "text-slate-400 hover:bg-white/10 hover:text-white"
+                       : "text-gray-500 hover:bg-gray-100 hover:text-gray-700",
+    breadSep:   isDark ? "text-slate-600" : "text-gray-300",
+    pageTitle:  isDark ? "text-white"     : "text-gray-900",
+    breadLink:  isDark ? "text-slate-400 hover:text-blue-400" : "text-gray-400 hover:text-blue-600",
+    bellActive: isDark ? "bg-white/10 text-white"  : "bg-gray-100 text-gray-700",
+    bellIdle:   isDark ? "text-slate-400 hover:bg-white/10 hover:text-white"
+                       : "text-gray-500 hover:bg-gray-100 hover:text-gray-700",
+    ringColor:  isDark ? "ring-[#111827]" : "ring-white",
+    divider:    isDark ? "border-white/10": "border-gray-200",
+    profileHov: isDark ? "hover:bg-white/10" : "hover:bg-gray-100",
+    nameText:   isDark ? "text-white"     : "text-gray-900",
+    subText:    isDark ? "text-slate-400" : "text-gray-500",
+    subHov:     isDark ? "group-hover:text-slate-300" : "group-hover:text-gray-700",
+    dropBg:     isDark ? "bg-[#1f2937] border-white/10" : "bg-white border-gray-200",
+    dropTxt:    isDark ? "text-slate-300 hover:bg-white/10 hover:text-white"
+                       : "text-gray-700 hover:bg-gray-100 hover:text-gray-900",
+    dropIcon:   isDark ? "text-slate-400" : "text-gray-400",
+  };
+
   return (
-    <header className="flex h-16 items-center justify-between border-b border-white/5 bg-[#111827] px-4 lg:px-6 flex-shrink-0 shadow-[0_2px_12px_rgba(0,0,0,0.25)]">
+    <header className={`flex h-16 items-center justify-between border-b ${h.border} ${h.bg} px-4 lg:px-6 flex-shrink-0 shadow-[0_2px_12px_rgba(0,0,0,0.08)]`}>
       <div className="flex items-center gap-3">
         {/* Hamburger — mobile only */}
         <button
           onClick={onMobileMenuToggle}
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-all duration-150 lg:hidden"
+          className={`flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150 lg:hidden ${h.iconBtn}`}
           aria-label="Open menu"
         >
           <Menu className="h-5 w-5" strokeWidth={2} />
@@ -153,15 +176,15 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
         <div className="flex items-center gap-1.5">
           {breadcrumbs.map((crumb, idx) => (
             <span key={idx} className="flex items-center gap-1.5">
-              {idx > 0 && <ChevronRight className="h-4 w-4 text-slate-600 flex-shrink-0" />}
+              {idx > 0 && <ChevronRight className={`h-4 w-4 flex-shrink-0 ${h.breadSep}`} />}
               {crumb.isLast ? (
-                <h2 className="text-xl lg:text-2xl font-bold text-white truncate">
+                <h2 className={`text-xl lg:text-2xl font-bold truncate ${h.pageTitle}`}>
                   {crumb.label}
                 </h2>
               ) : (
                 <Link
                   href={crumb.href}
-                  className="text-lg lg:text-xl font-medium text-slate-400 truncate hover:text-blue-400 transition-colors duration-150"
+                  className={`text-lg lg:text-xl font-medium truncate transition-colors duration-150 ${h.breadLink}`}
                 >
                   {crumb.label}
                 </Link>
@@ -176,7 +199,7 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
         <button
           onClick={toggle}
           title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-          className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-all duration-150"
+          className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150 ${h.iconBtn}`}
         >
           <span className={`absolute transition-all duration-300 ${isDark ? "opacity-0 rotate-90 scale-50" : "opacity-100 rotate-0 scale-100"}`}>
             <Sun className="h-4 w-4" />
@@ -190,15 +213,11 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
         <button
           ref={bellRef}
           onClick={() => setNotifOpen((o) => !o)}
-          className={`relative rounded-lg p-2 transition-all duration-150 group
-            ${notifOpen
-              ? "bg-white/10 text-white"
-              : "text-slate-400 hover:bg-white/10 hover:text-white"
-            }`}
+          className={`relative rounded-lg p-2 transition-all duration-150 group ${notifOpen ? h.bellActive : h.bellIdle}`}
         >
           <Bell className="h-5 w-5 transition-transform duration-150 group-hover:scale-110" />
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 flex min-w-[16px] h-4 items-center justify-center px-1 rounded-full bg-red-500 text-[9px] font-bold text-white leading-none ring-2 ring-[#111827]">
+            <span className={`absolute -top-1 -right-1 flex min-w-[16px] h-4 items-center justify-center px-1 rounded-full bg-red-500 text-[9px] font-bold text-white leading-none ring-2 ${h.ringColor}`}>
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}
@@ -212,17 +231,17 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
 
         {/* Profile dropdown */}
         {user && (
-          <div ref={profileRef} className="relative pl-2 border-l border-white/10">
+          <div ref={profileRef} className={`relative pl-2 border-l ${h.divider}`}>
             <button
               onClick={() => setProfileOpen((o) => !o)}
-              className="flex items-center gap-2.5 rounded-lg px-2 py-1 hover:bg-white/10 transition-all duration-150 group"
+              className={`flex items-center gap-2.5 rounded-lg px-2 py-1 transition-all duration-150 group ${h.profileHov}`}
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-xs font-bold text-white flex-shrink-0 ring-2 ring-blue-400/30">
                 {getInitials(user.name)}
               </div>
               <div className="text-left hidden sm:block">
-                <p className="text-sm font-semibold text-white leading-tight">{user.name}</p>
-                <p className="text-[11px] text-slate-400 leading-tight group-hover:text-slate-300">
+                <p className={`text-sm font-semibold leading-tight ${h.nameText}`}>{user.name}</p>
+                <p className={`text-[11px] leading-tight ${h.subText} ${h.subHov}`}>
                   {user.customerName ?? user.role}
                 </p>
               </div>
@@ -230,16 +249,16 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
 
             {/* Dropdown panel */}
             {profileOpen && (
-              <div className="absolute right-0 top-full mt-2 w-52 rounded-xl border border-white/10 bg-[#1f2937] shadow-2xl shadow-black/40 overflow-hidden z-50">
+              <div className={`absolute right-0 top-full mt-2 w-52 rounded-xl border shadow-2xl shadow-black/20 overflow-hidden z-50 ${h.dropBg}`}>
                 {/* User info header */}
-                <div className="px-4 py-3 border-b border-white/10">
+                <div className={`px-4 py-3 border-b ${h.divider}`}>
                   <div className="flex items-center gap-2.5">
                     <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-blue-500 text-xs font-bold text-white ring-2 ring-blue-400/30">
                       {getInitials(user.name)}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-white truncate">{user.name}</p>
-                      <p className="text-[11px] text-slate-400 truncate">{user.customerName ?? user.role}</p>
+                      <p className={`text-sm font-semibold truncate ${h.nameText}`}>{user.name}</p>
+                      <p className={`text-[11px] truncate ${h.subText}`}>{user.customerName ?? user.role}</p>
                     </div>
                   </div>
                 </div>
@@ -248,17 +267,17 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
                 <div className="py-1">
                   <button
                     onClick={() => { setProfileOpen(false); router.push("/settings/company"); }}
-                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
+                    className={`flex w-full items-center gap-2.5 px-4 py-2.5 text-sm transition-colors ${h.dropTxt}`}
                   >
-                    <Settings2 className="h-4 w-4 text-slate-400 flex-shrink-0" />
+                    <Settings2 className={`h-4 w-4 flex-shrink-0 ${h.dropIcon}`} />
                     Company Settings
                   </button>
                 </div>
 
-                <div className="border-t border-white/10 py-1">
+                <div className={`border-t ${h.divider} py-1`}>
                   <button
                     onClick={() => { setProfileOpen(false); logout(); }}
-                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-300 hover:bg-rose-500/20 hover:text-rose-400 transition-colors"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-gray-500 hover:bg-rose-50 hover:text-rose-500 dark:text-slate-300 dark:hover:bg-rose-500/20 dark:hover:text-rose-400 transition-colors"
                   >
                     <LogOut className="h-4 w-4 flex-shrink-0" />
                     Sign Out

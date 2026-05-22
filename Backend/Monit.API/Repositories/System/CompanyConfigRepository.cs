@@ -7,25 +7,35 @@ namespace Monit.API.Repositories.Config;
 
 public class CompanyConfigRepository(DbConnectionFactory db) : ICompanyConfigRepository
 {
-    public async Task<CompanyConfig> GetAsync()
+    private const string SelectCols = @"
+        SELECT Id, CompanyName, Address, GstNumber,
+               InsurancePolicyNo, InsurancePolicyFy, InsuranceIssuer,
+               SmtpSenderEmail, SmtpSenderName, SmtpAppPassword, UpdatedAt, UpdatedBy
+        FROM   system.CompanyConfig";
+
+    public async Task<List<CompanyConfig>> GetAllAsync()
     {
-        const string sql = @"
-            SELECT Id, InsurancePolicyNo, InsurancePolicyFy, InsuranceIssuer,
-                   SmtpSenderEmail, SmtpSenderName, SmtpAppPassword,
-                   UpdatedAt, UpdatedBy
-            FROM   system.CompanyConfig
-            WHERE  Id = 1";
         using var conn = db.Create();
-        return await conn.QueryFirstOrDefaultAsync<CompanyConfig>(sql)
-            ?? new CompanyConfig();
+        return (await conn.QueryAsync<CompanyConfig>(SelectCols + " ORDER BY Id")).ToList();
+    }
+
+    public async Task<CompanyConfig> GetAsync(int id = 1)
+    {
+        using var conn = db.Create();
+        return await conn.QueryFirstOrDefaultAsync<CompanyConfig>(
+            SelectCols + " WHERE Id = @Id", new { Id = id })
+            ?? new CompanyConfig { Id = id };
     }
 
     public async Task UpsertAsync(CompanyConfig e)
     {
         const string sql = @"
             MERGE system.CompanyConfig AS target
-            USING (SELECT 1 AS Id) AS src ON target.Id = src.Id
+            USING (SELECT @Id AS Id) AS src ON target.Id = src.Id
             WHEN MATCHED THEN UPDATE SET
+                CompanyName       = CASE WHEN @CompanyName       IS NULL THEN CompanyName       ELSE NULLIF(@CompanyName,       '') END,
+                Address           = CASE WHEN @Address           IS NULL THEN Address           ELSE NULLIF(@Address,           '') END,
+                GstNumber         = CASE WHEN @GstNumber         IS NULL THEN GstNumber         ELSE NULLIF(@GstNumber,         '') END,
                 InsurancePolicyNo = CASE WHEN @InsurancePolicyNo IS NULL THEN InsurancePolicyNo ELSE NULLIF(@InsurancePolicyNo, '') END,
                 InsurancePolicyFy = CASE WHEN @InsurancePolicyFy IS NULL THEN InsurancePolicyFy ELSE NULLIF(@InsurancePolicyFy, '') END,
                 InsuranceIssuer   = CASE WHEN @InsuranceIssuer   IS NULL THEN InsuranceIssuer   ELSE NULLIF(@InsuranceIssuer,   '') END,
@@ -35,10 +45,12 @@ public class CompanyConfigRepository(DbConnectionFactory db) : ICompanyConfigRep
                 UpdatedAt         = @UpdatedAt,
                 UpdatedBy         = @UpdatedBy
             WHEN NOT MATCHED THEN INSERT
-                (Id, InsurancePolicyNo, InsurancePolicyFy, InsuranceIssuer,
+                (Id, CompanyName, Address, GstNumber,
+                 InsurancePolicyNo, InsurancePolicyFy, InsuranceIssuer,
                  SmtpSenderEmail, SmtpSenderName, SmtpAppPassword, UpdatedAt, UpdatedBy)
             VALUES
-                (1, @InsurancePolicyNo, @InsurancePolicyFy, @InsuranceIssuer,
+                (@Id, NULLIF(@CompanyName, ''), NULLIF(@Address, ''), NULLIF(@GstNumber, ''),
+                 @InsurancePolicyNo, @InsurancePolicyFy, @InsuranceIssuer,
                  @SmtpSenderEmail, @SmtpSenderName, NULLIF(@SmtpAppPassword, ''), @UpdatedAt, @UpdatedBy);";
         using var conn = db.Create();
         await conn.ExecuteAsync(sql, e);

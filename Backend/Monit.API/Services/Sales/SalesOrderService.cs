@@ -12,6 +12,7 @@ public class SalesOrderService(
     ISalesOrderRepository  repo,
     IEmailService          emailSvc,
     ISalesOrderPdfService  pdfSvc,
+    ICompanyConfigService  companyCfgSvc,
     AppConfig              cfg) : ISalesOrderService
 {
     public Task<PagedResult<SalesOrderListDto>> GetAllAsync(SalesOrderFilterRequest filter)
@@ -58,8 +59,8 @@ public class SalesOrderService(
         if (dto.To.All(string.IsNullOrWhiteSpace))
             throw new ArgumentException("At least one recipient is required.");
 
-        var so      = await GetByIdAsync(id);
-        var pdfBytes = pdfSvc.Generate(so, cfg.CompanyName, cfg.CompanyAddress);
+        var so       = await GetByIdAsync(id);
+        var pdfBytes = await BuildPdfAsync(so);
         var fileName = $"SO_{so.SONumber.Replace("/", "-")}_{DateTime.Today:yyyyMMdd}.pdf";
 
         await emailSvc.SendAsync(dto, pdfBytes, fileName);
@@ -70,5 +71,21 @@ public class SalesOrderService(
             Success     = true,
             EmailSentAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
         };
+    }
+
+    public async Task<byte[]> GetPdfAsync(int id)
+    {
+        var so = await GetByIdAsync(id);
+        return await BuildPdfAsync(so);
+    }
+
+    private async Task<byte[]> BuildPdfAsync(SalesOrderListDto so)
+    {
+        var c = await companyCfgSvc.GetAsync(1);
+        return pdfSvc.Generate(
+            so,
+            c.CompanyName ?? cfg.CompanyName,
+            c.Address     ?? cfg.CompanyAddress,
+            c.GstNumber   ?? "");
     }
 }
