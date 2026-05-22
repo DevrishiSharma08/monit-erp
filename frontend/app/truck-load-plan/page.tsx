@@ -680,9 +680,18 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
     };
   });
 
+  // Pre-seed load addresses from each item's tracker delivery address so the
+  // value is in state (not just shown as a placeholder) and survives submit.
+  const initialLoadAddresses: Partial<Record<TlpLoadType, string>> = {};
+  for (const it of initialItems) {
+    if (it.deliveryAddress && !initialLoadAddresses[it.loadType]) {
+      initialLoadAddresses[it.loadType] = it.deliveryAddress;
+    }
+  }
+
   const [form, setForm] = useState<PlanForm>({
     items: initialItems,
-    loadAddresses: {},
+    loadAddresses: initialLoadAddresses,
     truckNumber: "", truckType: "", truckCapacityKg: 15000,
     transporterName: "", driverName: "", driverPhone: "", freightAmount: 0,
     millInvoiceNo: "", deliveryBillNo: "",
@@ -1022,24 +1031,6 @@ function PlanDrillDown({ plan, onClose }: { plan: TLPPlanEx; onClose: () => void
   const cap = plan.truckCapacityKg ?? 0;
   const pct = cap > 0 ? Math.min((totalWeight / cap) * 100, 100) : 0;
 
-  // Group items by PO
-  const byPO = useMemo(() => {
-    const map = new Map<string, TruckLoadPlanItem[]>();
-    [...plan.items].sort((a, b) => b.loadOrder - a.loadOrder).forEach((item) => {
-      const list = map.get(item.poNumber) ?? [];
-      list.push(item);
-      map.set(item.poNumber, list);
-    });
-    return map;
-  }, [plan.items]);
-
-  const [expandedPOs, setExpandedPOs] = useState<Set<string>>(new Set(byPO.keys()));
-  const togglePO = (po: string) => setExpandedPOs((prev) => {
-    const next = new Set(prev);
-    next.has(po) ? next.delete(po) : next.add(po);
-    return next;
-  });
-
   return (
     <div className="space-y-5">
       {/* Truck header */}
@@ -1071,7 +1062,6 @@ function PlanDrillDown({ plan, onClose }: { plan: TLPPlanEx; onClose: () => void
         <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
           {[
             ["Truck",          plan.truckNumber    || "—"],
-            ["Truck Type",     plan.truckType      || "—"],
             ["Transporter",    plan.transporterName || "—"],
             ["Driver",         plan.driverName     || "—"],
             ["Phone",          plan.driverPhone    || "—"],
@@ -1095,7 +1085,7 @@ function PlanDrillDown({ plan, onClose }: { plan: TLPPlanEx; onClose: () => void
         </div>
       </div>
 
-      {/* Loads section — shows when plan has named loads */}
+      {/* Loads section */}
       {plan.loads.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Loads ({plan.loads.length})</p>
@@ -1103,20 +1093,19 @@ function PlanDrillDown({ plan, onClose }: { plan: TLPPlanEx; onClose: () => void
             const ltWt = load.items.reduce((s, i) => s + itemWeight(i), 0);
             return (
               <div key={load.id} className="rounded-xl border border-blue-100 bg-blue-50/30 overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 bg-blue-50 border-b border-blue-100">
-                  <div className="flex items-center gap-2.5">
-                    <span className="inline-flex items-center rounded-md bg-blue-600 px-2 py-0.5 text-[11px] font-semibold text-white">{load.loadType}</span>
-                    <span className="text-[11px] text-gray-500">{load.items.length} item{load.items.length !== 1 ? "s" : ""}</span>
+                <div className="px-4 py-2.5 bg-blue-50 border-b border-blue-100">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="inline-flex items-center rounded-md bg-blue-600 px-2 py-0.5 text-[11px] font-semibold text-white">{load.loadType}</span>
+                      <span className="text-[11px] text-gray-500">{load.items.length} item{load.items.length !== 1 ? "s" : ""}</span>
+                    </div>
+                    <span className="text-[11px] text-gray-600 tabular-nums font-medium">{ltWt.toLocaleString()} kg</span>
                   </div>
-                  <div className="flex items-center gap-4 text-[11px] text-gray-600 tabular-nums">
-                    <span>{ltWt.toLocaleString()} kg</span>
-                  </div>
+                  <p className="mt-1.5 text-xs text-gray-700">
+                    <span className="text-gray-400">Delivery Address: </span>
+                    {load.address || <span className="text-gray-400 italic">— not set —</span>}
+                  </p>
                 </div>
-                {load.address && (
-                  <div className="px-4 py-2 text-xs text-gray-600 bg-white border-b border-blue-50">
-                    <span className="text-gray-400">Address: </span>{load.address}
-                  </div>
-                )}
                 <div className="bg-white">
                   {load.items.map((item) => (
                     <div key={item.id} className="flex items-center justify-between px-4 py-1.5 text-xs border-b border-gray-50 last:border-b-0">
@@ -1134,67 +1123,6 @@ function PlanDrillDown({ plan, onClose }: { plan: TLPPlanEx; onClose: () => void
           })}
         </div>
       )}
-
-      {/* Items grouped by PO */}
-      <div className="space-y-2">
-        {[...byPO.entries()].map(([poNumber, items]) => {
-          const poWeight = items.reduce((s, i) => s + itemWeight(i), 0);
-          const expanded = expandedPOs.has(poNumber);
-          return (
-            <div key={poNumber} className="rounded-xl border border-gray-200 overflow-hidden">
-              <button onClick={() => togglePO(poNumber)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left">
-                <div className="flex items-center gap-2.5">
-                  {expanded ? <ChevronDown className="h-3.5 w-3.5 text-gray-400" /> : <ChevronRight className="h-3.5 w-3.5 text-gray-400" />}
-                  <span className="font-mono text-xs font-bold text-gray-800">{poNumber}</span>
-                  <span className="text-[11px] text-gray-400">{items[0]?.soNumber ? `→ ${items[0].soNumber}` : ""}</span>
-                  <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600">
-                    {items.length} item{items.length !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <div className="flex items-center gap-4 text-xs text-gray-500">
-                  <span className="tabular-nums">{poWeight.toLocaleString()} kg</span>
-                </div>
-              </button>
-
-              {expanded && (
-                <table className="w-full text-xs border-t border-gray-100">
-                  <thead className="bg-white text-[11px] uppercase tracking-wider text-gray-400">
-                    <tr>
-                      <th className="px-4 py-2 text-center w-8">Load#</th>
-                      <th className="px-3 py-2 text-left">Material</th>
-                      <th className="px-3 py-2 text-left">Customer</th>
-                      <th className="px-3 py-2 text-left">Delivery Location</th>
-                      <th className="px-3 py-2 text-right">Weight (kg)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {items.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-50/60">
-                        <td className="px-4 py-2.5 text-center">
-                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[11px] font-bold text-blue-600">
-                            {item.loadOrder}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <p className="font-medium text-gray-800">{item.paper}</p>
-                          <p className="text-[11px] text-gray-400">{item.gsm} GSM · {item.size}</p>
-                        </td>
-                        <td className="px-3 py-2.5 text-gray-600">{item.customerName || "—"}</td>
-                        <td className="px-3 py-2.5">
-                          <p className="text-gray-700">{item.deliveryLocation || "—"}</p>
-                          {item.deliveryAddress && <p className="text-[11px] text-gray-400">{item.deliveryAddress}</p>}
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-800">{itemWeight(item).toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          );
-        })}
-      </div>
 
       <div className="flex justify-end pt-2 border-t border-gray-100">
         <button onClick={onClose}
@@ -1514,7 +1442,9 @@ function TruckLoadPlanPage() {
           .map((lt, i) => ({
             loadType: lt,
             loadSequence: i + 1,
-            address: form.loadAddresses[lt] || undefined,
+            address: form.loadAddresses[lt]
+                      || form.items.find((it) => it.loadType === lt)?.deliveryAddress
+                      || undefined,
           })),
         items: form.items.map((it) => ({
           trackerId:        it.trackerId ? parseInt(it.trackerId) : undefined,
