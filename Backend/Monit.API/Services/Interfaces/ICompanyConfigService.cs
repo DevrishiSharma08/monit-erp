@@ -4,6 +4,7 @@ namespace Monit.API.Services.Interfaces;
 
 public interface ICompanyConfigService
 {
-    Task<CompanyConfigDto> GetAsync();
-    Task<CompanyConfigDto> UpdateAsync(UpdateCompanyConfigDto dto, string updatedBy);
+    Task<List<CompanyConfigDto>> GetAllAsync();
+    Task<CompanyConfigDto>       GetAsync(int id = 1);
+    Task<CompanyConfigDto>       UpdateAsync(int id, UpdateCompanyConfigDto dto, string updatedBy);
 }

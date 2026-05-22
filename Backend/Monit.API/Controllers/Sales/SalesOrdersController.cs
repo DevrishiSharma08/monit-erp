@@ -64,15 +64,6 @@ public class SalesOrdersController(ISalesOrderService svc) : ControllerBase
         => Ok(ApiResponse<SendMailResponseDto>.Ok(
             await svc.SendEmailAsync(id, dto), "Email sent successfully."));
 
-    [HttpGet("{id:int}/pdf")]
-    public async Task<IActionResult> DownloadPdf(int id)
-    {
-        var so       = await svc.GetByIdAsync(id);
-        var pdfBytes = await svc.GetPdfAsync(id);
-        var fileName = $"SO_{so.SONumber.Replace("/", "-")}_{DateTime.Today:yyyyMMdd}.pdf";
-        return File(pdfBytes, "application/pdf", fileName);
-    }
-
     private static void MaskSensitiveFields(SalesOrderListDto so, bool hideCost, bool hidePhone)
     {
         if (hideCost)

@@ -3,8 +3,8 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { SalesOrder, SOLine as SalesOrderLine } from "@/context/SalesOrderContext";
 import {
-  ThumbsUp, Clock, IndianRupee, Eye, Mail, Check, Package,
-  ShoppingCart, Pencil, Factory, Download,
+  ThumbsUp, Clock, IndianRupee, Eye, Mail, X, Check, Package,
+  ShoppingCart, Pencil, Factory,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
@@ -14,7 +14,7 @@ import { Modal } from "@/components/Modal";
 import { SalesOrderForm } from "@/components/forms/SalesOrderForm";
 import { PurchaseOrderForm } from "@/components/forms/PurchaseOrderForm";
 import { cn } from "@/lib/utils";
-import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
+import { createPortal } from "react-dom";
 import { useSalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
 import { poApi, PORow, CreatePODto, salesOrderApi, customerApi, millApi } from "@/lib/api-services";
@@ -87,44 +87,31 @@ function ApprovalViewModal({
   onEdit: () => void;
   onClose: () => void;
 }) {
-  return (
-    <PortalModal onClose={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-6">
+      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
 
-        {/* Header — orange tinted */}
-        <div className="flex items-center justify-between border-b border-orange-100 px-5 py-3.5 bg-orange-50 rounded-t-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/70 shadow-sm">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-100">
               <ShoppingCart className="h-4 w-4 text-orange-600" />
             </div>
             <div>
-              <h2 className="text-base font-black text-gray-900">{so.soNumber}</h2>
+              <h2 className="text-base font-bold text-gray-900">{so.soNumber}</h2>
               <p className="text-xs text-gray-500">{so.customer} · {so.orderDate}</p>
             </div>
-            <span className="ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-orange-100 text-orange-600">
+            <span className="ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-orange-50 text-orange-600">
               Approval Pending
             </span>
           </div>
-          <ModalCloseButton onClose={onClose} />
+          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400">
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         {/* Body */}
         <div className="max-h-[calc(100vh-200px)] overflow-y-auto p-5 space-y-4">
-
-          {/* Metric cards */}
-          <div className="grid grid-cols-3 gap-2">
-            <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5">
-              <p className="text-[9px] font-semibold uppercase tracking-wider text-blue-400">SO Number</p>
-              <p className="text-sm font-black text-blue-700 mt-0.5">{so.soNumber}</p>
-            </div>
-            <div className="rounded-xl bg-violet-50 border border-violet-100 px-3 py-2.5">
-              <p className="text-[9px] font-semibold uppercase tracking-wider text-violet-400">Customer</p>
-              <p className="text-sm font-bold text-violet-700 mt-0.5 truncate">{so.customer}</p>
-            </div>
-            <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5">
-              <p className="text-[9px] font-semibold uppercase tracking-wider text-emerald-400">Order Value</p>
-              <p className="text-sm font-black text-emerald-700 mt-0.5">₹{so.totalValue.toLocaleString("en-IN")}</p>
-            </div>
-          </div>
 
           {/* Order details */}
           <div>
@@ -240,7 +227,9 @@ function ApprovalViewModal({
             <Mail className="h-3.5 w-3.5" /> Approve &amp; Send
           </button>
         </div>
-    </PortalModal>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -259,44 +248,28 @@ function POApprovalViewModal({
   const isBlind    = shipMode === "Blind";
   const isOverride = shipMode === "InvoiceOverride";
 
-  return (
-    <PortalModal onClose={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-6">
+      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
 
-        {/* Header — violet tinted */}
-        <div className="flex items-center justify-between border-b border-violet-100 px-5 py-3.5 bg-violet-50 rounded-t-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/70 shadow-sm flex-shrink-0">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-100 flex-shrink-0">
               <Factory className="h-4 w-4 text-violet-600" />
             </div>
             <div>
-              <h2 className="text-base font-black text-gray-900">{po.poNumber}</h2>
+              <h2 className="text-base font-bold text-gray-900">{po.poNumber}</h2>
               <p className="text-xs text-gray-500">{po.millName} · {po.orderDate}</p>
             </div>
-            <span className="ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-violet-100 text-violet-600">
-              Approval Pending
-            </span>
           </div>
-          <ModalCloseButton onClose={onClose} />
+          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400 flex-shrink-0">
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         {/* Body */}
         <div className="max-h-[calc(100vh-200px)] overflow-y-auto p-5 space-y-4">
-
-          {/* Metric cards */}
-          <div className="grid grid-cols-3 gap-2">
-            <div className="rounded-xl bg-violet-50 border border-violet-100 px-3 py-2.5">
-              <p className="text-[9px] font-semibold uppercase tracking-wider text-violet-400">PO Number</p>
-              <p className="text-sm font-black text-violet-700 mt-0.5">{po.poNumber}</p>
-            </div>
-            <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5">
-              <p className="text-[9px] font-semibold uppercase tracking-wider text-blue-400">Mill</p>
-              <p className="text-sm font-bold text-blue-700 mt-0.5 truncate">{po.millName}</p>
-            </div>
-            <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5">
-              <p className="text-[9px] font-semibold uppercase tracking-wider text-emerald-400">Total Value</p>
-              <p className="text-sm font-black text-emerald-700 mt-0.5">₹{po.totalValue.toLocaleString("en-IN")}</p>
-            </div>
-          </div>
 
           {/* PO Details — 3-col grid */}
           <div className="rounded-xl bg-gray-50 p-3 grid grid-cols-3 gap-x-4 gap-y-3">
@@ -493,7 +466,9 @@ function POApprovalViewModal({
             <Mail className="h-3.5 w-3.5" /> Approve &amp; Send
           </button>
         </div>
-    </PortalModal>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -720,30 +695,6 @@ export default function ApprovalsPage() {
     setEmailContacts([]);
   }, [emailPO, success]);
 
-  const handleDownloadSOPdf = useCallback(async (id: number) => {
-    try {
-      const { blob, filename } = await salesOrderApi.downloadPdf(id);
-      const url = URL.createObjectURL(blob);
-      const a   = document.createElement("a");
-      a.href = url; a.download = filename; a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      showError("Failed to download PDF.");
-    }
-  }, [showError]);
-
-  const handleDownloadPOPdf = useCallback(async (id: number) => {
-    try {
-      const { blob, filename } = await poApi.downloadPdf(id);
-      const url = URL.createObjectURL(blob);
-      const a   = document.createElement("a");
-      a.href = url; a.download = filename; a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      showError("Failed to download PDF.");
-    }
-  }, [showError]);
-
   const handleEditPOSubmit = useCallback(async (dto: CreatePODto, id?: number) => {
     if (!id) return;
     try {
@@ -784,7 +735,7 @@ export default function ApprovalsPage() {
     },
     {
       id: "orderDate", accessorKey: "orderDate", header: "Date",
-      filterType: "dateRange", enableSorting: true, defaultVisible: true, size: 100,
+      filterType: "date", enableSorting: true, defaultVisible: true, size: 100,
     },
     {
       id: "customer", accessorKey: "customer", header: "Customer",
@@ -799,39 +750,32 @@ export default function ApprovalsPage() {
     },
     {
       id: "lines", accessorKey: "lines", header: "Items",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 300, noTruncate: true,
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 260,
       cell: (info) => {
         const lines = info.getValue() as SalesOrderLine[];
-        const first = lines[0];
-        if (!first) return <span className="text-gray-300 text-xs">—</span>;
-        const code = first.materialCode || first.materialId || "—";
-        const qty = (first as any).weightKg
-          ? `${(first as any).weightKg.toLocaleString("en-IN")} KG`
-          : `${first.orderedQty.toLocaleString("en-IN")}`;
+        const preview = lines.slice(0, 2);
         return (
-          <div className="text-xs leading-snug">
-            <span className="font-medium text-gray-800">{code}</span>
-            <span className="text-gray-400"> · </span>
-            <span className="text-gray-500">{qty}</span>
-            {lines.length > 1 && (
-              <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-400">+{lines.length - 1}</span>
+          <div className="space-y-1 py-0.5">
+            {preview.map((l, i) => {
+              const parts = (l.materialCode || "").split("/");
+              const shortCode = parts.length >= 4
+                ? `${parts[1]} ${parts[2]}g · ${parts[3]}`
+                : (l.materialCode || l.materialId || "—");
+              const qty = (l as any).weightKg
+                ? `${(l as any).weightKg.toLocaleString("en-IN")} KG`
+                : `${l.orderedQty.toLocaleString("en-IN")}`;
+              return (
+                <div key={i} className="flex items-center gap-1.5 text-xs">
+                  <span className="font-medium text-gray-800 truncate max-w-[170px]">{shortCode}</span>
+                  <span className="flex-shrink-0 text-gray-400">·</span>
+                  <span className="flex-shrink-0 text-gray-500">{qty}</span>
+                </div>
+              );
+            })}
+            {lines.length > 2 && (
+              <span className="text-[10px] text-gray-400">+{lines.length - 2} more item{lines.length - 2 !== 1 ? "s" : ""}</span>
             )}
           </div>
-        );
-      },
-    },
-    {
-      id: "lineCount", accessorKey: "lines", header: "# Items",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 75,
-      cell: (info) => {
-        const n = (info.getValue() as SalesOrderLine[]).length;
-        return (
-          <span className={cn(
-            "inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
-            n === 1 ? "bg-gray-100 text-gray-500" : "bg-blue-50 text-blue-600 ring-1 ring-blue-100"
-          )}>
-            {n}
-          </span>
         );
       },
     },
@@ -850,20 +794,12 @@ export default function ApprovalsPage() {
       cell: (info) => {
         const so = info.row.original;
         return (
-          <ActionMenu
-            items={[
-              { label: "View",           icon: Eye,      onClick: () => setViewOrder(so) },
-              { label: "Edit SO",        icon: Pencil,   onClick: () => handleEdit(so) },
-              { label: "Download PDF",   icon: Download, onClick: () => handleDownloadSOPdf(parseInt(so.id)) },
-              { label: "Approve",        icon: ThumbsUp, onClick: () => handleApprove(so.id) },
-              { label: "Approve & Send", icon: Mail,     onClick: () => handleApproveAndSend(so) },
-            ]}
-            shareData={{
-              title: so.soNumber,
-              subject: `Sales Order ${so.soNumber} — ${so.customer}`,
-              text: `Sales Order: ${so.soNumber}\nCustomer: ${so.customer}\nDate: ${so.orderDate}\nAmount: ₹${so.totalValue?.toLocaleString("en-IN") ?? "—"}\nStatus: ${so.status}`,
-            }}
-          />
+          <ActionMenu items={[
+            { label: "View",           icon: Eye,      onClick: () => setViewOrder(so) },
+            { label: "Edit SO",        icon: Pencil,   onClick: () => handleEdit(so) },
+            { label: "Approve",        icon: ThumbsUp, onClick: () => handleApprove(so.id) },
+            { label: "Approve & Send", icon: Mail,     onClick: () => handleApproveAndSend(so) },
+          ]} />
         );
       },
     },
@@ -898,7 +834,7 @@ export default function ApprovalsPage() {
     },
     {
       id: "orderDate", accessorKey: "orderDate", header: "Date",
-      filterType: "dateRange", enableSorting: true, defaultVisible: true, size: 100,
+      filterType: "date", enableSorting: true, defaultVisible: true, size: 100,
     },
     {
       id: "millName", accessorKey: "millName", header: "Mill",
@@ -922,39 +858,25 @@ export default function ApprovalsPage() {
     },
     {
       id: "items", accessorKey: "items", header: "Items",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 300, noTruncate: true,
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 220,
       cell: (info) => {
         const items = info.getValue() as PORow["items"];
-        if (!items?.length) return <span className="text-gray-300 text-xs">—</span>;
-        const first = items[0];
-        const qty = first.weightKg && first.weightKg > 0
-          ? `${first.weightKg.toLocaleString("en-IN")} KG`
-          : `${first.quantity.toLocaleString("en-IN")}`;
+        const preview = items.slice(0, 2);
         return (
-          <div className="text-xs leading-snug">
-            <span className="font-medium text-gray-800">{first.description || `Material #${first.materialId}`}</span>
-            <span className="text-gray-400"> · </span>
-            <span className="text-gray-500">{qty}</span>
-            {items.length > 1 && (
-              <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-400">+{items.length - 1}</span>
+          <div className="space-y-1 py-0.5">
+            {preview.map((item, i) => (
+              <div key={i} className="flex items-center gap-1.5 text-xs">
+                <span className="font-medium text-gray-800 truncate max-w-[140px]">
+                  {item.description || `Material #${item.materialId}`}
+                </span>
+                <span className="flex-shrink-0 text-gray-400">·</span>
+                <span className="flex-shrink-0 text-gray-500">{item.quantity.toLocaleString("en-IN")}</span>
+              </div>
+            ))}
+            {items.length > 2 && (
+              <span className="text-[10px] text-gray-400">+{items.length - 2} more</span>
             )}
           </div>
-        );
-      },
-    },
-    {
-      id: "itemCount", accessorKey: "items", header: "# Items",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 75,
-      cell: (info) => {
-        const n = (info.getValue() as PORow["items"])?.length ?? 0;
-        if (n === 0) return <span className="text-gray-300 text-xs">—</span>;
-        return (
-          <span className={cn(
-            "inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
-            n === 1 ? "bg-gray-100 text-gray-500" : "bg-violet-50 text-violet-600 ring-1 ring-violet-100"
-          )}>
-            {n}
-          </span>
         );
       },
     },
@@ -976,7 +898,6 @@ export default function ApprovalsPage() {
           <ActionMenu items={[
             { label: "View",           icon: Eye,      onClick: () => setViewPO(po) },
             { label: "Edit",           icon: Pencil,   onClick: () => setEditPO(po) },
-            { label: "Download PDF",   icon: Download, onClick: () => handleDownloadPOPdf(po.id) },
             { label: "Approve",        icon: ThumbsUp, onClick: () => handleApprovePO(po) },
             { label: "Approve & Send", icon: Mail,     onClick: () => handleApprovePOAndSend(po) },
           ]} />
@@ -1089,55 +1010,64 @@ export default function ApprovalsPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="kpi-grid grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+      <div className="flex flex-wrap items-stretch gap-3">
 
-        {/* Pending Approvals */}
         <div className={cn(
-          "group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg",
-          activeTab === "so" ? "bg-orange-50" : "bg-violet-50"
+          "flex-1 min-w-[160px] rounded-xl border bg-white p-5 shadow-sm",
+          activeTab === "so" ? "border-orange-100" : "border-violet-100"
         )}>
-          <p className={cn("text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider", activeTab === "so" ? "text-orange-500" : "text-violet-500")}>
-            Pending Approvals
-          </p>
-          <p className={cn("mt-1.5 text-2xl sm:text-4xl font-black leading-none tabular-nums animate-kpi-value", activeTab === "so" ? "text-orange-700" : "text-violet-700")}>
-            {activeCount}
-          </p>
-          <p className={cn("mt-1 text-[10px] sm:text-xs truncate", activeTab === "so" ? "text-orange-400" : "text-violet-400")}>
-            {activeSubLabel}
-          </p>
-          <div className={cn("pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18]", activeTab === "so" ? "text-orange-500" : "text-violet-500")}>
-            <Clock className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
+          <div className="flex items-center justify-between">
+            <div>
+              <p className={cn("text-xs font-medium uppercase tracking-wide", activeTab === "so" ? "text-orange-400" : "text-violet-400")}>
+                Pending Approvals
+              </p>
+              <p className={cn("mt-1.5 text-3xl font-black", activeTab === "so" ? "text-orange-600" : "text-violet-600")}>
+                {activeCount}
+              </p>
+              <p className={cn("mt-0.5 text-xs", activeTab === "so" ? "text-orange-400" : "text-violet-400")}>
+                {activeSubLabel}
+              </p>
+            </div>
+            <div className={cn("flex h-10 w-10 items-center justify-center rounded-full", activeTab === "so" ? "bg-orange-50" : "bg-violet-50")}>
+              <Clock className={cn("h-5 w-5", activeTab === "so" ? "text-orange-500" : "text-violet-500")} />
+            </div>
           </div>
         </div>
 
-        {/* Total Value */}
-        <div className="group relative overflow-hidden rounded-2xl border border-white/80 bg-emerald-50 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
-          <p className="text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider text-emerald-500">Total Value</p>
-          <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">
-            ₹{(activeValue / 100000).toFixed(1)}L
-          </p>
-          <p className="mt-1 text-[10px] sm:text-xs text-gray-500 truncate">across {activeCount} orders</p>
-          <div className="pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] text-emerald-500">
-            <IndianRupee className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
+        <div className="flex-1 min-w-[160px] rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Total Value</p>
+              <p className="mt-1.5 text-2xl font-bold text-gray-900">
+                ₹{(activeValue / 100000).toFixed(1)}L
+              </p>
+              <p className="mt-0.5 text-xs text-gray-500">across {activeCount} orders</p>
+            </div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-50">
+              <IndianRupee className="h-5 w-5 text-gray-500" />
+            </div>
           </div>
         </div>
 
-        {/* Oldest Pending */}
         <div className={cn(
-          "group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg",
-          activeOldestDays > 3 ? "bg-red-50" : "bg-gray-100"
+          "flex-1 min-w-[160px] rounded-xl border bg-white p-5 shadow-sm",
+          activeOldestDays > 3 ? "border-red-100" : "border-gray-100"
         )}>
-          <p className={cn("text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider", activeOldestDays > 3 ? "text-red-500" : "text-gray-500")}>
-            Oldest Pending
-          </p>
-          <p className={cn("mt-1.5 text-2xl sm:text-4xl font-black leading-none tabular-nums animate-kpi-value", activeOldestDays > 3 ? "text-red-700" : "text-gray-900")}>
-            {activeOldestDays}d
-          </p>
-          <p className={cn("mt-1 text-[10px] sm:text-xs truncate", activeOldestDays > 3 ? "text-red-400" : "text-gray-400")}>
-            {activeOldestDays > 3 ? "overdue — action needed" : "within SLA"}
-          </p>
-          <div className={cn("pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18]", activeOldestDays > 3 ? "text-red-500" : "text-gray-500")}>
-            <Package className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
+          <div className="flex items-center justify-between">
+            <div>
+              <p className={cn("text-xs font-medium uppercase tracking-wide", activeOldestDays > 3 ? "text-red-400" : "text-gray-400")}>
+                Oldest Pending
+              </p>
+              <p className={cn("mt-1.5 text-2xl font-bold", activeOldestDays > 3 ? "text-red-600" : "text-gray-900")}>
+                {activeOldestDays}d
+              </p>
+              <p className={cn("mt-0.5 text-xs", activeOldestDays > 3 ? "text-red-400" : "text-gray-400")}>
+                {activeOldestDays > 3 ? "overdue — action needed" : "within SLA"}
+              </p>
+            </div>
+            <div className={cn("flex h-10 w-10 items-center justify-center rounded-full", activeOldestDays > 3 ? "bg-red-50" : "bg-gray-50")}>
+              <Package className={cn("h-5 w-5", activeOldestDays > 3 ? "text-red-400" : "text-gray-400")} />
+            </div>
           </div>
         </div>
 

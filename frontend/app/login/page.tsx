@@ -225,6 +225,23 @@ export default function LoginPage() {
                 {/* 3. Password */}
                 <div>
                   <label className="mb-1.5 block text-[10px] font-extrabold uppercase tracking-widest text-gray-400">
+                    Company
+                  </label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+                    <select
+                      value={companyId}
+                      onChange={(e) => setCompanyId(Number(e.target.value) as 1 | 2)}
+                      className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-4 py-2.5 text-sm text-gray-900 transition-all focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    >
+                      <option value={1}>Monit Paper Agency</option>
+                      <option value={2}>Monit Paper Associates</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-[10px] font-extrabold uppercase tracking-widest text-gray-400">
                     Password
                   </label>
                   <div className="relative">

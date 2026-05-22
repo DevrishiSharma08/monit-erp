@@ -62,21 +62,29 @@ function Badge({ s }: { s: string }) {
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
 function KpiCard({
-  title, value, sub, icon: Icon, iconBg, iconColor, href, urgent,
+  title, value, sub, icon: Icon, iconBg, iconColor, accent, href, urgent,
 }: {
   title: string; value: string; sub?: string; urgent?: boolean;
-  icon: React.ElementType; iconBg: string; iconColor: string; href: string;
+  icon: React.ElementType; iconBg: string; iconColor: string; accent: string; href: string;
 }) {
   return (
     <Link href={href}
-      className={`group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:scale-[0.98] ${iconBg}`}>
-      <p className={`text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate ${iconColor}`}>{title}</p>
-      <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{value}</p>
-      {sub && (
-        <p className={`mt-1 text-[10px] sm:text-xs truncate ${urgent ? "text-rose-500 font-semibold" : "text-gray-500"}`}>{sub}</p>
-      )}
-      <div className={`pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] ${iconColor}`}>
-        <Icon className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
+      className="group relative overflow-hidden rounded-xl border border-gray-100 bg-white px-4 py-3.5 shadow-sm hover:shadow-md transition-all duration-200">
+      <div className={`absolute inset-y-0 left-0 w-[3px] rounded-l-xl ${accent}`} />
+      <div className="pl-3 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{title}</p>
+          <p className="mt-0.5 text-[22px] font-extrabold tabular-nums leading-tight text-gray-900">{value}</p>
+          {sub && (
+            <p className={`text-[11px] font-medium ${urgent ? "text-rose-500" : "text-gray-400"}`}>{sub}</p>
+          )}
+        </div>
+        <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${iconBg}`}>
+          <Icon className={`h-[18px] w-[18px] ${iconColor}`} strokeWidth={2} />
+        </div>
+      </div>
+      <div className="mt-2 pl-3 flex items-center gap-1 text-[11px] font-semibold text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
+        Open <ArrowRight className="h-3 w-3" />
       </div>
     </Link>
   );
@@ -94,23 +102,21 @@ const PIPELINE_STEPS = [
 
 function PipelineBar({ counts }: { counts: number[] }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
-      <div className="flex items-stretch min-w-[360px]">
-        {PIPELINE_STEPS.map((step, i) => (
-          <div key={step.label} className="flex items-stretch flex-1">
-            <Link href={step.href}
-              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-3 sm:py-4 px-2 ${step.bg} hover:brightness-95 transition-all text-center`}>
-              <span className={`text-xl sm:text-2xl font-black tabular-nums ${step.color}`}>{counts[i]}</span>
-              <span className="text-[9px] sm:text-[10px] font-semibold text-gray-500 leading-tight">{step.label}</span>
-            </Link>
-            {i < PIPELINE_STEPS.length - 1 && (
-              <div className="flex items-center justify-center w-5 sm:w-6 bg-white flex-shrink-0">
-                <ArrowRight className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-gray-300" />
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+    <div className="flex items-stretch rounded-xl overflow-hidden border border-gray-100 shadow-sm">
+      {PIPELINE_STEPS.map((step, i) => (
+        <div key={step.label} className="flex items-stretch flex-1 min-w-0">
+          <Link href={step.href}
+            className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-4 px-2 ${step.bg} hover:brightness-95 transition-all text-center`}>
+            <span className={`text-2xl font-black tabular-nums ${step.color}`}>{counts[i]}</span>
+            <span className="text-[10px] font-semibold text-gray-500 leading-tight">{step.label}</span>
+          </Link>
+          {i < PIPELINE_STEPS.length - 1 && (
+            <div className="flex items-center justify-center w-6 bg-white flex-shrink-0">
+              <ArrowRight className="h-3.5 w-3.5 text-gray-300" />
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -218,26 +224,26 @@ export default function ProcurementDashboard() {
     <div className="space-y-4 pb-8">
 
       {/* KPI Row */}
-      <div className="kpi-grid grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard
           title="Open Sales Orders" value={String(data.openSoCount)} sub={fmtL(data.openSoValue)}
           icon={ShoppingCart} iconBg="bg-blue-50" iconColor="text-blue-600"
-          href="/orders" />
+          accent="bg-blue-500" href="/orders" />
         <KpiCard
           title="Open Purchase Orders" value={String(data.openPoCount)} sub={fmtL(data.openPoValue)}
           icon={ShoppingBag} iconBg="bg-violet-50" iconColor="text-violet-600"
-          href="/purchase-orders" />
+          accent="bg-violet-500" href="/purchase-orders" />
         <KpiCard
           title="Pending GRNs" value={String(data.pendingGrnCount)}
           sub={data.pendingGrnCount ? "Awaiting QC / approval" : "All clear"} urgent={data.pendingGrnCount > 0}
           icon={ClipboardCheck} iconBg={data.pendingGrnCount ? "bg-amber-50" : "bg-emerald-50"}
           iconColor={data.pendingGrnCount ? "text-amber-600" : "text-emerald-600"}
-          href="/grn" />
+          accent={data.pendingGrnCount ? "bg-amber-400" : "bg-emerald-400"} href="/grn" />
         <KpiCard
           title="Stock Available" value={`${data.availableStockQty.toLocaleString()} kg`}
           sub={`${data.availableStockLots} lots`}
           icon={Package} iconBg="bg-emerald-50" iconColor="text-emerald-600"
-          href="/stock-lots" />
+          accent="bg-emerald-500" href="/stock-lots" />
       </div>
 
       {/* Pipeline */}
@@ -316,7 +322,7 @@ export default function ProcurementDashboard() {
           <ResponsiveContainer width="100%" height={data.soStatusBreakdown.length * 28 + 16}>
             <BarChart data={data.soStatusBreakdown} layout="vertical" barSize={13} margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
               <XAxis type="number" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} />
               <Tooltip content={<ChartTooltip />} cursor={{ fill: "#f9fafb" }} />
               <Bar dataKey="value" name="Orders" radius={[0, 4, 4, 0]}>
                 {data.soStatusBreakdown.map((entry) => (

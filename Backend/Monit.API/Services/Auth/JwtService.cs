@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.IdentityModel.Tokens;
 using Monit.API.Common.Helpers;
 using Monit.API.Models.Entities.Auth;
@@ -20,14 +21,26 @@ public class JwtService(AppConfig config) : IJwtService
 
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier,      user.Id.ToString()),
-            new(ClaimTypes.Name,                user.Username),
-            new(ClaimTypes.Role,                user.Role),
-            new("name",                         user.Name),
-            new(JwtRegisteredClaimNames.Jti,    Guid.NewGuid().ToString()),
+            new(ClaimTypes.NameIdentifier,       user.Id.ToString()),
+            new(ClaimTypes.Name,                 user.Username),
+            new(ClaimTypes.Role,                 user.Role),
+            new("name",                          user.Name),
+            new("company_id",                    user.CompanyId.ToString()),
+            new(JwtRegisteredClaimNames.Jti,     Guid.NewGuid().ToString()),
         };
-        if (!string.IsNullOrWhiteSpace(user.CustomerName))
-            claims.Add(new Claim("customerName", user.CustomerName));
+
+        // Embed each permission string as a "perm" claim so controllers can
+        // check capabilities without extra DB calls.
+        if (!string.IsNullOrWhiteSpace(user.PermissionsJson))
+        {
+            try
+            {
+                var perms = JsonSerializer.Deserialize<List<string>>(user.PermissionsJson) ?? [];
+                foreach (var p in perms.Where(p => !string.IsNullOrWhiteSpace(p)))
+                    claims.Add(new Claim("perm", p));
+            }
+            catch { /* malformed JSON — skip permissions */ }
+        }
 
         var token = new JwtSecurityToken(
             issuer:             config.JwtIssuer,

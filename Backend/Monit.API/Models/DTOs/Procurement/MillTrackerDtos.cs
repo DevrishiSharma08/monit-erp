@@ -56,6 +56,7 @@ public class MillTrackerListDto
     public decimal  DispatchedQty      { get; set; }
     public decimal  BalanceQty         { get; set; }
     public decimal  Rate               { get; set; }
+    public decimal? Discount           { get; set; }
     public decimal  TotalAmount        { get; set; }
     public string   ProductionStatus   { get; set; } = "Order Placed";
     public decimal  ProductionProgress { get; set; }

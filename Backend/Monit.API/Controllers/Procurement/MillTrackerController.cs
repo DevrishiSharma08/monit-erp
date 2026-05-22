@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Monit.API.Common.Helpers;
 using Monit.API.Common.Response;
 using Monit.API.Models.DTOs.Procurement;
 using Monit.API.Services.Interfaces;
@@ -19,17 +20,33 @@ public class MillTrackerController(IMillTrackerService svc) : ControllerBase
     /// <summary>GET /api/v1/mill-tracker — paginated list with optional filters</summary>
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] MillTrackerFilterRequest filter)
-        => Ok(ApiResponse<PagedResult<MillTrackerListDto>>.Ok(await svc.GetAllAsync(filter)));
+    {
+        var result = await svc.GetAllAsync(filter);
+        if (RoleGuard.ShouldHideCost(User))
+            foreach (var t in result.Items)
+                MaskCost(t);
+        return Ok(ApiResponse<PagedResult<MillTrackerListDto>>.Ok(result));
+    }
 
     /// <summary>GET /api/v1/mill-tracker/{id} — single tracker with batches + history</summary>
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
-        => Ok(ApiResponse<MillTrackerListDto>.Ok(await svc.GetByIdAsync(id)));
+    {
+        var result = await svc.GetByIdAsync(id);
+        if (RoleGuard.ShouldHideCost(User)) MaskCost(result);
+        return Ok(ApiResponse<MillTrackerListDto>.Ok(result));
+    }
 
     /// <summary>GET /api/v1/mill-tracker/by-po/{poId} — all trackers for a purchase order</summary>
     [HttpGet("by-po/{poId:int}")]
     public async Task<IActionResult> GetByPo(int poId)
-        => Ok(ApiResponse<List<MillTrackerListDto>>.Ok(await svc.GetByPoIdAsync(poId)));
+    {
+        var result = await svc.GetByPoIdAsync(poId);
+        if (RoleGuard.ShouldHideCost(User))
+            foreach (var t in result)
+                MaskCost(t);
+        return Ok(ApiResponse<List<MillTrackerListDto>>.Ok(result));
+    }
 
     /// <summary>PATCH /api/v1/mill-tracker/{id}/status — update production status + optional ready qty</summary>
     [HttpPatch("{id:int}/status")]
@@ -71,5 +88,11 @@ public class MillTrackerController(IMillTrackerService svc) : ControllerBase
     {
         await svc.DeleteAsync(id, CurrentUser);
         return Ok(ApiResponse.Ok("Mill tracker deleted successfully."));
+    }
+
+    private static void MaskCost(MillTrackerListDto t)
+    {
+        t.Rate        = 0;
+        t.TotalAmount = 0;
     }
 }

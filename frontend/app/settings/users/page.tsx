@@ -1,11 +1,12 @@
 "use client";
 
+import { PermGuard } from "@/components/PermGuard";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { Search, Plus, Save, Eye, EyeOff, Pencil, Trash2, Shield, AlertTriangle, Loader2, KeyRound, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Modal } from "@/components/Modal";
 import { ActionMenu } from "@/components/ActionMenu";
-import { userApi, UserRow, roleApi, RoleDropdown } from "@/lib/api-services";
+import { userApi, UserRow, roleApi, RoleDropdown, RoleListRow } from "@/lib/api-services";
 import { ApiError } from "@/lib/api";
 
 const inputCls = "w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100";
@@ -25,7 +26,7 @@ function fmtDate(d: string) {
   return `${dt.getDate().toString().padStart(2,"0")}/${(dt.getMonth()+1).toString().padStart(2,"0")}/${dt.getFullYear()}`;
 }
 
-export default function UserManagementPage() {
+function UserManagementPage() {
   const [data,      setData]      = useState<UserRow[]>([]);
   const [roles,     setRoles]     = useState<RoleDropdown[]>([]);
   const [loading,   setLoading]   = useState(true);
@@ -38,6 +39,12 @@ export default function UserManagementPage() {
   const [viewItem,  setViewItem]    = useState<UserRow | null>(null);
   const [deleteId,  setDeleteId]    = useState<number | null>(null);
   const [resetItem, setResetItem]   = useState<UserRow | null>(null);
+
+  const [showRolesModal, setShowRolesModal] = useState(false);
+  const [rolesList,      setRolesList]      = useState<RoleListRow[]>([]);
+  const [rolesLoading,   setRolesLoading]   = useState(false);
+  const [newRoleName,    setNewRoleName]    = useState("");
+  const [roleAdding,     setRoleAdding]     = useState(false);
 
   const [uUsername,      setUUsername]      = useState("");
   const [uName,          setUName]          = useState("");
@@ -121,6 +128,36 @@ export default function UserManagementPage() {
     finally { setSaving(false); }
   }
 
+  const openRolesModal = useCallback(async () => {
+    setShowRolesModal(true);
+    setRolesLoading(true);
+    try {
+      const r = await roleApi.list();
+      setRolesList(r.items);
+    } catch { }
+    finally { setRolesLoading(false); }
+  }, []);
+
+  async function handleAddRole() {
+    if (!newRoleName.trim()) return;
+    setRoleAdding(true);
+    try {
+      const r = await roleApi.create({ name: newRoleName.trim(), permissions: [] });
+      setRolesList((prev) => [...prev, { ...r, userCount: 0 }]);
+      setRoles((prev) => [...prev, { id: r.id, name: r.name }]);
+      setNewRoleName("");
+    } catch (e) { setError(e instanceof ApiError ? e.message : "Failed to add role"); }
+    finally { setRoleAdding(false); }
+  }
+
+  async function handleDeleteRole(id: number) {
+    try {
+      await roleApi.remove(id);
+      setRolesList((prev) => prev.filter((r) => r.id !== id));
+      setRoles((prev) => prev.filter((r) => r.id !== id));
+    } catch (e) { setError(e instanceof ApiError ? e.message : "Failed to delete role"); }
+  }
+
   const filtered = useMemo(() =>
     data.filter((u) =>
       u.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -145,6 +182,11 @@ export default function UserManagementPage() {
           className="flex items-center gap-2 rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 shadow-sm disabled:opacity-60">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
           Add User
+        </button>
+        <button onClick={openRolesModal} disabled={loading}
+          className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm disabled:opacity-60">
+          <Shield className="h-4 w-4 text-gray-500" />
+          Roles
         </button>
         <div className="relative ml-auto">
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
@@ -373,6 +415,62 @@ export default function UserManagementPage() {
         </Modal>
       )}
 
+      {/* Roles */}
+      <Modal isOpen={showRolesModal} onClose={() => { setShowRolesModal(false); setNewRoleName(""); }}
+        title="Manage Roles" size="sm"
+        footer={
+          <button onClick={() => { setShowRolesModal(false); setNewRoleName(""); }}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            Close
+          </button>
+        }>
+        <div className="rounded-xl bg-white p-4 shadow-sm space-y-4">
+          <div className="flex gap-2">
+            <input
+              value={newRoleName}
+              onChange={(e) => setNewRoleName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleAddRole(); }}
+              placeholder="Role name (e.g. Manager)"
+              className={inputCls}
+            />
+            <button onClick={handleAddRole} disabled={roleAdding || !newRoleName.trim()}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-500 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-60 whitespace-nowrap">
+              {roleAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Add
+            </button>
+          </div>
+
+          {rolesLoading ? (
+            <div className="flex justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+            </div>
+          ) : rolesList.length === 0 ? (
+            <p className="text-center text-sm text-gray-400 py-4">No roles yet. Add one above.</p>
+          ) : (
+            <div className="divide-y divide-gray-100 rounded-lg border border-gray-100 overflow-hidden">
+              {rolesList.map((r) => (
+                <div key={r.id} className="flex items-center gap-3 px-3 py-2.5 bg-white hover:bg-gray-50 transition-colors">
+                  <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                    ROLE_COLORS[r.name] ?? "bg-gray-50 text-gray-600 border-gray-200")}>
+                    {r.name}
+                  </span>
+                  <span className="flex-1 text-xs text-gray-400">
+                    {r.userCount} user{r.userCount !== 1 ? "s" : ""}
+                  </span>
+                  <button
+                    onClick={() => handleDeleteRole(r.id)}
+                    disabled={r.userCount > 0}
+                    title={r.userCount > 0 ? "Cannot delete — role has active users" : "Delete role"}
+                    className="rounded p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Modal>
+
       {/* Delete */}
       <Modal isOpen={!!deleteId} onClose={() => setDeleteId(null)} title="Delete User" size="sm"
         footer={
@@ -390,4 +488,8 @@ export default function UserManagementPage() {
       </Modal>
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="users.read"><UserManagementPage /></PermGuard>;
 }

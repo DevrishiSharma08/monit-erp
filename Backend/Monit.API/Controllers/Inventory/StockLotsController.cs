@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Monit.API.Common.Helpers;
 using Monit.API.Common.Response;
 using Monit.API.Models.DTOs.Inventory;
 using Monit.API.Services.Interfaces;
@@ -21,6 +22,12 @@ public class StockLotsController(IStockLotService svc) : ControllerBase
     public async Task<IActionResult> GetAll([FromQuery] StockLotFilterRequest filter)
     {
         var result = await svc.GetAllAsync(filter);
+        if (RoleGuard.ShouldHideCost(User))
+            foreach (var lot in result.Items)
+            {
+                lot.CostPerUnit = null;
+                lot.TotalCost   = null;
+            }
         return Ok(ApiResponse<PagedResult<StockLotRow>>.Ok(result));
     }
 
@@ -31,6 +38,12 @@ public class StockLotsController(IStockLotService svc) : ControllerBase
         try
         {
             var lot = await svc.GetByIdAsync(id);
+            if (RoleGuard.ShouldHideCost(User))
+            {
+                lot.CostPerUnit = null;
+                lot.TotalCost   = null;
+                lot.PoRate      = null;
+            }
             return Ok(ApiResponse<StockLotDetailRow>.Ok(lot));
         }
         catch (KeyNotFoundException ex)

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Monit.API.Common.Helpers;
 using Monit.API.Common.Response;
 using Monit.API.Models.DTOs.Mail;
 using Monit.API.Models.DTOs.Procurement;
@@ -18,11 +19,21 @@ public class PurchaseOrdersController(IPurchaseOrderService svc) : ControllerBas
 
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] PurchaseOrderFilterRequest filter)
-        => Ok(ApiResponse<PagedResult<PurchaseOrderListDto>>.Ok(await svc.GetAllAsync(filter)));
+    {
+        var result = await svc.GetAllAsync(filter);
+        if (RoleGuard.ShouldHideCost(User))
+            foreach (var po in result.Items)
+                po.TotalValue = 0;
+        return Ok(ApiResponse<PagedResult<PurchaseOrderListDto>>.Ok(result));
+    }
 
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
-        => Ok(ApiResponse<PurchaseOrderListDto>.Ok(await svc.GetByIdAsync(id)));
+    {
+        var result = await svc.GetByIdAsync(id);
+        if (RoleGuard.ShouldHideCost(User)) result.TotalValue = 0;
+        return Ok(ApiResponse<PurchaseOrderListDto>.Ok(result));
+    }
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreatePurchaseOrderDto dto)

@@ -4,6 +4,7 @@ namespace Monit.API.Repositories.Interfaces;
 
 public interface ICompanyConfigRepository
 {
-    Task<CompanyConfig> GetAsync();
-    Task               UpsertAsync(CompanyConfig entity);
+    Task<List<CompanyConfig>> GetAllAsync();
+    Task<CompanyConfig>       GetAsync(int id = 1);
+    Task                      UpsertAsync(CompanyConfig entity);
 }

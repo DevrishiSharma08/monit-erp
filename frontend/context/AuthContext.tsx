@@ -20,6 +20,8 @@ export interface AuthUser {
   role:         string;
   customerName: string | null;
   permissions:  string[];
+  companyId:    number;
+  companyName:  string;
 }
 
 interface LoginApiResponse {
@@ -33,13 +35,14 @@ interface LoginApiResponse {
     name:         string;
     role:         string;
     customerName: string | null;
+    companyId:    number;
   };
 }
 
 interface AuthContextValue {
   user:           AuthUser | null;
   isLoading:      boolean;
-  login:          (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
+  login:          (username: string, password: string, companyId?: number) => Promise<{ success: boolean; message?: string }>;
   logout:         () => Promise<void>;
   isAdmin:        boolean;
   isSalesman:     boolean;
@@ -54,6 +57,32 @@ interface AuthContextValue {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const COMPANY_NAMES: Record<number, string> = {
+  1: "Monit Paper Agency",
+  2: "Monit Paper Associates",
+};
+
+function decodePermsFromToken(token: string): string[] {
+  try {
+    const b64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(b64));
+    const p = payload["perm"];
+    return Array.isArray(p) ? p : p ? [p] : [];
+  } catch {
+    return [];
+  }
+}
+
+function decodeCompanyIdFromToken(token: string): number {
+  try {
+    const b64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(b64));
+    return parseInt(payload["company_id"] ?? "1", 10) || 1;
+  } catch {
+    return 1;
+  }
+}
+
 const USER_KEY = "monit_user";
 
 const PUBLIC_PATHS = ["/login"];
@@ -61,7 +90,7 @@ const PUBLIC_PATHS = ["/login"];
 const roleHome: Record<string, string> = {
   Admin:             "/",
   Manager:           "/",
-  Salesman:          "/inquiry",
+  Salesman:          "/orders",
   Accountant:        "/dashboard/accounts",
   Planner:           "/dashboard/planner",
   "Warehouse Manager": "/stock-lots",
@@ -75,7 +104,12 @@ function saveUser(user: AuthUser): void {
 function loadUser(): AuthUser | null {
   try {
     const raw = localStorage.getItem(USER_KEY);
-    return raw ? (JSON.parse(raw) as AuthUser) : null;
+    if (!raw) return null;
+    const u = JSON.parse(raw) as AuthUser;
+    if (!u.permissions) u.permissions = [];
+    if (!u.companyId)   u.companyId   = 1;
+    if (!u.companyName) u.companyName = COMPANY_NAMES[u.companyId] ?? "Monit Paper Agency";
+    return u;
   } catch {
     return null;
   }
@@ -109,7 +143,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (newToken) {
         const cached = loadUser();
         if (cached) {
-          setUser(cached);
+          const companyId   = decodeCompanyIdFromToken(newToken);
+          setUser({
+            ...cached,
+            permissions: decodePermsFromToken(newToken),
+            companyId,
+            companyName: COMPANY_NAMES[companyId] ?? "Monit Paper Agency",
+          });
         } else {
           setAccessToken(null);
         }
@@ -131,20 +171,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user, isLoading, pathname, router]);
 
   const login = useCallback(
-    async (username: string, password: string): Promise<{ success: boolean; message?: string }> => {
+    async (username: string, password: string, companyId: number = 1): Promise<{ success: boolean; message?: string }> => {
       try {
         const data = await apiFetch<LoginApiResponse>("/api/v1/auth/login", {
           method: "POST",
-          body:   JSON.stringify({ username, password }),
+          body:   JSON.stringify({ username, password, companyId }),
         });
 
+        const cid = data.user.companyId ?? companyId;
         const authUser: AuthUser = {
           id:           data.user.id,
           username:     data.user.username,
           name:         data.user.name,
           role:         data.user.role,
           customerName: data.user.customerName,
-          permissions:  data.permissions ?? [],
+          permissions:  decodePermsFromToken(data.accessToken),
+          companyId:    cid,
+          companyName:  COMPANY_NAMES[cid] ?? "Monit Paper Agency",
         };
 
         setAccessToken(data.accessToken);

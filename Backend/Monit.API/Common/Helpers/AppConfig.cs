@@ -11,12 +11,14 @@ namespace Monit.API.Common.Helpers;
 ///   3. appsettings.json
 ///
 /// Required environment variables in production:
-///   ConnectionStrings__Default   → SQL Server connection string
+///   ConnectionStrings__Company1  → Monit Paper Agency DB connection string
+///   ConnectionStrings__Company2  → Monit Paper Associates DB connection string
 ///   Jwt__Secret                  → minimum 32-character random string
 /// </summary>
 public class AppConfig
 {
-    public string ConnectionString    { get; }
+    public string Company1ConnectionString { get; }
+    public string Company2ConnectionString { get; }
     public string JwtSecret           { get; }
     public string JwtIssuer           { get; }
     public string JwtAudience         { get; }
@@ -26,12 +28,20 @@ public class AppConfig
     public string CompanyName         { get; }
     public string CompanyAddress      { get; }
 
+    public string GetConnectionString(int companyId) =>
+        companyId == 2 ? Company2ConnectionString : Company1ConnectionString;
+
     public AppConfig(IConfiguration config)
     {
-        ConnectionString = config.GetConnectionString("Default")
+        Company1ConnectionString = config.GetConnectionString("Company1")
             ?? throw new InvalidOperationException(
-               "ConnectionStrings:Default is not configured. " +
-               "Set environment variable: ConnectionStrings__Default");
+               "ConnectionStrings:Company1 is not configured. " +
+               "Set environment variable: ConnectionStrings__Company1");
+
+        Company2ConnectionString = config.GetConnectionString("Company2")
+            ?? throw new InvalidOperationException(
+               "ConnectionStrings:Company2 is not configured. " +
+               "Set environment variable: ConnectionStrings__Company2");
 
         JwtSecret = config["Jwt:Secret"]
             ?? throw new InvalidOperationException(

@@ -10,35 +10,46 @@ public class DashboardRepository(DbConnectionFactory db) : IDashboardRepository
     public async Task<DashboardSummaryDto> GetSummaryAsync()
     {
         const string sql = @"
-            -- 1. All KPIs in one row
+            -- 1. KPIs
             SELECT
                 (SELECT COUNT(*) FROM sales.SalesOrders
-                 WHERE Status NOT IN ('Completed','Closed','Cancelled') AND IsDeleted=0)   AS OpenSoCount,
+                 WHERE Status NOT IN ('Completed','Closed','Cancelled') AND IsDeleted=0)    AS OpenSoCount,
                 ISNULL((SELECT SUM(TotalValue) FROM sales.SalesOrders
                  WHERE Status NOT IN ('Completed','Closed','Cancelled') AND IsDeleted=0),0) AS OpenSoValue,
                 (SELECT COUNT(*) FROM procurement.PurchaseOrders
-                 WHERE Status NOT IN ('Received','Cancelled') AND IsDeleted=0)             AS OpenPoCount,
+                 WHERE Status NOT IN ('Received','Cancelled') AND IsDeleted=0)              AS OpenPoCount,
                 ISNULL((SELECT SUM(TotalValue) FROM procurement.PurchaseOrders
-                 WHERE Status NOT IN ('Received','Cancelled') AND IsDeleted=0),0)          AS OpenPoValue,
-                (SELECT COUNT(*) FROM inventory.GRNs
-                 WHERE Status IN ('Draft','QC Pending') AND IsDeleted=0)                   AS PendingGrnCount,
+                 WHERE Status NOT IN ('Received','Cancelled') AND IsDeleted=0),0)           AS OpenPoValue,
+                (
+                  -- Existing GRNs not yet fully processed
+                  (SELECT COUNT(*) FROM inventory.GRNs
+                   WHERE Status NOT IN ('Stock Updated') AND IsDeleted=0)
+                  +
+                  -- In-Transit TLPs that have no GRN created yet
+                  (SELECT COUNT(*) FROM procurement.TruckLoadPlans tlp
+                   WHERE tlp.Status = 'In Transit' AND tlp.IsDeleted = 0
+                     AND NOT EXISTS (
+                       SELECT 1 FROM inventory.GRNs g
+                       WHERE g.SourceLoadPlanId = tlp.Id AND g.IsDeleted = 0
+                     ))
+                )                                                                           AS PendingGrnCount,
                 (SELECT COUNT(*) FROM inventory.StockLots
-                 WHERE Status='Available' AND IsDeleted=0)                                 AS AvailableStockLots,
+                 WHERE Status='Available' AND IsDeleted=0)                                  AS AvailableStockLots,
                 ISNULL((SELECT SUM(CurrentQty) FROM inventory.StockLots
-                 WHERE Status='Available' AND IsDeleted=0),0)                              AS AvailableStockQty,
-                (SELECT COUNT(*) FROM procurement.MillTrackers WHERE IsDeleted=0)          AS MillTrackerTotal,
+                 WHERE Status='Available' AND IsDeleted=0),0)                               AS AvailableStockQty,
+                (SELECT COUNT(*) FROM procurement.MillTrackers WHERE IsDeleted=0)           AS MillTrackerTotal,
                 (SELECT COUNT(*) FROM procurement.MillTrackers
-                 WHERE ProductionStatus IN ('Ready','Dispatched') AND IsDeleted=0)         AS MillTrackerReady;
+                 WHERE ProductionStatus IN ('Ready','Dispatched') AND IsDeleted=0)          AS MillTrackerReady;
 
             -- 2. Recent Sales Orders (6)
             SELECT TOP 6
                 so.Id,
-                so.SONumber AS Number,
-                ISNULL(c.Name,'') AS Party,
+                so.SONumber                                    AS Number,
+                ISNULL(c.Name, '')                             AS Party,
                 so.Status,
                 so.TotalValue,
-                CONVERT(varchar(10), so.OrderDate, 120) AS OrderDate
-            FROM sales.SalesOrders so
+                CONVERT(varchar(10), so.OrderDate, 120)        AS OrderDate
+            FROM  sales.SalesOrders   so
             LEFT JOIN masters.Customers c ON c.Id = so.CustomerId
             WHERE so.IsDeleted = 0
             ORDER BY so.CreatedAt DESC;
@@ -46,12 +57,12 @@ public class DashboardRepository(DbConnectionFactory db) : IDashboardRepository
             -- 3. Recent Purchase Orders (6)
             SELECT TOP 6
                 po.Id,
-                po.PONumber AS Number,
-                ISNULL(m.Name,'') AS Party,
+                po.PONumber                                    AS Number,
+                ISNULL(m.Name, '')                             AS Party,
                 po.Status,
                 po.TotalValue,
-                CONVERT(varchar(10), po.OrderDate, 120) AS OrderDate
-            FROM procurement.PurchaseOrders po
+                CONVERT(varchar(10), po.OrderDate, 120)        AS OrderDate
+            FROM  procurement.PurchaseOrders po
             LEFT JOIN masters.Mills m ON m.Id = po.MillId
             WHERE po.IsDeleted = 0
             ORDER BY po.CreatedAt DESC;
@@ -59,31 +70,31 @@ public class DashboardRepository(DbConnectionFactory db) : IDashboardRepository
             -- 4. Mill Trackers (6)
             SELECT TOP 6
                 mt.Id,
-                ISNULL(mt.Description,'') AS Material,
-                ISNULL(mm.Name,'') AS Mill,
+                ISNULL(mt.Description, '')                     AS Material,
+                ISNULL(mm.Name, '')                            AS Mill,
                 mt.OrderedQty,
                 mt.ProductionStatus,
-                ISNULL(mt.ProductionProgress, 0) AS ProductionProgress
-            FROM procurement.MillTrackers mt
+                ISNULL(mt.ProductionProgress, 0)               AS ProductionProgress
+            FROM  procurement.MillTrackers mt
             LEFT JOIN masters.Mills mm ON mm.Id = mt.MillId
             WHERE mt.IsDeleted = 0
             ORDER BY mt.CreatedAt DESC;
 
             -- 5. SO Status Breakdown
             SELECT Status AS Name, COUNT(*) AS Value
-            FROM sales.SalesOrders WHERE IsDeleted = 0
+            FROM  sales.SalesOrders WHERE IsDeleted = 0
             GROUP BY Status ORDER BY Value DESC;
 
             -- 6. PO Status Breakdown
             SELECT Status AS Name, COUNT(*) AS Value
-            FROM procurement.PurchaseOrders WHERE IsDeleted = 0
+            FROM  procurement.PurchaseOrders WHERE IsDeleted = 0
             GROUP BY Status ORDER BY Value DESC;
         ";
 
         using var conn  = db.Create();
         using var multi = await conn.QueryMultipleAsync(sql);
 
-        var kpis     = await multi.ReadFirstAsync<DashboardKpiRow>();
+        var kpis       = await multi.ReadFirstAsync<DashboardKpiRow>();
         var recentSOs  = (await multi.ReadAsync<DashboardOrderRow>()).ToList();
         var recentPOs  = (await multi.ReadAsync<DashboardOrderRow>()).ToList();
         var milltracks = (await multi.ReadAsync<DashboardMillTrackerRow>()).ToList();
@@ -92,15 +103,15 @@ public class DashboardRepository(DbConnectionFactory db) : IDashboardRepository
 
         return new DashboardSummaryDto
         {
-            OpenSoCount        = kpis.OpenSoCount,
-            OpenSoValue        = kpis.OpenSoValue,
-            OpenPoCount        = kpis.OpenPoCount,
-            OpenPoValue        = kpis.OpenPoValue,
-            PendingGrnCount    = kpis.PendingGrnCount,
-            AvailableStockLots = kpis.AvailableStockLots,
-            AvailableStockQty  = kpis.AvailableStockQty,
-            MillTrackerTotal   = kpis.MillTrackerTotal,
-            MillTrackerReady   = kpis.MillTrackerReady,
+            OpenSoCount          = kpis.OpenSoCount,
+            OpenSoValue          = kpis.OpenSoValue,
+            OpenPoCount          = kpis.OpenPoCount,
+            OpenPoValue          = kpis.OpenPoValue,
+            PendingGrnCount      = kpis.PendingGrnCount,
+            AvailableStockLots   = kpis.AvailableStockLots,
+            AvailableStockQty    = kpis.AvailableStockQty,
+            MillTrackerTotal     = kpis.MillTrackerTotal,
+            MillTrackerReady     = kpis.MillTrackerReady,
             RecentSalesOrders    = recentSOs,
             RecentPurchaseOrders = recentPOs,
             MillTrackers         = milltracks,

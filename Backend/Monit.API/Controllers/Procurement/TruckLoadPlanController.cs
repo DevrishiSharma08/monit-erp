@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Monit.API.Common.Helpers;
 using Monit.API.Common.Response;
 using Monit.API.Models.DTOs.Procurement;
 using Monit.API.Services.Interfaces;
@@ -18,12 +19,22 @@ public class TruckLoadPlanController(ITruckLoadPlanService svc) : ControllerBase
     /// <summary>GET /api/v1/truck-load-plans — paginated list with optional filters</summary>
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] TruckLoadPlanFilterRequest filter)
-        => Ok(ApiResponse<PagedResult<TruckLoadPlanDto>>.Ok(await svc.GetAllAsync(filter)));
+    {
+        var result = await svc.GetAllAsync(filter);
+        if (RoleGuard.ShouldHideCost(User))
+            foreach (var p in result.Items)
+                p.FreightAmount = null;
+        return Ok(ApiResponse<PagedResult<TruckLoadPlanDto>>.Ok(result));
+    }
 
     /// <summary>GET /api/v1/truck-load-plans/{id} — single plan with all items</summary>
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
-        => Ok(ApiResponse<TruckLoadPlanDto>.Ok(await svc.GetByIdAsync(id)));
+    {
+        var result = await svc.GetByIdAsync(id);
+        if (RoleGuard.ShouldHideCost(User)) result.FreightAmount = null;
+        return Ok(ApiResponse<TruckLoadPlanDto>.Ok(result));
+    }
 
     /// <summary>
     /// POST /api/v1/truck-load-plans — create a new truck load plan.

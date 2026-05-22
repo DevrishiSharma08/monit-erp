@@ -5,40 +5,39 @@ import { companyConfigApi, CompanyConfigData } from "@/lib/api-services";
 
 interface CompanySettingsCtx {
   config:     CompanyConfigData;
+  allConfigs: CompanyConfigData[];
   loading:    boolean;
-  error:      string | null;
   reload:     () => Promise<void>;
 }
 
 const CompanySettingsContext = createContext<CompanySettingsCtx>({
-  config:  {},
-  loading: false,
-  error:   null,
-  reload:  async () => {},
+  config:     { id: 1 },
+  allConfigs: [],
+  loading:    false,
+  reload:     async () => {},
 });
 
 export function CompanySettingsProvider({ children }: { children: React.ReactNode }) {
-  const [config,  setConfig]  = useState<CompanyConfigData>({});
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
+  const [config,     setConfig]     = useState<CompanyConfigData>({ id: 1 });
+  const [allConfigs, setAllConfigs] = useState<CompanyConfigData[]>([]);
+  const [loading,    setLoading]    = useState(true);
 
   const reload = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
-      setConfig(await companyConfigApi.get());
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to load company settings.";
-      setError(msg);
-    } finally {
-      setLoading(false);
+      const all = await companyConfigApi.getAll();
+      const list = Array.isArray(all) ? all : [all as CompanyConfigData];
+      setAllConfigs(list);
+      setConfig(list.find((c) => c.id === 1) ?? list[0] ?? { id: 1 });
     }
+    catch { /* non-fatal — app still works without config */ }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { reload(); }, [reload]);
 
   return (
-    <CompanySettingsContext.Provider value={{ config, loading, error, reload }}>
+    <CompanySettingsContext.Provider value={{ config, allConfigs, loading, reload }}>
       {children}
     </CompanySettingsContext.Provider>
   );

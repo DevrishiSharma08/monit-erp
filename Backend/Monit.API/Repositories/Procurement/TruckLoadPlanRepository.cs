@@ -35,17 +35,24 @@ public class TruckLoadPlanRepository(DbConnectionFactory db) : ITruckLoadPlanRep
             p.CreatedAt
         FROM procurement.TruckLoadPlans p";
 
+    private const string LoadSelect = @"
+        SELECT l.Id, l.PlanId, l.LoadType, l.LoadSequence, l.Address
+        FROM procurement.TruckLoadPlanLoads l
+        WHERE l.IsDeleted = 0";
+
     private const string ItemSelect = @"
         SELECT
-            i.Id, i.PlanId, i.TrackerId,
+            i.Id, i.PlanId, i.LoadId, i.TrackerId,
             i.PoNumber, i.SoNumber,
             i.Paper, i.Gsm, i.Size,
             i.CustomerName, i.Mill,
-            i.Quantity, i.WeightKg,
+            i.Quantity, i.PlanQty, i.WeightKg,
             i.LoadOrder,
             i.DeliveryLocation, i.DeliveryAddress,
-            i.MillInvoiceNo, i.DeliveryBillNo
+            i.MillInvoiceNo, i.DeliveryBillNo,
+            l.LoadType
         FROM procurement.TruckLoadPlanItems i
+        LEFT JOIN procurement.TruckLoadPlanLoads l ON l.Id = i.LoadId AND l.IsDeleted = 0
         WHERE i.IsDeleted = 0";
 
     // ── Queries ──────────────────────────────────────────────────────────────
@@ -105,14 +112,19 @@ public class TruckLoadPlanRepository(DbConnectionFactory db) : ITruckLoadPlanRep
                  @PlannedLoadDate, @PlannedDeliveryDate, 'Planned', @Remarks,
                  GETUTCDATE(), @CreatedBy)";
 
+        const string insertLoad = @"
+            INSERT INTO procurement.TruckLoadPlanLoads (PlanId, LoadType, LoadSequence, Address, CreatedAt)
+            OUTPUT INSERTED.Id
+            VALUES (@PlanId, @LoadType, @LoadSequence, @Address, GETUTCDATE())";
+
         const string insertItem = @"
             INSERT INTO procurement.TruckLoadPlanItems
-                (PlanId, TrackerId, PoNumber, SoNumber, Paper, Gsm, Size,
-                 CustomerName, Mill, Quantity, WeightKg, LoadOrder,
+                (PlanId, LoadId, TrackerId, PoNumber, SoNumber, Paper, Gsm, Size,
+                 CustomerName, Mill, Quantity, PlanQty, WeightKg, LoadOrder,
                  DeliveryLocation, DeliveryAddress, MillInvoiceNo, DeliveryBillNo, CreatedAt)
             VALUES
-                (@PlanId, @TrackerId, @PoNumber, @SoNumber, @Paper, @Gsm, @Size,
-                 @CustomerName, @Mill, @Quantity, @WeightKg, @LoadOrder,
+                (@PlanId, @LoadId, @TrackerId, @PoNumber, @SoNumber, @Paper, @Gsm, @Size,
+                 @CustomerName, @Mill, @Quantity, @PlanQty, @WeightKg, @LoadOrder,
                  @DeliveryLocation, @DeliveryAddress, @MillInvoiceNo, @DeliveryBillNo, GETUTCDATE())";
 
         using var conn = db.Create();
@@ -139,11 +151,29 @@ public class TruckLoadPlanRepository(DbConnectionFactory db) : ITruckLoadPlanRep
                 CreatedBy = createdBy,
             }, tx);
 
+            // Insert named loads and build LoadType → LoadId map
+            var loadMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var load in dto.Loads)
+            {
+                var loadId = await conn.ExecuteScalarAsync<int>(insertLoad, new
+                {
+                    PlanId       = planId,
+                    load.LoadType,
+                    load.LoadSequence,
+                    load.Address,
+                }, tx);
+                loadMap[load.LoadType] = loadId;
+            }
+
             foreach (var it in dto.Items)
             {
+                var resolvedLoadId = it.LoadType != null && loadMap.TryGetValue(it.LoadType, out var lid)
+                    ? (int?)lid : null;
+
                 await conn.ExecuteAsync(insertItem, new
                 {
                     PlanId          = planId,
+                    LoadId          = resolvedLoadId,
                     it.TrackerId,
                     it.PoNumber,
                     it.SoNumber,
@@ -153,6 +183,7 @@ public class TruckLoadPlanRepository(DbConnectionFactory db) : ITruckLoadPlanRep
                     it.CustomerName,
                     it.Mill,
                     it.Quantity,
+                    it.PlanQty,
                     it.WeightKg,
                     it.LoadOrder,
                     it.DeliveryLocation,
@@ -209,14 +240,31 @@ public class TruckLoadPlanRepository(DbConnectionFactory db) : ITruckLoadPlanRep
 
     private async Task AttachItems(System.Data.IDbConnection conn, List<TruckLoadPlanDto> plans)
     {
-        var ids   = plans.Select(p => p.Id).ToList();
-        var items = (await conn.QueryAsync<TruckLoadPlanItemDto>(
-            $"{ItemSelect} AND i.PlanId IN @Ids ORDER BY i.PlanId, i.LoadOrder DESC",
+        var ids = plans.Select(p => p.Id).ToList();
+
+        var loads = (await conn.QueryAsync<TruckLoadPlanLoadDto>(
+            $"{LoadSelect} AND l.PlanId IN @Ids ORDER BY l.PlanId, l.LoadSequence",
             new { Ids = ids })).ToList();
 
-        var map = items.GroupBy(i => i.PlanId).ToDictionary(g => g.Key, g => g.ToList());
+        var items = (await conn.QueryAsync<TruckLoadPlanItemDto>(
+            $"{ItemSelect} AND i.PlanId IN @Ids ORDER BY i.PlanId, i.LoadOrder",
+            new { Ids = ids })).ToList();
+
+        var loadsByPlan = loads.GroupBy(l => l.PlanId).ToDictionary(g => g.Key, g => g.ToList());
+        var itemsByLoad = items.Where(i => i.LoadId.HasValue)
+                               .GroupBy(i => i.LoadId!.Value)
+                               .ToDictionary(g => g.Key, g => g.ToList());
+        var itemsByPlan = items.GroupBy(i => i.PlanId).ToDictionary(g => g.Key, g => g.ToList());
+
         foreach (var plan in plans)
-            plan.Items = map.TryGetValue(plan.Id, out var list) ? list : [];
+        {
+            plan.Items = itemsByPlan.TryGetValue(plan.Id, out var flatList) ? flatList : [];
+
+            var planLoads = loadsByPlan.TryGetValue(plan.Id, out var ll) ? ll : [];
+            foreach (var load in planLoads)
+                load.Items = itemsByLoad.TryGetValue(load.Id, out var li) ? li : [];
+            plan.Loads = planLoads;
+        }
     }
 
     private static (string, DynamicParameters) BuildWhere(TruckLoadPlanFilterRequest f)

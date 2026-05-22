@@ -33,6 +33,8 @@ public class PurchaseOrderListDto
     public int      MillId                { get; set; }
     public string   MillName              { get; set; } = string.Empty;
     public string?  MillCode              { get; set; }
+    public int?     MillUnitId            { get; set; }
+    public string?  MillUnitName          { get; set; }
     public string   OrderDate             { get; set; } = string.Empty;
     public string   POType                { get; set; } = string.Empty;
     public int?     LinkedSOId            { get; set; }
@@ -81,6 +83,7 @@ public class UpsertPurchaseOrderItemDto
 public class CreatePurchaseOrderDto
 {
     public int      MillId                { get; set; }
+    public int?     MillUnitId            { get; set; }
     public string   OrderDate             { get; set; } = string.Empty;
     public string   POType                { get; set; } = "For Stock";
     public int?     LinkedSOId            { get; set; }

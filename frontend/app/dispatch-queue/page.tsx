@@ -52,9 +52,9 @@ export default function DispatchQueuePage() {
       .filter((so) => so.status !== "Completed" && so.status !== "Closed" && so.status !== "Cancelled" && so.status !== "Draft")
       .forEach((so) => {
         so.lines
-          .filter((line) => (line.stockAllocated ?? 0) > 0 && line.status !== "Dispatched" && line.status !== "Delivered")
+          .filter((line) => (line.allocatedQty ?? 0) > 0 && line.status !== "Dispatched" && line.status !== "Delivered")
           .forEach((line) => {
-            const deliveryDate = new Date(line.requiredDeliveryDate ?? today);
+            const deliveryDate = new Date(line.requiredDeliveryDate ?? "");
             const daysUntilDelivery = Math.ceil((deliveryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
             const priority: DispatchItem["priority"] =
               daysUntilDelivery <= 0 ? "Urgent" : daysUntilDelivery <= 3 ? "High" : "Normal";
@@ -72,7 +72,7 @@ export default function DispatchQueuePage() {
               gsm: line.gsm || 0,
               size: line.size || "",
               orderedQty: line.orderedQty,
-              stockAllocated: line.stockAllocated ?? 0,
+              stockAllocated: line.allocatedQty ?? 0,
               daysUntilDelivery,
               priority,
               hasPickPlan,

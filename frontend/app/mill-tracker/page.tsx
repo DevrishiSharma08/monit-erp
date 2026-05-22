@@ -1,8 +1,10 @@
 ﻿"use client";
 
+import { PermGuard } from "@/components/PermGuard";
 import { Fragment, useCallback, useEffect, useMemo, useState, useRef } from "react";
-import { MillOrderTracker, PartialDelivery } from "@/types/paper-domain";
-import { millTrackerApi, MillTrackerRow, MillTrackerBatchRow, BulkImportRowInput, BulkImportResultDto, truckLoadPlanApi } from "@/lib/api-services";
+import { MillOrderTracker, PartialDelivery, TruckLoadPlan } from "@/data/mockData";
+import { usePurchaseOrder } from "@/context/PurchaseOrderContext";
+import { millTrackerApi, MillTrackerRow, MillTrackerBatchRow, BulkImportRowInput, BulkImportResultDto } from "@/lib/api-services";
 import * as XLSX from "xlsx";
 import { useToast } from "@/context/ToastContext";
 import {
@@ -24,7 +26,6 @@ import {
   X,
   FileSpreadsheet,
   CheckCircle2,
-  AlertCircle,
   Search,
   Filter,
   EyeOff,
@@ -33,7 +34,6 @@ import {
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { Modal } from "@/components/Modal";
-import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
 
 // ─── Timestamp formatter (UTC → IST) ─────────────────────────────────────────
 function fmtDateTime(raw?: string | null): string {
@@ -51,6 +51,10 @@ function fmtDateTime(raw?: string | null): string {
   });
   return `${datePart}, ${timePart.toUpperCase()}`;
 }
+
+// ─── Note: MillTracker.OrderedQty/ReadyQty/DispatchedQty are stored in KG ────
+// (backend at MillTrackerRepository.cs:189 copies PO.WeightKg into OrderedQty).
+// So display values directly — do NOT apply any sheet↔kg conversion here.
 
 // ─── Shared form styles ───────────────────────────────────────────────────────
 const inputCls = "w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100";
@@ -138,7 +142,8 @@ function mapTrackerRow(r: MillTrackerRow): MillOrderTracker {
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
-export default function MillTrackerPage() {
+function MillTrackerPage() {
+  const { addTruckLoadPlan } = usePurchaseOrder();
   const { success } = useToast();
 
   // ── API data ────────────────────────────────────────────────────────────────
@@ -194,6 +199,20 @@ export default function MillTrackerPage() {
     const delayed         = millTrackers.filter((m) => (m.delayDays ?? 0) > 0).length;
     const totalValue      = millTrackers.reduce((s, m) => s + m.totalAmount, 0);
     return { total, pending, inProduction, readyToDispatch, dispatched, delayed, totalValue };
+  }, [millTrackers]);
+
+  // ── Item line numbers: trackerId → 1-based index within same PO ──────────
+  const poItemLineMap = useMemo<Map<string, number>>(() => {
+    const groups = new Map<string, string[]>();
+    for (const t of millTrackers) {
+      if (!groups.has(t.poNumber)) groups.set(t.poNumber, []);
+      groups.get(t.poNumber)!.push(t.id);
+    }
+    const result = new Map<string, number>();
+    for (const [, ids] of groups) {
+      if (ids.length > 1) ids.forEach((id, i) => result.set(id, i + 1));
+    }
+    return result;
   }, [millTrackers]);
 
   // ── Filtered trackers (drives all 3 views) ────────────────────────────────
@@ -331,40 +350,49 @@ export default function MillTrackerPage() {
   const columns: ColumnConfig<MillOrderTracker>[] = useMemo(() => [
     { id: "rowNo",          accessorKey: "id",              header: "#",            filterType: "none",   enableSorting: false, enableHiding: false, defaultVisible: true, size: 45,
       cell: (info) => <span className="text-xs text-gray-400 tabular-nums">{info.row.index + 1}</span> },
-    { id: "poNumber",       accessorKey: "poNumber",        header: "PO Number",    filterType: "text",   enableSorting: true, enableHiding: false, defaultVisible: true, size: 140, align: "left" as const,
-      cell: (info) => <span className="font-mono font-semibold text-xs text-purple-600">{info.getValue() as string}</span> },
-    { id: "poDate",         accessorKey: "poDate",          header: "Order Date",   filterType: "none",   enableSorting: true, defaultVisible: true, size: 100,
+    { id: "poNumber",       accessorKey: "poNumber",        header: "PO Number",    filterType: "text",   enableSorting: true, enableHiding: false, defaultVisible: true, size: 150,
+      cell: (info) => {
+        const po = info.getValue() as string;
+        const lineNo = poItemLineMap.get(info.row.original.id);
+        return (
+          <div className="leading-tight">
+            <span className="font-mono font-semibold text-xs text-purple-600">{po}</span>
+            {lineNo && <span className="font-mono text-xs text-blue-500"> #{lineNo}</span>}
+          </div>
+        );
+      } },
+    { id: "poDate",         accessorKey: "poDate",          header: "Order Date",   filterType: "none",   enableSorting: true, defaultVisible: true, size: 95,
       cell: (info) => <span className="text-xs text-gray-600">{info.getValue() as string}</span> },
-    { id: "itemCode",       accessorKey: "mill",            header: "Item Code",    filterType: "text",   enableSorting: false, defaultVisible: true, size: 240, align: "left" as const, noTruncate: true,
+    { id: "itemCode",       accessorKey: "mill",            header: "Item Code",    filterType: "text",   enableSorting: false, defaultVisible: true, size: 200,
       cell: (info) => { const t = info.row.original; return (
-        <div className="leading-snug min-w-0">
-          <div className="text-xs font-medium text-gray-800 truncate">{t.paper || t.mill}</div>
-          <div className="text-[10px] text-gray-400 mt-0.5 truncate">{t.mill}</div>
+        <div className="text-xs leading-tight">
+          <div className="font-semibold text-gray-800">{t.mill}</div>
+          <div className="text-gray-500">{t.paper} · {t.gsm} GSM · {t.size}</div>
         </div>
       ); } },
-    { id: "orderedQty",     accessorKey: "orderedQty",      header: "Ordered",      filterType: "none",   enableSorting: true, defaultVisible: true, size: 80,
-      cell: (info) => <span className="tabular-nums text-xs text-gray-700">{(info.getValue() as number).toLocaleString()}</span> },
-    { id: "millSONumber",   accessorKey: "millSONumber",    header: "Mill SO No.",  filterType: "text",   enableSorting: true, defaultVisible: true, size: 120,
-      cell: (info) => info.getValue() ? <span className="font-mono text-xs text-violet-600">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
-    { id: "customerName",   accessorKey: "customerName",    header: "PO Customer",  filterType: "text",   enableSorting: true, defaultVisible: true, size: 140, align: "left" as const,
-      cell: (info) => info.getValue() ? <span className="text-xs text-blue-600">{info.getValue() as string}</span> : <span className="text-xs text-gray-400">Stock PO</span> },
-    { id: "soCustomerName", accessorKey: "soCustomerName",  header: "SO Customer",  filterType: "text",   enableSorting: true, defaultVisible: true, size: 140, align: "left" as const,
+    { id: "orderedQty",     accessorKey: "orderedQty",      header: "Ordered (kg)", filterType: "none",   enableSorting: true, defaultVisible: true, size: 95,
+      cell: (info) => { const v = info.getValue() as number; return <span className="font-medium tabular-nums text-xs">{v > 0 ? v.toLocaleString() : "—"}</span>; } },
+    { id: "millSONumber",   accessorKey: "millSONumber",    header: "Mill SO No.",  filterType: "text",   enableSorting: true, defaultVisible: true, size: 110,
+      cell: (info) => info.getValue() ? <span className="font-mono text-xs text-purple-700">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
+    { id: "customerName",   accessorKey: "customerName",    header: "PO Customer",  filterType: "text",   enableSorting: true, defaultVisible: true, size: 150,
+      cell: (info) => info.getValue() ? <span className="font-medium text-xs text-blue-700">{info.getValue() as string}</span> : <span className="text-xs text-gray-400">Stock PO</span> },
+    { id: "soCustomerName", accessorKey: "soCustomerName",  header: "SO Customer",  filterType: "text",   enableSorting: true, defaultVisible: true, size: 150,
       cell: (info) => info.getValue() ? <span className="text-xs text-gray-700">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
-    { id: "readyQty",       accessorKey: "readyQty",        header: "Ready",        filterType: "none",   enableSorting: true, defaultVisible: true, size: 75,
-      cell: (info) => { const v = info.getValue() as number; return <span className={`tabular-nums text-xs ${v > 0 ? "text-green-600" : "text-gray-400"}`}>{v.toLocaleString()}</span>; } },
-    { id: "dispatchedQty",  accessorKey: "dispatchedQty",   header: "Dispatched",   filterType: "none",   enableSorting: true, defaultVisible: true, size: 90,
-      cell: (info) => { const v = info.getValue() as number; return v > 0 ? <span className="text-xs text-blue-600 tabular-nums">{v.toLocaleString()}</span> : <span className="text-gray-300 text-xs">—</span>; } },
-    { id: "balanceQty",     accessorKey: "balanceQty",      header: "Balance",      filterType: "none",   enableSorting: true, defaultVisible: true, size: 80,
-      cell: (info) => { const v = info.getValue() as number; return <span className={`tabular-nums text-xs ${v > 0 ? "text-orange-600" : "text-green-600"}`}>{v.toLocaleString()}</span>; } },
-    { id: "soDeliveryDate", accessorKey: "soDeliveryDate",  header: "SO Del. Date", filterType: "none",   enableSorting: true, defaultVisible: true, size: 108,
-      cell: (info) => info.getValue() ? <span className="text-xs text-gray-600">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
-    { id: "expectedDelivery",accessorKey: "expectedDelivery",header: "PO Del. Date",filterType: "none",   enableSorting: true, defaultVisible: true, size: 108,
-      cell: (info) => <span className="text-xs text-gray-600">{info.getValue() as string}</span> },
-    { id: "productionStatus",accessorKey: "productionStatus",header: "Status",      filterType: "select", filterOptions: productionStatusOptions, enableSorting: true, defaultVisible: true, size: 125,
+    { id: "readyQty",       accessorKey: "readyQty",        header: "Ready (kg)",   filterType: "none",   enableSorting: true, defaultVisible: true, size: 90,
+      cell: (info) => { const v = info.getValue() as number; return <span className={`tabular-nums text-xs font-medium ${v > 0 ? "text-green-600" : "text-gray-400"}`}>{v > 0 ? v.toLocaleString() : "—"}</span>; } },
+    { id: "dispatchedQty",  accessorKey: "dispatchedQty",   header: "Dispatched (kg)", filterType: "none", enableSorting: true, defaultVisible: true, size: 105,
+      cell: (info) => { const v = info.getValue() as number; return v > 0 ? <span className="font-medium text-xs text-blue-600 tabular-nums">{v.toLocaleString()}</span> : <span className="text-gray-300 text-xs">—</span>; } },
+    { id: "balanceQty",     accessorKey: "balanceQty",      header: "Balance (kg)", filterType: "none",   enableSorting: true, defaultVisible: true, size: 95,
+      cell: (info) => { const v = info.getValue() as number; return <span className={`tabular-nums text-xs font-medium ${v > 0 ? "text-orange-600" : "text-green-600"}`}>{v > 0 ? v.toLocaleString() : "—"}</span>; } },
+    { id: "soDeliveryDate", accessorKey: "soDeliveryDate",  header: "SO Del. Date", filterType: "none",   enableSorting: true, defaultVisible: true, size: 100,
+      cell: (info) => info.getValue() ? <span className="text-xs text-gray-700">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
+    { id: "expectedDelivery",accessorKey: "expectedDelivery",header: "PO Del. Date",filterType: "none",   enableSorting: true, defaultVisible: true, size: 100,
+      cell: (info) => <span className="text-xs text-gray-700">{info.getValue() as string}</span> },
+    { id: "productionStatus",accessorKey: "productionStatus",header: "Status",      filterType: "select", filterOptions: productionStatusOptions, enableSorting: true, defaultVisible: true, size: 120,
       cell: (info) => { const s = info.getValue() as string; return <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[s] || "bg-gray-100 text-gray-600"}`}>{s}</span>; } },
     { id: "actions",        accessorKey: "id",              header: "Actions",      filterType: "none",   enableSorting: false, enableHiding: false, defaultVisible: true, size: 52, sticky: "right",
       cell: (info) => <ThreeDotsMenu tracker={info.row.original}/> },
-  ], [productionStatusOptions]);
+  ], [productionStatusOptions, poItemLineMap]);
 
   // ── Table header for tree views ────────────────────────────────────────────
   function POTableHeader() {
@@ -375,13 +403,13 @@ export default function MillTrackerPage() {
           <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500">PO Number</th>
           <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500">Order Date</th>
           <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500">Item Code</th>
-          <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-500">Ordered</th>
+          <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-500">Ordered (kg)</th>
           <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500">Mill SO No.</th>
           <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500">PO Customer</th>
           <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500">SO Customer</th>
-          <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-500">Ready</th>
-          <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-500">Dispatched</th>
-          <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-500">Balance</th>
+          <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-500">Ready (kg)</th>
+          <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-500">Dispatched (kg)</th>
+          <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-500">Balance (kg)</th>
           <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500">SO Del.</th>
           <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500">PO Del.</th>
           <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-500">Status</th>
@@ -397,32 +425,35 @@ export default function MillTrackerPage() {
       <tr className="border-b border-gray-100 hover:bg-blue-50/30 cursor-pointer transition-colors"
         onClick={() => openDetail(tracker)}>
         <td className="px-3 py-2 text-xs text-gray-400 tabular-nums">{rowIndex + 1}</td>
-        <td className="px-3 py-2 font-mono font-semibold text-xs text-purple-600">{tracker.poNumber}</td>
+        <td className="px-3 py-2">
+          <span className="font-mono font-semibold text-xs text-purple-600">{tracker.poNumber}</span>
+          {poItemLineMap.get(tracker.id) && <span className="font-mono text-xs text-blue-500"> #{poItemLineMap.get(tracker.id)}</span>}
+        </td>
         <td className="px-3 py-2 text-xs text-gray-600">{tracker.poDate}</td>
-        <td className="px-3 py-2 max-w-[240px]">
-          <div className="leading-snug min-w-0">
-            <div className="text-xs font-medium text-gray-800 truncate">{tracker.paper || tracker.mill}</div>
-            <div className="text-[10px] text-gray-400 mt-0.5 truncate">{tracker.mill}</div>
+        <td className="px-3 py-2">
+          <div className="text-xs leading-tight">
+            <div className="font-semibold text-gray-800">{tracker.mill}</div>
+            <div className="text-gray-500">{tracker.paper} · {tracker.gsm} GSM · {tracker.size}</div>
           </div>
         </td>
-        <td className="px-3 py-2 text-right text-xs text-gray-700 tabular-nums">{tracker.orderedQty.toLocaleString()}</td>
+        <td className="px-3 py-2 text-right text-xs font-medium text-gray-900 tabular-nums">{tracker.orderedQty > 0 ? tracker.orderedQty.toLocaleString() : "—"}</td>
         <td className="px-3 py-2 text-xs">
-          {tracker.millSONumber ? <span className="font-mono text-purple-600">{tracker.millSONumber}</span> : <span className="text-gray-300">—</span>}
+          {tracker.millSONumber ? <span className="font-mono text-purple-700">{tracker.millSONumber}</span> : <span className="text-gray-300">—</span>}
         </td>
         <td className="px-3 py-2 text-xs">
-          {tracker.customerName ? <span className="text-blue-600">{tracker.customerName}</span> : <span className="text-gray-400">Stock PO</span>}
+          {tracker.customerName ? <span className="font-medium text-blue-700">{tracker.customerName}</span> : <span className="text-gray-400">Stock PO</span>}
         </td>
         <td className="px-3 py-2 text-xs">
           {tracker.soCustomerName ? <span className="text-gray-700">{tracker.soCustomerName}</span> : <span className="text-gray-300">—</span>}
         </td>
-        <td className="px-3 py-2 text-right text-xs tabular-nums">
-          <span className={tracker.readyQty > 0 ? "text-green-600" : "text-gray-400"}>{tracker.readyQty.toLocaleString()}</span>
+        <td className="px-3 py-2 text-right text-xs font-medium tabular-nums">
+          <span className={tracker.readyQty > 0 ? "text-green-600" : "text-gray-400"}>{tracker.readyQty > 0 ? tracker.readyQty.toLocaleString() : "—"}</span>
         </td>
-        <td className="px-3 py-2 text-right text-xs tabular-nums">
+        <td className="px-3 py-2 text-right text-xs font-medium tabular-nums">
           {tracker.dispatchedQty > 0 ? <span className="text-blue-600">{tracker.dispatchedQty.toLocaleString()}</span> : <span className="text-gray-300">—</span>}
         </td>
-        <td className="px-3 py-2 text-right text-xs tabular-nums">
-          <span className={tracker.balanceQty > 0 ? "text-orange-600" : "text-green-600"}>{tracker.balanceQty.toLocaleString()}</span>
+        <td className="px-3 py-2 text-right text-xs font-medium tabular-nums">
+          <span className={tracker.balanceQty > 0 ? "text-orange-600" : "text-green-600"}>{tracker.balanceQty > 0 ? tracker.balanceQty.toLocaleString() : "—"}</span>
         </td>
         <td className="px-3 py-2 text-xs text-gray-600">
           {tracker.soDeliveryDate || <span className="text-gray-300">—</span>}
@@ -453,21 +484,25 @@ export default function MillTrackerPage() {
     <div className="space-y-4 pb-24">
 
       {/* KPI Cards */}
-      <div className="kpi-grid grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
         {([
-          { label: "Total Orders",  value: kpis.total,           sub: "All mills",     icon: Factory,     iconBg: "bg-blue-50",    iconColor: "text-blue-500"    },
-          { label: "Pending",       value: kpis.pending,         sub: "Not started",   icon: Clock,       iconBg: "bg-gray-100",   iconColor: "text-gray-500"    },
-          { label: "In Production", value: kpis.inProduction,    sub: "Active",        icon: Factory,     iconBg: "bg-purple-50",  iconColor: "text-purple-500"  },
-          { label: "Ready",         value: kpis.readyToDispatch, sub: "To dispatch",   icon: CheckCircle, iconBg: "bg-green-50",   iconColor: "text-green-500"   },
-          { label: "Dispatched",    value: kpis.dispatched,      sub: "Sent from mill",icon: Truck,       iconBg: "bg-cyan-50",    iconColor: "text-cyan-500"    },
-          { label: "Total Value",   value: `₹${(kpis.totalValue/100000).toFixed(1)}L`, sub: "PO value",  icon: Package,     iconBg: "bg-emerald-50", iconColor: "text-emerald-500" },
-        ] as const).map(({ label, value, sub, icon: Icon, iconBg, iconColor }) => (
-          <div key={label} className={`group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${iconBg}`}>
-            <p className={`text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate ${iconColor}`}>{label}</p>
-            <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{value}</p>
-            <p className="mt-1 text-[10px] sm:text-xs text-gray-500 truncate">{sub}</p>
-            <div className={`pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] ${iconColor}`}>
-              <Icon className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
+          { label: "Total Orders",  value: kpis.total,           sub: "All mills",    icon: Factory,     color: "blue"    },
+          { label: "Pending",       value: kpis.pending,         sub: "Not started",  icon: Clock,       color: "gray"    },
+          { label: "In Production", value: kpis.inProduction,    sub: "Active",       icon: Factory,     color: "purple"  },
+          { label: "Ready",         value: kpis.readyToDispatch, sub: "To dispatch",  icon: CheckCircle, color: "green"   },
+          { label: "Dispatched",    value: kpis.dispatched,      sub: "Sent from mill",icon: Truck,      color: "cyan"    },
+          { label: "Total Value",   value: `₹${(kpis.totalValue/100000).toFixed(1)}L`, sub: "PO value", icon: Package,   color: "emerald" },
+        ] as const).map(({ label, value, sub, icon: Icon, color }) => (
+          <div key={label} className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{label}</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{value}</p>
+                <p className={`mt-0.5 text-xs text-${color}-600`}>{sub}</p>
+              </div>
+              <div className={`flex h-9 w-9 items-center justify-center rounded-full bg-${color}-50`}>
+                <Icon className={`h-4 w-4 text-${color}-500`}/>
+              </div>
             </div>
           </div>
         ))}
@@ -588,11 +623,11 @@ export default function MillTrackerPage() {
             {showImpExp && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setShowImpExp(false)}/>
-                <div className="absolute right-0 top-full mt-1 z-30 w-56 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                <div className="absolute right-0 top-full mt-1 z-30 w-52 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
                   <button onClick={() => { setShowBulkUploadModal(true); setShowImpExp(false); }}
                     className="flex w-full items-center gap-2.5 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">
                     <Upload className="h-4 w-4 text-gray-400 shrink-0"/>
-                    <div className="text-left"><p className="text-xs font-medium">Import Excel / CSV</p><p className="text-[11px] text-gray-400">Bulk update mill readiness data</p></div>
+                    <div className="text-left"><p className="text-xs font-medium">Upload File</p><p className="text-[11px] text-gray-400">Import mill readiness data</p></div>
                   </button>
                 </div>
               </>
@@ -671,10 +706,10 @@ export default function MillTrackerPage() {
                       {dispPct > 0 && <span className="text-xs font-medium text-green-600">{dispPct}% dispatched</span>}
                     </div>
                     <div className="flex items-center gap-4 shrink-0 text-xs font-medium tabular-nums text-gray-500 mr-2">
-                      <span>Ord: <span className="text-gray-900">{cg.totalOrdered.toLocaleString()}</span></span>
-                      <span>Rdy: <span className="text-green-600">{cg.totalReady.toLocaleString()}</span></span>
-                      <span>Dsp: <span className="text-blue-600">{cg.totalDispatched.toLocaleString()}</span></span>
-                      <span>Bal: <span className="text-orange-600">{cg.totalBalance.toLocaleString()}</span></span>
+                      <span>Ord: <span className="text-gray-900">{cg.totalOrdered.toLocaleString()} kg</span></span>
+                      <span>Rdy: <span className="text-green-600">{cg.totalReady.toLocaleString()} kg</span></span>
+                      <span>Dsp: <span className="text-blue-600">{cg.totalDispatched.toLocaleString()} kg</span></span>
+                      <span>Bal: <span className="text-orange-600">{cg.totalBalance.toLocaleString()} kg</span></span>
                     </div>
                   </button>
 
@@ -731,10 +766,10 @@ export default function MillTrackerPage() {
                       {dispPct  > 0 && <span className="text-xs font-medium text-cyan-600">{dispPct}% dispatched</span>}
                     </div>
                     <div className="flex items-center gap-4 shrink-0 text-xs font-medium tabular-nums text-gray-500 mr-2">
-                      <span>Ord: <span className="text-gray-900">{mg.totalOrdered.toLocaleString()}</span></span>
-                      <span>Rdy: <span className="text-green-600">{mg.totalReady.toLocaleString()}</span></span>
-                      <span>Dsp: <span className="text-blue-600">{mg.totalDispatched.toLocaleString()}</span></span>
-                      <span>Bal: <span className="text-orange-600">{mg.totalBalance.toLocaleString()}</span></span>
+                      <span>Ord: <span className="text-gray-900">{mg.totalOrdered.toLocaleString()} kg</span></span>
+                      <span>Rdy: <span className="text-green-600">{mg.totalReady.toLocaleString()} kg</span></span>
+                      <span>Dsp: <span className="text-blue-600">{mg.totalDispatched.toLocaleString()} kg</span></span>
+                      <span>Bal: <span className="text-orange-600">{mg.totalBalance.toLocaleString()} kg</span></span>
                     </div>
                   </button>
 
@@ -794,27 +829,32 @@ export default function MillTrackerPage() {
               const latestBatch = batches.slice(-1)[0];
               const dispatchQty = batches.reduce((s, b) => s + b.qty, 0) || (data.readyQty ?? editingTracker.readyQty);
               const today       = new Date().toISOString().split("T")[0];
-              truckLoadPlanApi.create({
-                truckNumber:         latestBatch?.truckNumber,
-                origin:              editingTracker.mill,
-                deliveryMode:        editingTracker.deliveryMode ?? "To Godown",
-                plannedLoadDate:     latestBatch?.date || today,
+              addTruckLoadPlan({
+                id: `tlp_${Date.now()}`,
+                planNumber: `TLP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+                planDate: today,
+                truckNumber: latestBatch?.truckNumber,
+                origin: editingTracker.mill,
+                deliveryMode: (editingTracker.deliveryMode as TruckLoadPlan["deliveryMode"]) ?? "To Godown",
+                plannedLoadDate: latestBatch?.date || today,
                 plannedDeliveryDate: editingTracker.expectedDelivery,
-                millInvoiceNo:       latestBatch?.millInvoiceNo,
+                actualLoadDate: latestBatch?.date || today,
+                status: "In Transit",
                 items: [{
-                  trackerId:        editingTracker.id ? Number(editingTracker.id) : undefined,
-                  poNumber:         editingTracker.poNumber,
-                  soNumber:         editingTracker.soNumber,
-                  paper:            editingTracker.paper,
-                  gsm:              editingTracker.gsm,
-                  size:             editingTracker.size,
-                  quantity:         dispatchQty,
-                  loadOrder:        1,
-                  customerName:     editingTracker.customerName,
+                  id: `item_${Date.now()}`,
+                  trackerSourceId: editingTracker.id,
+                  poNumber: editingTracker.poNumber,
+                  soNumber: editingTracker.soNumber,
+                  paper: editingTracker.paper,
+                  gsm: editingTracker.gsm,
+                  size: editingTracker.size,
+                  quantity: dispatchQty,
+                  loadOrder: 1,
+                  customerName: editingTracker.customerName,
                   deliveryLocation: editingTracker.customerName || "Monit Godown, Indore",
                 }],
-              }).catch(console.error);
-              success("Dispatched! Truck load plan created.");
+              });
+              success("Dispatched! GRN entry created for verification.");
             } else {
               success("Mill tracker updated.");
             }
@@ -875,37 +915,28 @@ function DetailModal({
   const dispatchedPct = tracker.orderedQty > 0 ? Math.round((tracker.dispatchedQty / tracker.orderedQty) * 100) : 0;
 
   return (
-    <PortalModal onClose={onClose}>
-      {/* Header — amber tinted */}
-      <div className="flex items-center justify-between border-b border-amber-100 px-5 py-3.5 bg-amber-50 rounded-t-2xl flex-shrink-0">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100">
-            <Factory className="h-4 w-4 text-amber-600" />
-          </div>
-          <div>
-            <h2 className="text-base font-bold text-gray-900 font-mono">{tracker.poNumber}</h2>
-            <p className="text-xs text-gray-500">{tracker.mill}{tracker.customerName ? ` · ${tracker.customerName}` : ""}</p>
-          </div>
-          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusColors[tracker.productionStatus]}`}>{tracker.productionStatus}</span>
-        </div>
-        <ModalCloseButton onClose={onClose} />
-      </div>
-
-      <div className="max-h-[calc(100vh-160px)] overflow-y-auto p-5 space-y-4">
-        {/* Metric cards */}
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-xl bg-amber-50 border border-amber-100 px-3 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-500">PO Number</p>
-            <p className="text-sm font-black text-amber-900 font-mono mt-0.5 truncate">{tracker.poNumber}</p>
-          </div>
-          <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-500">Mill</p>
-            <p className="text-sm font-bold text-blue-900 mt-0.5 truncate">{tracker.mill}</p>
-          </div>
-          <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500">Ordered Qty</p>
-            <p className="text-sm font-black text-emerald-800 mt-0.5">{tracker.orderedQty.toLocaleString()} <span className="text-xs font-normal text-emerald-600">sheets</span></p>
-          </div>
+    <Modal
+      isOpen
+      onClose={onClose}
+      title={tracker.poNumber}
+      subtitle={[tracker.customerName, tracker.mill].filter(Boolean).join(" · ")}
+      size="lg"
+      footer={
+        <button onClick={onClose} className="rounded-lg bg-gray-100 px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors">Close</button>
+      }
+    >
+      <div className="space-y-4">
+        {/* Status + identity chips */}
+        <div className="flex flex-wrap items-center gap-2">
+          {tracker.customerName && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+              <Users className="h-3 w-3" /> {tracker.customerName}
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
+            <Factory className="h-3 w-3" /> {tracker.mill}
+          </span>
+          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusColors[tracker.productionStatus]}`}>{tracker.productionStatus}</span>
         </div>
 
         {/* Material & Quantities */}
@@ -933,7 +964,7 @@ function DetailModal({
               <div key={label} className="rounded-lg border border-gray-100 bg-gray-50 p-2.5 text-center">
                 <p className="text-[10px] uppercase tracking-wide text-gray-500">{label}</p>
                 <p className={`text-base font-bold ${color}`}>{value.toLocaleString()}</p>
-                <p className="text-[10px] text-gray-400">sheets</p>
+                <p className="text-[10px] text-gray-400">kg</p>
               </div>
             ))}
           </div>
@@ -1003,7 +1034,7 @@ function DetailModal({
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
-                    {["Batch", "Date", "Qty (sheets)", "Truck No", "Mill Invoice", "Remarks"].map((h) => (
+                    {["Batch", "Date", "Qty (kg)", "Truck No", "Mill Invoice", "Remarks"].map((h) => (
                       <th key={h} className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">{h}</th>
                     ))}
                   </tr>
@@ -1023,7 +1054,7 @@ function DetailModal({
                 <tfoot className="bg-gray-50 border-t border-gray-100">
                   <tr>
                     <td colSpan={2} className="px-3 py-2 text-xs font-semibold text-gray-500">Total Dispatched</td>
-                    <td className="px-3 py-2 font-bold text-blue-700">{batches.reduce((s, b) => s + b.qty, 0).toLocaleString()}</td>
+                    <td className="px-3 py-2 font-bold text-blue-700">{batches.reduce((s, b) => s + b.qty, 0).toLocaleString()} kg</td>
                     <td colSpan={3} />
                   </tr>
                 </tfoot>
@@ -1032,7 +1063,7 @@ function DetailModal({
           )}
         </div>
       </div>
-    </PortalModal>
+    </Modal>
   );
 }
 
@@ -1105,15 +1136,15 @@ function UpdateStatusModal({
             </div>
 
             <div>
-              <label className={labelCls}>Ready Quantity <span className="text-red-400">*</span></label>
+              <label className={labelCls}>Ready Weight (kg) <span className="text-red-400">*</span></label>
               <input
                 type="number"
                 value={formData.readyQty || ""}
-                onChange={(e) => setFormData({ ...formData, readyQty: parseInt(e.target.value) || 0 })}
+                onChange={(e) => setFormData({ ...formData, readyQty: Math.min(parseInt(e.target.value) || 0, tracker.orderedQty) })}
                 className={inputCls}
                 min="0" max={tracker.orderedQty} required
               />
-              <p className="mt-1 text-[10px] text-gray-400">Max: {tracker.orderedQty.toLocaleString()} sheets</p>
+              <p className="mt-1 text-[10px] text-gray-400">Max: {tracker.orderedQty.toLocaleString()} kg</p>
             </div>
 
             <div>
@@ -1154,7 +1185,7 @@ function UpdateStatusModal({
             {existingBatches.map((b) => (
               <div key={b.id} className="flex items-center gap-3 rounded-lg bg-white border border-orange-100 px-3 py-2 text-xs">
                 <span className="font-semibold text-orange-700">Batch {b.batchNo}</span>
-                <span className="text-blue-700 font-medium">{b.qty.toLocaleString()} sht</span>
+                <span className="text-blue-700 font-medium">{b.qty.toLocaleString()} kg</span>
                 <span className="text-gray-500">{b.date}</span>
                 {b.truckNumber && <span className="font-mono text-gray-600">{b.truckNumber}</span>}
                 {b.millInvoiceNo && <span className="text-gray-500">{b.millInvoiceNo}</span>}
@@ -1163,14 +1194,14 @@ function UpdateStatusModal({
 
             {showBatchForm && (
               <div className="rounded-lg border border-orange-200 bg-white p-3 space-y-3">
-                <p className="text-xs font-semibold text-orange-700">New Delivery Batch (max {maxBatchQty.toLocaleString()} sht)</p>
+                <p className="text-xs font-semibold text-orange-700">New Delivery Batch (max {maxBatchQty.toLocaleString()} kg)</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className={labelCls}>Dispatch Date <span className="text-red-400">*</span></label>
                     <input type="date" value={newBatch.date} onChange={(e) => setNewBatch({ ...newBatch, date: e.target.value })} className={inputCls} />
                   </div>
                   <div>
-                    <label className={labelCls}>Quantity (sheets) <span className="text-red-400">*</span></label>
+                    <label className={labelCls}>Quantity (kg) <span className="text-red-400">*</span></label>
                     <input type="number" value={newBatch.qty || ""} onChange={(e) => setNewBatch({ ...newBatch, qty: Math.min(parseInt(e.target.value) || 0, maxBatchQty) })} className={inputCls} min="1" max={maxBatchQty} placeholder={`Max ${maxBatchQty}`} />
                   </div>
                   <div>
@@ -1374,22 +1405,6 @@ function downloadTemplate() {
   XLSX.writeFile(wb, "mill_tracker_template.xlsx");
 }
 
-function downloadCsvTemplate() {
-  const header = "PO Number,Ready Qty,Status,Expected Date,Remarks";
-  const examples = [
-    "PO-2024-001,9000,In Production,2024-02-15,Production started",
-    "PO-2024-002,20000,Ready,2024-02-20,Full batch ready for dispatch",
-    "PO-2024-003,0,Delayed,,Machine breakdown delay",
-  ].join("\n");
-  const csv = header + "\n" + examples;
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = "mill_tracker_template.csv";
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 // ─── Bulk Upload Modal ─────────────────────────────────────────────────────────
 function BulkUploadModal({
   existingPONumbers,
@@ -1477,8 +1492,8 @@ function BulkUploadModal({
   );
 
   return (
-    <Modal isOpen onClose={onClose} title="Import Mill Readiness"
-      subtitle={stage === "upload" ? "Supports Excel (.xlsx, .xls) and CSV (.csv)" : stage === "detecting" ? "Parsing file…" : stage === "preview" ? selectedFile?.name : "Import complete"}
+    <Modal isOpen onClose={onClose} title="Upload Mill Readiness"
+      subtitle={stage === "upload" ? "Import readiness updates from CSV" : stage === "detecting" ? "Parsing file…" : stage === "preview" ? selectedFile?.name : "Import complete"}
       size="lg" footer={footer}>
 
       {/* Upload stage */}
@@ -1487,32 +1502,22 @@ function BulkUploadModal({
           <div onDragOver={(e) => { e.preventDefault(); setDragActive(true); }} onDragLeave={() => setDragActive(false)} onDrop={handleDrop}
             className={`rounded-xl border-2 border-dashed p-8 text-center transition-colors ${dragActive ? "border-blue-400 bg-blue-50" : "border-gray-200 bg-white hover:border-blue-300"}`}>
             <FileSpreadsheet className="mx-auto h-10 w-10 text-gray-300 mb-3" />
-            <p className="text-sm font-medium text-gray-700">Drag & drop your file here</p>
+            <p className="text-sm font-medium text-gray-700">Drag & drop Excel / CSV file here</p>
             <p className="text-xs text-gray-400 mt-1 mb-4">or</p>
             <label className="cursor-pointer rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors">
               Browse File
               <input type="file" accept=".xlsx,.xls,.csv" className="sr-only" onChange={(e) => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]); }} />
             </label>
-            <div className="mt-3 flex items-center justify-center gap-3">
-              <span className="inline-flex items-center gap-1 rounded-md bg-green-50 border border-green-200 px-2 py-0.5 text-[11px] font-medium text-green-700">Excel .xlsx</span>
-              <span className="inline-flex items-center gap-1 rounded-md bg-green-50 border border-green-200 px-2 py-0.5 text-[11px] font-medium text-green-700">Excel .xls</span>
-              <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 border border-blue-200 px-2 py-0.5 text-[11px] font-medium text-blue-700">CSV .csv</span>
-            </div>
+            <p className="mt-3 text-xs text-gray-400">Supported: .xlsx · .xls · .csv</p>
           </div>
 
           <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between mb-3">
-              <p className={labelCls}>Column Format</p>
-              <div className="flex items-center gap-2">
-                <button onClick={downloadTemplate}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 transition-colors">
-                  <Download className="h-3.5 w-3.5" /> Excel Template
-                </button>
-                <button onClick={downloadCsvTemplate}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors">
-                  <Download className="h-3.5 w-3.5" /> CSV Template
-                </button>
-              </div>
+              <p className={labelCls}>CSV Column Format</p>
+              <button onClick={downloadTemplate}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+                <Download className="h-3.5 w-3.5" /> Download Template
+              </button>
             </div>
             <div className="grid grid-cols-5 gap-1.5">
               {["A: PO Number", "B: Ready Qty", "C: Status", "D: Expected Date", "E: Remarks"].map(col => (
@@ -1560,7 +1565,7 @@ function BulkUploadModal({
                     return (
                       <tr key={i} className={match === "matched" ? "bg-green-50/50" : match === "fuzzy" ? "bg-amber-50/50" : "bg-red-50/50"}>
                         <td className="px-3 py-2"><div className={`h-2 w-2 rounded-full ${match === "matched" ? "bg-green-500" : match === "fuzzy" ? "bg-amber-500" : "bg-red-400"}`} /></td>
-                        <td className="px-3 py-2 font-mono font-semibold text-xs text-gray-900">{row.poNumber}</td>
+                        <td className="px-3 py-2 font-mono font-semibold text-xs text-purple-600">{row.poNumber}</td>
                         <td className="px-3 py-2 text-xs text-right tabular-nums text-gray-700">{row.readyQty?.toLocaleString() ?? "—"}</td>
                         <td className="px-3 py-2">
                           {row.status ? <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${statusColors[row.status] ?? "bg-gray-100 text-gray-600"}`}>{row.status}</span> : <span className="text-gray-300 text-xs">—</span>}
@@ -1607,4 +1612,8 @@ function BulkUploadModal({
       )}
     </Modal>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="mill.read"><MillTrackerPage /></PermGuard>;
 }

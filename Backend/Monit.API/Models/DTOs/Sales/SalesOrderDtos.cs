@@ -21,6 +21,7 @@ public class SalesOrderLineDto
     public decimal  Amount               { get; set; }
     public string?  DeliveryAddress      { get; set; }
     public string?  RequiredDeliveryDate { get; set; }
+    public string?  Remarks              { get; set; }
     public string   Status               { get; set; } = "Pending Allocation";
     public decimal  AllocatedQty         { get; set; }
     public decimal  PendingQty           { get; set; }
@@ -74,6 +75,7 @@ public class UpsertSalesOrderLineDto
     public decimal Amount               { get; set; }
     public string? DeliveryAddress      { get; set; }
     public string? RequiredDeliveryDate { get; set; }
+    public string? Remarks              { get; set; }
 }
 
 // ─── Create ───────────────────────────────────────────────────────────────────

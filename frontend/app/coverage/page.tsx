@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useCallback } from "react";
+import { SalesOrder, SOLine as SalesOrderLine } from "@/context/SalesOrderContext";
 import { Shield, AlertTriangle, CheckCircle2, Package, Truck, TrendingUp } from "lucide-react";
 import { useStock } from "@/context/StockContext";
 import { useSalesOrder } from "@/context/SalesOrderContext";
@@ -27,8 +28,8 @@ interface CoverageLine {
   coveragePct: number;
   shortfall: number;
   deliveryFeasible: boolean;
-  soStatus: string;
-  lineStatus: string;
+  soStatus: SalesOrder["status"];
+  lineStatus: SalesOrderLine["status"];
 }
 
 export default function CoveragePage() {
@@ -66,7 +67,7 @@ export default function CoveragePage() {
     const allocated = needed - remaining;
     const updatedLines = so.lines.map((l) =>
       l.id === line.lineId
-        ? { ...l, stockAllocated: (l.stockAllocated ?? 0) + allocated }
+        ? { ...l, allocatedQty: (l.allocatedQty ?? 0) + allocated }
         : l
     );
     updateSalesOrder(so.id, { lines: updatedLines });
@@ -89,14 +90,14 @@ export default function CoveragePage() {
             (lot.status === "Available" || lot.status === "Allocated")
         );
         const physicalStock = matchingLots.reduce((sum, lot) => sum + lot.availableQty, 0);
-        const purchaseAllocated = line.purchaseAllocated ?? 0;
-        const stockAllocated = line.stockAllocated ?? 0;
-        const transitStock = line.transitAllocated ?? 0;
+        const purchaseAllocated = 0;
+        const stockAllocated = line.allocatedQty ?? 0;
+        const transitStock = 0;
         const coveredQty = stockAllocated + purchaseAllocated + transitStock;
         const coveragePct = line.orderedQty > 0 ? Math.min(100, Math.round((coveredQty / line.orderedQty) * 100)) : 0;
         const shortfall = Math.max(0, line.orderedQty - coveredQty);
         const today = new Date();
-        const deliveryDate = new Date(line.requiredDeliveryDate ?? today);
+        const deliveryDate = new Date(line.requiredDeliveryDate ?? "");
         const daysUntilDelivery = Math.ceil((deliveryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
         const deliveryFeasible = daysUntilDelivery >= 3;
 
