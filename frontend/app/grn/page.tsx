@@ -18,6 +18,7 @@ import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { createPortal } from "react-dom";
 import { KpiCard } from "@/components/ui/KpiCard";
+import { fmtDateIN } from "@/lib/formatters";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -737,9 +738,12 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1">PO Rate (₹)</label>
-                            <div className="w-full rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs font-semibold text-gray-700">
-                              {poRate ? `₹${poRate.toLocaleString()}` : "—"}
+                            <div className={`w-full rounded-lg border px-2 py-1.5 text-xs font-semibold ${poRate ? "border-gray-200 bg-gray-50 text-gray-700" : "border-amber-200 bg-amber-50 text-amber-600"}`}>
+                              {poRate ? `₹${poRate.toLocaleString()}` : "Not available"}
                             </div>
+                            {!poRate && (
+                              <p className="text-[10px] text-amber-500 mt-0.5">Rate unverified — no tracker linked</p>
+                            )}
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-700 mb-1">Billing Rate (₹)</label>
@@ -1397,24 +1401,31 @@ function GRNPage() {
     {
       id: "grnNumber", accessorKey: "grnNumber", header: "GRN #",
       filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 130,
-      cell: (info) => <span className="font-semibold text-blue-700">{info.getValue() as string}</span>,
+      cell: (info) => <span className="font-semibold text-orange-600">{info.getValue() as string}</span>,
     },
     {
       id: "grnDate", accessorKey: "grnDate", header: "Date",
       filterType: "date", enableSorting: true, defaultVisible: true, size: 100,
+      cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+      exportValue: (r) => fmtDateIN((r as any).grnDate),
     },
     {
       id: "poNumber", accessorKey: "poNumber", header: "PO #",
       filterType: "text", enableSorting: true, defaultVisible: true, size: 140,
-      cell: (info) => <span className="text-blue-600 font-medium">{info.getValue() as string}</span>,
+      cell: (info) => <span className="font-semibold text-purple-700">{info.getValue() as string}</span>,
     },
     {
       id: "millName", accessorKey: "millName", header: "Mill",
       filterType: "text", enableSorting: true, defaultVisible: true, size: 130,
     },
     {
-      id: "paper", accessorKey: "paper", header: "Paper",
-      filterType: "text", enableSorting: true, defaultVisible: true, size: 150,
+      id: "paper", accessorKey: "paper", header: "Item Code",
+      filterType: "text", enableSorting: true, defaultVisible: true, size: 280, align: "left" as const,
+      cell: (info) => (
+        <span className="whitespace-nowrap font-medium text-xs text-gray-900" title={info.getValue() as string}>
+          {info.getValue() as string}
+        </span>
+      ),
     },
     {
       id: "spec", accessorKey: "gsm", header: "Spec",

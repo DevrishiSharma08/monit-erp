@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
+import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 
 type Tab = "received" | "paid";
 
@@ -154,6 +155,7 @@ export default function PaymentsPage() {
             ₹{((info.getValue() as number) / 1000).toFixed(1)}K
           </span>
         ),
+        exportValue: (r) => `₹${fmtNumIN((r as any).amount)}`,
       },
       {
         id: "paymentDate",
@@ -163,6 +165,8 @@ export default function PaymentsPage() {
         enableSorting: true,
         defaultVisible: true,
         size: 130,
+        cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+        exportValue: (r) => fmtDateIN((r as any).paymentDate),
       },
       {
         id: "paymentMode",
@@ -282,6 +286,7 @@ export default function PaymentsPage() {
             ₹{((info.getValue() as number) / 1000).toFixed(1)}K
           </span>
         ),
+        exportValue: (r) => `₹${fmtNumIN((r as any).amount)}`,
       },
       {
         id: "paymentDate",
@@ -291,6 +296,8 @@ export default function PaymentsPage() {
         enableSorting: true,
         defaultVisible: true,
         size: 130,
+        cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+        exportValue: (r) => fmtDateIN((r as any).paymentDate),
       },
       {
         id: "paymentMode",

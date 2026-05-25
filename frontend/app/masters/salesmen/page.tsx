@@ -49,7 +49,7 @@ export default function SalesmanMasterPage() {
   function openEdit(item: SalesmanRow) {
     setEditItem(item);
     setFName(item.name);
-    setFPhone(item.phone ?? ""); setFEmail(""); setFTerritory(item.territory ?? "");
+    setFPhone(item.phone ?? ""); setFEmail(item.email ?? ""); setFTerritory(item.territory ?? "");
     setFMonthlyTarget(item.monthlyTarget != null ? String(item.monthlyTarget) : "");
     setFActive(item.isActive);
     setShowModal(true);
@@ -96,6 +96,11 @@ export default function SalesmanMasterPage() {
       id: "phone", accessorKey: "phone", header: "Phone",
       filterType: "text", enableSorting: false, defaultVisible: true, size: 150,
       cell: (info) => <span className="font-mono text-sm text-gray-700">{(info.getValue() as string) ?? "—"}</span>,
+    },
+    {
+      id: "email", accessorKey: "email", header: "Email",
+      filterType: "text", enableSorting: false, defaultVisible: true, size: 200,
+      cell: (info) => <span className="text-gray-600 text-sm">{(info.getValue() as string) ?? "—"}</span>,
     },
     {
       id: "territory", accessorKey: "territory", header: "Territory",
@@ -211,6 +216,7 @@ export default function SalesmanMasterPage() {
           fields={[
             { label: "Name",           value: viewItem.name },
             { label: "Phone",          value: viewItem.phone },
+            { label: "Email",          value: viewItem.email },
             { label: "Territory",      value: viewItem.territory },
             { label: "Monthly Target", value: viewItem.monthlyTarget != null ? `₹${viewItem.monthlyTarget.toLocaleString("en-IN")}` : undefined },
             { label: "Status",         value: viewItem.isActive ? "Active" : "Inactive" },

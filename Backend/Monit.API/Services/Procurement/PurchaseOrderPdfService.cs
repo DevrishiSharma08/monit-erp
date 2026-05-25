@@ -1,3 +1,4 @@
+using System.Globalization;
 using Monit.API.Models.DTOs.Procurement;
 using Monit.API.Services.Interfaces;
 using QuestPDF.Fluent;
@@ -19,7 +20,7 @@ public class PurchaseOrderPdfService : IPurchaseOrderPdfService
         {
             container.Page(page =>
             {
-                page.Size(new PageSize(297, 210, Unit.Millimetre));
+                page.Size(new PageSize(210, 297, Unit.Millimetre));
                 page.Margin(15, Unit.Millimetre);
                 page.DefaultTextStyle(t => t.FontSize(8).FontFamily("Arial"));
 
@@ -44,7 +45,7 @@ public class PurchaseOrderPdfService : IPurchaseOrderPdfService
                     {
                         t.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); });
                         t.Cell().Text($"Order No : {po.PONumber}").Bold().FontSize(9);
-                        t.Cell().AlignRight().Text($"Purchase Order Date : {po.OrderDate}").Bold().FontSize(9);
+                        t.Cell().AlignRight().Text($"Purchase Order Date : {FmtDate(po.OrderDate)}").Bold().FontSize(9);
                     });
 
                     col.Item().PaddingVertical(5);
@@ -139,8 +140,8 @@ public class PurchaseOrderPdfService : IPurchaseOrderPdfService
                                 ? item.Rate / (1 - discPct / 100m)
                                 : item.Rate;
                             var qty = item.WeightKg is > 0
-                                ? $"{item.WeightKg!.Value:N2} KG"
-                                : $"{item.Quantity:N2} {item.Unit ?? ""}".Trim();
+                                ? $"{FmtNum(item.WeightKg!.Value)} KG"
+                                : $"{FmtNum(item.Quantity)} {item.Unit ?? ""}".Trim();
 
                             void DC(string val, bool right = false, bool bold = false)
                             {
@@ -161,8 +162,8 @@ public class PurchaseOrderPdfService : IPurchaseOrderPdfService
                             DC(width);
                             DC(qty, right: true);
                             DC("—");  // Grain (not in DTO)
-                            DC(baseRate.ToString("N2"), right: true);
-                            DC(discPct > 0 ? $"{discPct:N2}%" : "—", right: true);
+                            DC(FmtNum(baseRate), right: true);
+                            DC(discPct > 0 ? $"{FmtNum(discPct)}%" : "—", right: true);
                             DC("—");  // Packing Type (not in DTO)
                             DC(item.Remark ?? "");
                         }
@@ -182,7 +183,7 @@ public class PurchaseOrderPdfService : IPurchaseOrderPdfService
                          .Background(Colors.Blue.Lighten4)
                          .Border(0.5f).BorderColor(Colors.Grey.Medium)
                          .Padding(3).AlignRight()
-                         .Text($"{po.TotalQuantity:N2} KGS").FontSize(8).Bold();
+                         .Text($"{FmtNum(po.TotalQuantity)} KGS").FontSize(8).Bold();
                         for (var j = 0; j < 5; j++)
                             t.Cell().Background(Colors.Blue.Lighten4)
                              .Border(0.5f).BorderColor(Colors.Grey.Medium).Padding(3).Text("");
@@ -214,7 +215,7 @@ public class PurchaseOrderPdfService : IPurchaseOrderPdfService
 
                         TVal(po.PaymentTerms);
                         TVal(po.Remarks);
-                        TVal(po.ExpectedDeliveryDate);
+                        TVal(FmtDate(po.ExpectedDeliveryDate));
                         TVal("—");  // Transit Insurance (not in PO DTO)
                         TVal(po.SpecialInstructions);
                     });
@@ -265,6 +266,15 @@ public class PurchaseOrderPdfService : IPurchaseOrderPdfService
             });
         }).GeneratePdf();
     }
+
+    private static readonly CultureInfo InIN = new("en-IN");
+
+    private static string FmtDate(string? d) =>
+        string.IsNullOrWhiteSpace(d) ? "—" :
+        DateTime.TryParse(d, out var dt) ? dt.ToString("dd-MM-yyyy") : d;
+
+    private static string FmtNum(decimal n, int decimals = 2) =>
+        n.ToString($"N{decimals}", InIN);
 
     private static (string particular, string mill) ParseMaterial(string? code)
     {

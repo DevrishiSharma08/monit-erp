@@ -16,6 +16,7 @@ import { emailSentCache } from "@/lib/emailSentCache";
 import { useSalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
 import { cn } from "@/lib/utils";
+import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 import { createPortal } from "react-dom";
 import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
 import { SharePanel, ShareData } from "@/components/ShareMenu";
@@ -431,6 +432,8 @@ export default function OrdersPage() {
     {
       id: "orderDate", accessorKey: "orderDate", header: "Date",
       filterType: "dateRange", enableSorting: true, defaultVisible: true, size: 100,
+      cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+      exportValue: (so) => fmtDateIN(so.orderDate),
     },
     {
       id: "customer", accessorKey: "customer", header: "Customer",
@@ -444,14 +447,48 @@ export default function OrdersPage() {
     {
       id: "lines", accessorKey: "lines", header: "Items",
       filterType: "none", enableSorting: false, defaultVisible: true, size: 260, align: "left" as const, noTruncate: true,
+      exportColumns: [
+        {
+          header: "Item Codes",
+          value: (so) => so.lines?.length
+            ? so.lines.map((l, i) => `${i + 1}. ${l.materialCode || l.materialId || "—"}`).join("\n")
+            : "—",
+        },
+        {
+          header: "Qty (KG)",
+          value: (so) => so.lines?.length
+            ? so.lines.map((l) =>
+                l.weightKg && l.weightKg > 0
+                  ? fmtNumIN(l.weightKg)
+                  : `${fmtNumIN(l.orderedQty)} ${l.unit || "KG"}`.trim()
+              ).join("\n")
+            : "—",
+        },
+        {
+          header: "Rate (₹)",
+          value: (so) => so.lines?.length
+            ? so.lines.map((l) => `₹${fmtNumIN(l.rate)}`).join("\n")
+            : "—",
+        },
+        {
+          header: "Amount (₹)",
+          value: (so) => so.lines?.length
+            ? so.lines.map((l) => `₹${fmtNumIN(l.amount)}`).join("\n")
+            : "—",
+        },
+        {
+          header: "Delivery Address",
+          value: (so) => so.lines?.[0]?.deliveryAddress || "—",
+        },
+      ],
       cell: (info) => {
         const lines = info.getValue() as SalesOrderLine[];
         const first = lines[0];
         if (!first) return <span className="text-gray-400 text-xs">—</span>;
         const code = first.materialCode || first.materialId || "—";
         const qty = first.weightKg && first.weightKg > 0
-          ? `${first.weightKg.toLocaleString("en-IN")} KG`
-          : `${first.orderedQty.toLocaleString("en-IN")} ${first.unit || "KG"}`.trim();
+          ? `${fmtNumIN(first.weightKg)} KG`
+          : `${fmtNumIN(first.orderedQty)} ${first.unit || "KG"}`.trim();
         return (
           <div className="text-xs leading-snug">
             <div className="font-medium text-gray-900">{code}</div>
@@ -463,6 +500,7 @@ export default function OrdersPage() {
     {
       id: "lineCount", accessorKey: "lines", header: "# Items",
       filterType: "none", enableSorting: false, defaultVisible: true, size: 75,
+      exportValue: (so) => so.lines?.length ?? 0,
       cell: (info) => {
         const n = (info.getValue() as SalesOrderLine[]).length;
         return (

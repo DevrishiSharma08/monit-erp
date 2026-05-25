@@ -22,6 +22,7 @@ import { poApi, PORow, POItemRow, CreatePODto, millApi } from "@/lib/api-service
 import { SharePanel, ShareData } from "@/components/ShareMenu";
 import { emailSentCache } from "@/lib/emailSentCache";
 import { cn } from "@/lib/utils";
+import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 
 // ─── SO status colours (for inline SO view modal) ─────────────────────────────
 
@@ -164,23 +165,41 @@ function PurchaseOrdersPage() {
     {
       id: "items", accessorKey: "items", header: "Material",
       filterType: "none", enableSorting: false, defaultVisible: true, size: 260, align: "left" as const, noTruncate: true,
-      exportValue: (po) => {
-        if (!po.items?.length) return "";
-        const first = po.items[0];
-        const desc = first.description || "";
-        const wt = first.weightKg && first.weightKg > 0
-          ? `${first.weightKg} KG`
-          : `${first.quantity} ${first.unit || ""}`.trim();
-        const extra = po.items.length > 1 ? ` (+${po.items.length - 1} more)` : "";
-        return `${desc} | ${wt}${extra}`;
-      },
+      exportColumns: [
+        {
+          header: "Material Codes",
+          value: (po) => po.items?.length
+            ? po.items.map((it, i) => `${i + 1}. ${it.description || "—"}`).join("\n")
+            : "—",
+        },
+        {
+          header: "Qty (KG)",
+          value: (po) => po.items?.length
+            ? po.items.map((it) =>
+                it.weightKg && it.weightKg > 0
+                  ? fmtNumIN(it.weightKg)
+                  : `${fmtNumIN(it.quantity)} ${it.unit || ""}`.trim()
+              ).join("\n")
+            : "—",
+        },
+        {
+          header: "Rate (₹)",
+          value: (po) => po.items?.length
+            ? po.items.map((it) => it.rate != null ? `₹${fmtNumIN(it.rate)}` : "—").join("\n")
+            : "—",
+        },
+        {
+          header: "Delivery Address",
+          value: (po) => po.directDeliveryAddress || "—",
+        },
+      ],
       cell: (info) => {
         const po = info.row.original;
         const first = po.items[0];
         if (!first) return <span className="text-gray-300 text-xs">—</span>;
         const weightLine = first.weightKg && first.weightKg > 0
-          ? `${first.weightKg.toLocaleString("en-IN")} KG`
-          : `${first.quantity.toLocaleString("en-IN")} ${first.unit || ""}`.trim();
+          ? `${fmtNumIN(first.weightKg)} KG`
+          : `${fmtNumIN(first.quantity)} ${first.unit || ""}`.trim();
         return (
           <div className="text-xs leading-snug">
             <div className="font-medium text-gray-900 truncate">
@@ -213,6 +232,8 @@ function PurchaseOrdersPage() {
     {
       id: "orderDate", accessorKey: "orderDate", header: "PO Date",
       filterType: "dateRange", enableSorting: true, defaultVisible: true, size: 105,
+      cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+      exportValue: (po) => fmtDateIN(po.orderDate),
     },
     {
       id: "poType", accessorKey: "poType", header: "Type",
@@ -238,8 +259,9 @@ function PurchaseOrdersPage() {
       cell: (info) => {
         const date = info.getValue() as string | undefined;
         const overdue = date && new Date(date) < new Date() && !["Completed","Dispatched"].includes(info.row.original.status);
-        return <span className={overdue ? "font-medium text-red-600" : "text-gray-600"}>{date || "—"}{overdue ? " ⚠" : ""}</span>;
+        return <span className={cn("tabular-nums", overdue ? "font-medium text-red-600" : "text-gray-600")}>{fmtDateIN(date)}{overdue ? " ⚠" : ""}</span>;
       },
+      exportValue: (po) => fmtDateIN(po.expectedDeliveryDate),
     },
     {
       id: "totalValue", accessorKey: "totalValue", header: "Value",
@@ -286,6 +308,8 @@ function PurchaseOrdersPage() {
     {
       id: "orderDate", accessorKey: "orderDate", header: "SO Date",
       filterType: "dateRange", enableSorting: true, defaultVisible: true, size: 110,
+      cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+      exportValue: (so) => fmtDateIN(so.orderDate),
     },
     {
       id: "customer", accessorKey: "customer", header: "Customer",

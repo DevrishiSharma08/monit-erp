@@ -22,6 +22,7 @@ import { Modal } from "@/components/Modal";
 import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
 import { useToast } from "@/context/ToastContext";
 import { cn } from "@/lib/utils";
+import { fmtDateIN } from "@/lib/formatters";
 import {
   truckLoadPlanApi, TruckLoadPlanApiDto, TruckLoadPlanItemApiDto,
   millTrackerApi, MillTrackerRow,
@@ -867,6 +868,12 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
             </div>
           )}
 
+          {form.items.length > 0 && form.items.some((it) => it.quantity <= 0) && (
+            <p className="text-xs text-red-500 flex items-center gap-1">
+              <span>⚠</span> All items must have a quantity greater than 0 before proceeding.
+            </p>
+          )}
+
           <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
             <button type="button" onClick={onCancel}
               className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
@@ -1581,7 +1588,7 @@ function TruckLoadPlanPage() {
 
   const handlePrint = (plan: TLPPlanEx) => {
     const { totalWeight, uniquePOs } = planTotals(plan);
-    const sortedItems = [...plan.items].sort((a, b) => b.loadOrder - a.loadOrder);
+    const sortedItems = [...plan.items].sort((a, b) => a.loadOrder - b.loadOrder);
 
     const esc = (s: string | undefined | null) =>
       (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1604,44 +1611,160 @@ function TruckLoadPlanPage() {
         <td>${esc(it.millInvoiceNo)}</td>
       </tr>`).join("");
 
+    // ── Truck top-view visualization — PO columns, item sub-cells ───────────
+    // Cargo floor: x=108..640 (532px wide), y=50 (height adaptive)
+    const CX = 108, CY = 50, CW = 532;
+    const VIZ_FILLS   = ["#dbeafe","#ede9fe","#dcfce7","#fef3c7","#fce7f3","#e0f2fe","#fdf4ff","#ecfdf5","#fff7ed","#f0fdf4"];
+    const VIZ_STROKES = ["#3b82f6","#8b5cf6","#22c55e","#f59e0b","#ec4899","#06b6d4","#a855f7","#14b8a6","#f97316","#84cc16"];
+
+    // Group items by PO, ordered by earliest load order
+    type POGroup = { poNumber: string; items: TLPItemEx[]; minLoad: number; maxLoad: number; totalWeight: number; customerName: string; };
+    const poMap: Record<string, POGroup> = {};
+    for (const item of plan.items) {
+      const key = item.poNumber || "—";
+      if (!poMap[key]) {
+        poMap[key] = { poNumber: key, items: [], minLoad: item.loadOrder, maxLoad: item.loadOrder, totalWeight: 0, customerName: item.customerName || "" };
+      }
+      const g = poMap[key];
+      g.items.push(item as TLPItemEx);
+      g.totalWeight += itemWeight(item);
+      if (item.loadOrder < g.minLoad) g.minLoad = item.loadOrder;
+      if (item.loadOrder > g.maxLoad) g.maxLoad = item.loadOrder;
+    }
+    const poGroups = Object.values(poMap).sort((a, b) => a.minLoad - b.minLoad);
+    const nSlots   = Math.max(poGroups.length, 1);
+    const slotW    = CW / nSlots;
+
+    // Adaptive height: header (26px) + per-item rows, capped so SVG stays printable
+    const HEADER_H  = 26;
+    const MAX_SHOW  = 6;   // max items rendered per PO slot; extras get a "+N" row
+    const maxItemsInAnyPO = Math.max(...poGroups.map(g => Math.min(g.items.length, MAX_SHOW) + (g.items.length > MAX_SHOW ? 1 : 0)), 1);
+    const ITEM_H    = Math.max(17, Math.min(30, Math.floor(96 / maxItemsInAnyPO)));
+    const CH        = Math.max(118, HEADER_H + maxItemsInAnyPO * ITEM_H + 4);
+
+    const vizSlots = poGroups.map((grp, i) => {
+      const sx     = CX + i * slotW;
+      const cx     = sx + slotW / 2;
+      const fill   = VIZ_FILLS[i % VIZ_FILLS.length];
+      const stroke = VIZ_STROKES[i % VIZ_STROKES.length];
+      const sxf    = sx.toFixed(1);
+      const cxf    = cx.toFixed(1);
+      const swf    = slotW.toFixed(1);
+      const cust   = esc(grp.customerName.length > 18 ? grp.customerName.substring(0, 17) + "…" : grp.customerName);
+
+      // Truncate item code to fit available slot width (leave 24px for load badge + padding)
+      const maxCodeChars = Math.max(8, Math.floor((slotW - 28) / 6));
+      const truncCode = (s: string) => s.length > maxCodeChars ? s.substring(0, maxCodeChars - 1) + "…" : s;
+
+      const lines: string[] = [];
+
+      // ── Full PO background rect ──────────────────────────────────────────
+      lines.push(`<rect x="${sxf}" y="${CY}" width="${swf}" height="${CH}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`);
+
+      // ── PO header band ────────────────────────────────────────────────────
+      lines.push(`<rect x="${sxf}" y="${CY}" width="${swf}" height="${HEADER_H}" fill="${stroke}" opacity="0.18"/>`);
+      // PO number — bold, full text
+      lines.push(`<text x="${cxf}" y="${CY + 13}" text-anchor="middle" font-size="8.5" font-weight="700" fill="${stroke}">${esc(grp.poNumber)}</text>`);
+      // Customer name — smaller beneath PO number
+      if (cust) {
+        lines.push(`<text x="${cxf}" y="${CY + 22}" text-anchor="middle" font-size="6" fill="${stroke}" opacity="0.85">${cust}</text>`);
+      }
+      lines.push(`<line x1="${sxf}" y1="${CY + HEADER_H}" x2="${(sx + slotW).toFixed(1)}" y2="${CY + HEADER_H}" stroke="${stroke}" stroke-width="1" opacity="0.5"/>`);
+
+      // ── Item sub-cells (sorted by loadOrder) ──────────────────────────────
+      const sortedGrpItems = [...grp.items].sort((a, b) => a.loadOrder - b.loadOrder);
+      const displayItems   = sortedGrpItems.slice(0, MAX_SHOW);
+      const extraCount     = sortedGrpItems.length - MAX_SHOW;
+
+      displayItems.forEach((item, j) => {
+        const iy  = CY + HEADER_H + j * ITEM_H;
+        const iyMid = iy + ITEM_H / 2;
+
+        // Dashed separator between items (not before first)
+        if (j > 0) {
+          lines.push(`<line x1="${(sx + 3).toFixed(1)}" y1="${iy.toFixed(1)}" x2="${(sx + slotW - 3).toFixed(1)}" y2="${iy.toFixed(1)}" stroke="${stroke}" stroke-width="0.6" stroke-dasharray="3,2" opacity="0.35"/>`);
+        }
+
+        // Load-order badge (small circle left side)
+        const badgeCx = (sx + 10).toFixed(1);
+        const badgeCy = iyMid.toFixed(1);
+        lines.push(`<circle cx="${badgeCx}" cy="${badgeCy}" r="5.5" fill="${stroke}" opacity="0.75"/>`);
+        lines.push(`<text x="${badgeCx}" y="${(iyMid + 3.8).toFixed(1)}" text-anchor="middle" font-size="5.5" font-weight="700" fill="white">${item.loadOrder}</text>`);
+
+        // Item code (truncated)
+        const textX = (sx + 20).toFixed(1);
+        const codeY = (iy + ITEM_H * 0.40).toFixed(1);
+        const wtY   = (iy + ITEM_H * 0.75).toFixed(1);
+        lines.push(`<text x="${textX}" y="${codeY}" font-size="6.5" font-weight="600" fill="#1e293b">${esc(truncCode(item.paper || "—"))}</text>`);
+
+        // Weight
+        const wt = itemWeight(item).toLocaleString("en-IN") + " kg";
+        lines.push(`<text x="${textX}" y="${wtY}" font-size="6" fill="#475569">${wt}</text>`);
+      });
+
+      // "+ N more" row if items exceed MAX_SHOW
+      if (extraCount > 0) {
+        const iy    = CY + HEADER_H + MAX_SHOW * ITEM_H;
+        const iyMid = iy + ITEM_H / 2;
+        lines.push(`<line x1="${(sx + 3).toFixed(1)}" y1="${iy.toFixed(1)}" x2="${(sx + slotW - 3).toFixed(1)}" y2="${iy.toFixed(1)}" stroke="${stroke}" stroke-width="0.6" stroke-dasharray="3,2" opacity="0.35"/>`);
+        lines.push(`<text x="${cxf}" y="${(iyMid + 3.5).toFixed(1)}" text-anchor="middle" font-size="6.5" font-weight="700" fill="${stroke}">+ ${extraCount} more item${extraCount > 1 ? "s" : ""}</text>`);
+      }
+
+      // ── PO total weight (bottom of column) ───────────────────────────────
+      const totalY = CY + CH - 4;
+      lines.push(`<line x1="${(sx + 4).toFixed(1)}" y1="${(totalY - 9).toFixed(1)}" x2="${(sx + slotW - 4).toFixed(1)}" y2="${(totalY - 9).toFixed(1)}" stroke="${stroke}" stroke-width="0.5" opacity="0.3"/>`);
+      lines.push(`<text x="${cxf}" y="${totalY.toFixed(1)}" text-anchor="middle" font-size="7" font-weight="700" fill="${stroke}">${grp.totalWeight.toLocaleString("en-IN")} kg total</text>`);
+
+      // ── Delivered FIRST / LAST labels below the truck ─────────────────────
+      if (i === 0) {
+        lines.push(`<text x="${cxf}" y="${(CY + CH + 14).toFixed(1)}" text-anchor="middle" font-size="7" fill="#dc2626" font-weight="700">&#9650; Delivered LAST</text>`);
+      }
+      if (i === nSlots - 1) {
+        lines.push(`<text x="${cxf}" y="${(CY + CH + 14).toFixed(1)}" text-anchor="middle" font-size="7" fill="#16a34a" font-weight="700">&#9650; Delivered FIRST</text>`);
+      }
+
+      return lines.join("\n      ");
+    }).join("\n    ");
+
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <title>TLP ${esc(plan.planNumber)}</title>
   <style>
-    @page { margin: 18mm 16mm; }
+    @page { size: A4 portrait; margin: 16mm 14mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, sans-serif; font-size: 11px; color: #111; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 12px; }
-    .company { font-size: 15px; font-weight: 700; letter-spacing: .3px; }
-    .doc-title { font-size: 13px; font-weight: 700; color: #1a56db; }
-    .plan-no { font-size: 11px; color: #555; margin-top: 2px; }
-    .status-badge { display: inline-block; padding: 2px 8px; border-radius: 99px; border: 1px solid #1a56db; color: #1a56db; font-size: 10px; font-weight: 600; margin-top: 4px; }
+    body { font-family: Arial, sans-serif; font-size: 11px; color: #1e293b; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 12px; }
+    .company { font-size: 15px; font-weight: 700; letter-spacing: .3px; color: #1e3a5f; }
+    .co-sub { font-size: 9px; color: #64748b; margin-top: 2px; }
+    .doc-title { font-size: 13px; font-weight: 700; color: #2563eb; }
+    .plan-no { font-size: 10px; color: #64748b; margin-top: 2px; }
+    .status-badge { display: inline-block; padding: 2px 8px; border-radius: 99px; border: 1px solid #93c5fd; color: #1d4ed8; background: #eff6ff; font-size: 9.5px; font-weight: 600; margin-top: 4px; }
     .section { margin-bottom: 10px; }
-    .section-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #555; border-bottom: 1px solid #ddd; padding-bottom: 3px; margin-bottom: 6px; }
+    .section-title { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #94a3b8; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 6px; }
     .fields { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px 12px; }
     .fields-2 { grid-template-columns: repeat(2, 1fr); }
     .field { display: flex; flex-direction: column; }
-    .label { font-size: 8.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #777; }
-    .val { font-size: 10.5px; color: #111; margin-top: 1px; }
+    .label { font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #94a3b8; }
+    .val { font-size: 10.5px; color: #1e293b; margin-top: 1px; }
     .mono { font-family: 'Courier New', monospace; }
     table { width: 100%; border-collapse: collapse; font-size: 10px; margin-top: 4px; }
-    thead th { background: #f3f4f6; border: 1px solid #d1d5db; padding: 5px 6px; text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: #555; font-weight: 700; }
-    tbody td { border: 1px solid #e5e7eb; padding: 5px 6px; vertical-align: top; }
-    tbody tr:nth-child(even) td { background: #f9fafb; }
+    thead th { background: #f1f5f9; border: 1px solid #e2e8f0; padding: 5px 6px; text-align: left; font-size: 8.5px; text-transform: uppercase; letter-spacing: .5px; color: #475569; font-weight: 700; }
+    tbody td { border: 1px solid #e2e8f0; padding: 5px 6px; vertical-align: top; color: #1e293b; }
+    tbody tr:nth-child(even) td { background: #f8fafc; }
     .center { text-align: center; }
     .right { text-align: right; }
-    .sub { font-size: 9px; color: #666; }
-    .totals-row { background: #f3f4f6 !important; font-weight: 700; }
-    .summary-box { display: flex; gap: 20px; border: 1px solid #d1d5db; border-radius: 4px; padding: 8px 12px; margin-top: 8px; background: #f9fafb; }
+    .sub { font-size: 9px; color: #64748b; }
+    .totals-row { background: #f1f5f9 !important; font-weight: 700; }
+    .summary-box { display: flex; gap: 20px; border: 1px solid #e2e8f0; border-radius: 4px; padding: 8px 12px; margin-top: 8px; background: #f8fafc; }
     .sum-item { display: flex; flex-direction: column; }
-    .sum-label { font-size: 8.5px; color: #777; text-transform: uppercase; letter-spacing: .5px; }
-    .sum-val { font-size: 13px; font-weight: 700; color: #111; }
-    .footer { margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; border-top: 1px solid #ddd; padding-top: 10px; }
+    .sum-label { font-size: 8px; color: #94a3b8; text-transform: uppercase; letter-spacing: .5px; }
+    .sum-val { font-size: 13px; font-weight: 700; color: #1e293b; }
+    .footer { margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; border-top: 1px solid #e2e8f0; padding-top: 10px; }
     .sig-box { text-align: center; }
-    .sig-line { border-top: 1px solid #999; margin: 28px 8px 4px; }
-    .sig-label { font-size: 9px; color: #666; }
+    .sig-line { border-top: 1px solid #cbd5e1; margin: 28px 8px 4px; }
+    .sig-label { font-size: 9px; color: #94a3b8; }
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   </style>
 </head>
@@ -1651,7 +1774,7 @@ function TruckLoadPlanPage() {
   <div class="header">
     <div>
       <div class="company">Monit Paper Agency</div>
-      <div style="font-size:9px;color:#666;margin-top:2px;">Indore, Madhya Pradesh</div>
+      <div class="co-sub">Paper Trading &middot; Indore, Madhya Pradesh</div>
     </div>
     <div style="text-align:right">
       <div class="doc-title">TRUCK LOAD PLAN</div>
@@ -1677,6 +1800,63 @@ function TruckLoadPlanPage() {
       ${plan.actualLoadDate     ? field("Actual Load Date",     plan.actualLoadDate)     : ""}
       ${plan.actualDeliveryDate ? field("Actual Delivery Date", plan.actualDeliveryDate) : ""}
     </div>
+  </div>
+
+  <!-- Truck Visualization -->
+  <div class="section">
+    <div class="section-title">Loading Diagram &mdash; Top View</div>
+    <svg width="100%" viewBox="0 0 700 ${CY + CH + 60}" xmlns="http://www.w3.org/2000/svg" font-family="Arial,sans-serif" style="display:block;overflow:visible">
+      <!-- Drop shadow -->
+      <rect x="22" y="34" width="656" height="${CH + 36}" rx="8" fill="#0f172a" opacity="0.07"/>
+
+      <!-- ═══ WHEELS ═══ -->
+      <rect x="52" y="16" width="34" height="14" rx="4" fill="#1e293b"/>
+      <rect x="52" y="${CH + 70}" width="34" height="14" rx="4" fill="#1e293b"/>
+      <rect x="620" y="16" width="34" height="14" rx="4" fill="#1e293b"/>
+      <rect x="620" y="${CH + 70}" width="34" height="14" rx="4" fill="#1e293b"/>
+      <rect x="620" y="30" width="34" height="10" rx="3" fill="#334155"/>
+      <rect x="620" y="${CH + 60}" width="34" height="10" rx="3" fill="#334155"/>
+
+      <!-- ═══ TRUCK BODY OUTER SHELL ═══ -->
+      <rect x="18" y="28" width="660" height="${CH + 44}" rx="6" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+
+      <!-- ═══ CAB ═══ -->
+      <rect x="20" y="30" width="84" height="${CH + 40}" rx="5" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1.5"/>
+      <rect x="20" y="66" width="6" height="86" rx="2" fill="#cbd5e1"/>
+      <rect x="28" y="44" width="52" height="36" rx="3" fill="#bfdbfe" stroke="#93c5fd" stroke-width="1"/>
+      <rect x="30" y="46" width="14" height="12" rx="2" fill="white" opacity="0.5"/>
+      <line x1="28" y1="80" x2="80" y2="80" stroke="#94a3b8" stroke-width="1" opacity="0.6"/>
+      <circle cx="52" cy="96" r="9" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+      <circle cx="52" cy="96" r="2.5" fill="#94a3b8"/>
+      <line x1="52" y1="87" x2="52" y2="105" stroke="#94a3b8" stroke-width="1" opacity="0.5"/>
+      <line x1="43" y1="96" x2="61" y2="96" stroke="#94a3b8" stroke-width="1" opacity="0.5"/>
+      <rect x="64" y="82" width="22" height="18" rx="4" fill="#cbd5e1" stroke="#94a3b8" stroke-width="0.8"/>
+      <rect x="64" y="118" width="22" height="18" rx="4" fill="#cbd5e1" stroke="#94a3b8" stroke-width="0.8"/>
+      <text x="52" y="${CH + 20}" text-anchor="middle" font-size="7.5" font-weight="700" fill="#64748b">CAB</text>
+      <text x="52" y="${CH + 31}" text-anchor="middle" font-size="6.5" fill="#94a3b8">FRONT</text>
+
+      <!-- ═══ CARGO BODY ═══ -->
+      <rect x="106" y="30" width="558" height="12" rx="0" fill="#cbd5e1" stroke="#94a3b8" stroke-width="0.5"/>
+      <rect x="106" y="${CH + 58}" width="558" height="12" rx="0" fill="#cbd5e1" stroke="#94a3b8" stroke-width="0.5"/>
+      <rect x="106" y="42" width="558" height="${CH + 16}" fill="#f8fafc"/>
+      <line x1="106" y1="${42 + Math.round((CH + 16) * 0.30)}" x2="664" y2="${42 + Math.round((CH + 16) * 0.30)}" stroke="#e2e8f0" stroke-width="0.8"/>
+      <line x1="106" y1="${42 + Math.round((CH + 16) * 0.55)}" x2="664" y2="${42 + Math.round((CH + 16) * 0.55)}" stroke="#e2e8f0" stroke-width="0.8"/>
+      <line x1="106" y1="${42 + Math.round((CH + 16) * 0.78)}" x2="664" y2="${42 + Math.round((CH + 16) * 0.78)}" stroke="#e2e8f0" stroke-width="0.8"/>
+      <rect x="106" y="42" width="558" height="${CH + 16}" fill="none" stroke="#94a3b8" stroke-width="0.8"/>
+
+      <!-- ═══ LOAD SLOTS ═══ -->
+      ${vizSlots}
+
+      <!-- ═══ TAILGATE / DOOR ═══ -->
+      <rect x="640" y="42" width="24" height="${CH + 16}" fill="#fefce8" stroke="#fbbf24" stroke-width="2" stroke-dasharray="5,3"/>
+      <rect x="637" y="56"  width="6" height="8" rx="1" fill="#f59e0b"/>
+      <rect x="637" y="${CH + 36}" width="6" height="8" rx="1" fill="#f59e0b"/>
+      <text x="652" y="${CH + 55}" text-anchor="middle" font-size="7" font-weight="700" fill="#d97706">DOOR</text>
+      <text x="652" y="${CH + 65}" text-anchor="middle" font-size="6" fill="#d97706">(LOAD)</text>
+
+      <!-- ═══ DIRECTION LEGEND ═══ -->
+      <text x="350" y="${CY + CH + 50}" text-anchor="middle" font-size="7.5" fill="#94a3b8">&#8592;&#160;Loaded first · goes deepest · delivered last&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;Loaded last · stays near door · delivered first&#160;&#8594;</text>
+    </svg>
   </div>
 
   <!-- Items -->
@@ -1736,11 +1916,13 @@ function TruckLoadPlanPage() {
     {
       id: "planNumber", accessorKey: "planNumber", header: "Plan #",
       filterType: "text", enableSorting: true, enableHiding: false, size: 130, align: "left" as const,
-      cell: (info) => <span className="font-semibold text-gray-900">{info.getValue() as string}</span>,
+      cell: (info) => <span className="font-semibold text-green-700">{info.getValue() as string}</span>,
     },
     {
       id: "planDate", accessorKey: "planDate", header: "Date",
       filterType: "dateRange", enableSorting: true, size: 110,
+      cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+      exportValue: (r) => fmtDateIN((r as any).planDate),
     },
     {
       id: "truckNumber", accessorKey: "truckNumber", header: "Truck",
@@ -1801,6 +1983,8 @@ function TruckLoadPlanPage() {
     {
       id: "plannedLoadDate", accessorKey: "plannedLoadDate", header: "Load Date",
       filterType: "dateRange", enableSorting: true, size: 110,
+      cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+      exportValue: (r) => fmtDateIN((r as any).plannedLoadDate),
     },
     {
       id: "status", accessorKey: "status", header: "Status",

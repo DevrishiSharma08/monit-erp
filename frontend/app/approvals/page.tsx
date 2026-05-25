@@ -14,6 +14,7 @@ import { Modal } from "@/components/Modal";
 import { SalesOrderForm } from "@/components/forms/SalesOrderForm";
 import { PurchaseOrderForm } from "@/components/forms/PurchaseOrderForm";
 import { cn } from "@/lib/utils";
+import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 import { createPortal } from "react-dom";
 import { useSalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
@@ -737,6 +738,8 @@ export default function ApprovalsPage() {
     {
       id: "orderDate", accessorKey: "orderDate", header: "Date",
       filterType: "date", enableSorting: true, defaultVisible: true, size: 100,
+      cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+      exportValue: (so) => fmtDateIN((so as any).orderDate),
     },
     {
       id: "customer", accessorKey: "customer", header: "Customer",
@@ -751,34 +754,70 @@ export default function ApprovalsPage() {
     },
     {
       id: "lines", accessorKey: "lines", header: "Items",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 260,
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 260, align: "left" as const,
+      exportColumns: [
+        {
+          header: "Item Codes",
+          value: (row) => (row as any).lines?.length
+            ? (row as any).lines.map((l: any, i: number) => `${i + 1}. ${l.materialCode || l.materialId || "—"}`).join("\n")
+            : "—",
+        },
+        {
+          header: "Qty (KG)",
+          value: (row) => (row as any).lines?.length
+            ? (row as any).lines.map((l: any) =>
+                l.weightKg && l.weightKg > 0
+                  ? fmtNumIN(l.weightKg)
+                  : `${fmtNumIN(l.orderedQty)} ${l.unit || "KG"}`.trim()
+              ).join("\n")
+            : "—",
+        },
+        {
+          header: "Rate (₹)",
+          value: (row) => (row as any).lines?.length
+            ? (row as any).lines.map((l: any) => `₹${fmtNumIN(l.rate)}`).join("\n")
+            : "—",
+        },
+        {
+          header: "Amount (₹)",
+          value: (row) => (row as any).lines?.length
+            ? (row as any).lines.map((l: any) => `₹${fmtNumIN(l.amount)}`).join("\n")
+            : "—",
+        },
+        {
+          header: "Delivery Address",
+          value: (row) => (row as any).lines?.[0]?.deliveryAddress || "—",
+        },
+      ],
       cell: (info) => {
         const lines = info.getValue() as SalesOrderLine[];
-        const preview = lines.slice(0, 2);
+        const first = lines[0];
+        if (!first) return <span className="text-gray-400 text-xs">—</span>;
+        const code = first.materialCode || first.materialId || "—";
+        const qty = (first as any).weightKg && (first as any).weightKg > 0
+          ? `${fmtNumIN((first as any).weightKg)} KG`
+          : `${fmtNumIN(first.orderedQty)} ${(first as any).unit || ""}`.trim();
         return (
-          <div className="space-y-1 py-0.5">
-            {preview.map((l, i) => {
-              const parts = (l.materialCode || "").split("/");
-              const shortCode = parts.length >= 4
-                ? `${parts[1]} ${parts[2]}g · ${parts[3]}`
-                : (l.materialCode || l.materialId || "—");
-              const qty = (l as any).weightKg
-                ? `${(l as any).weightKg.toLocaleString("en-IN")} KG`
-                : `${l.orderedQty.toLocaleString("en-IN")}`;
-              return (
-                <div key={i} className="flex items-center gap-1.5 text-xs">
-                  <span className="font-medium text-gray-800 truncate max-w-[170px]">{shortCode}</span>
-                  <span className="flex-shrink-0 text-gray-400">·</span>
-                  <span className="flex-shrink-0 text-gray-500">{qty}</span>
-                </div>
-              );
-            })}
-            {lines.length > 2 && (
-              <span className="text-[10px] text-gray-400">+{lines.length - 2} more item{lines.length - 2 !== 1 ? "s" : ""}</span>
-            )}
+          <div className="text-xs leading-snug text-left">
+            <div className="font-medium text-gray-900">{code}</div>
+            <div className="text-gray-500 mt-0.5">· {qty}</div>
           </div>
         );
       },
+    },
+    {
+      id: "linesCount", accessorKey: "lines", header: "# Items",
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 75,
+      cell: (info) => {
+        const n = (info.getValue() as SalesOrderLine[]).length;
+        return (
+          <span className={cn(
+            "inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
+            n === 1 ? "bg-gray-100 text-gray-500" : "bg-blue-50 text-blue-600 ring-1 ring-blue-100"
+          )}>{n}</span>
+        );
+      },
+      exportValue: (row) => row.lines.length,
     },
     {
       id: "totalValue", accessorKey: "totalValue", header: "Amount",
@@ -836,6 +875,8 @@ export default function ApprovalsPage() {
     {
       id: "orderDate", accessorKey: "orderDate", header: "Date",
       filterType: "date", enableSorting: true, defaultVisible: true, size: 100,
+      cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+      exportValue: (po) => fmtDateIN((po as any).orderDate),
     },
     {
       id: "millName", accessorKey: "millName", header: "Mill",
@@ -859,27 +900,70 @@ export default function ApprovalsPage() {
     },
     {
       id: "items", accessorKey: "items", header: "Items",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 220,
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 260, align: "left" as const,
+      exportColumns: [
+        {
+          header: "Material Codes",
+          value: (row) => row.items?.length
+            ? row.items.map((it: any, i: number) => `${i + 1}. ${it.description || `Material #${it.materialId}`}`).join("\n")
+            : "—",
+        },
+        {
+          header: "Qty (KG)",
+          value: (row) => row.items?.length
+            ? row.items.map((it: any) =>
+                it.weightKg && it.weightKg > 0
+                  ? fmtNumIN(it.weightKg)
+                  : `${fmtNumIN(it.quantity)} ${it.unit || ""}`.trim()
+              ).join("\n")
+            : "—",
+        },
+        {
+          header: "Rate (₹)",
+          value: (row) => row.items?.length
+            ? row.items.map((it: any) => it.rate != null ? `₹${fmtNumIN(it.rate)}` : "—").join("\n")
+            : "—",
+        },
+        {
+          header: "Amount (₹)",
+          value: (row) => row.items?.length
+            ? row.items.map((it: any) => it.amount != null ? `₹${fmtNumIN(it.amount)}` : "—").join("\n")
+            : "—",
+        },
+        {
+          header: "Delivery Address",
+          value: (row) => (row as any).directDeliveryAddress || "—",
+        },
+      ],
       cell: (info) => {
         const items = info.getValue() as PORow["items"];
-        const preview = items.slice(0, 2);
+        const first = items[0];
+        if (!first) return <span className="text-gray-400 text-xs">—</span>;
+        const code = first.description || `Material #${first.materialId}`;
+        const qty = first.weightKg && first.weightKg > 0
+          ? `${fmtNumIN(first.weightKg)} KG`
+          : `${fmtNumIN(first.quantity)} ${first.unit || ""}`.trim();
         return (
-          <div className="space-y-1 py-0.5">
-            {preview.map((item, i) => (
-              <div key={i} className="flex items-center gap-1.5 text-xs">
-                <span className="font-medium text-gray-800 truncate max-w-[140px]">
-                  {item.description || `Material #${item.materialId}`}
-                </span>
-                <span className="flex-shrink-0 text-gray-400">·</span>
-                <span className="flex-shrink-0 text-gray-500">{item.quantity.toLocaleString("en-IN")}</span>
-              </div>
-            ))}
-            {items.length > 2 && (
-              <span className="text-[10px] text-gray-400">+{items.length - 2} more</span>
-            )}
+          <div className="text-xs leading-snug text-left">
+            <div className="font-medium text-gray-900">{code}</div>
+            <div className="text-gray-500 mt-0.5">· {qty}</div>
           </div>
         );
       },
+    },
+    {
+      id: "itemsCount", accessorKey: "items", header: "# Items",
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 75,
+      cell: (info) => {
+        const n = (info.getValue() as PORow["items"]).length;
+        return (
+          <span className={cn(
+            "inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
+            n === 1 ? "bg-gray-100 text-gray-500" : "bg-violet-50 text-violet-600 ring-1 ring-violet-100"
+          )}>{n}</span>
+        );
+      },
+      exportValue: (row) => row.items.length,
     },
     {
       id: "totalValue", accessorKey: "totalValue", header: "Amount",

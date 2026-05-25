@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
+import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 
 export default function ChallanPage() {
   const { stockLots, dispatchLot, challans, updateChallan, addInTransitTracking } = useStock();
@@ -231,6 +232,8 @@ export default function ChallanPage() {
         enableSorting: true,
         defaultVisible: true,
         size: 100,
+        cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+        exportValue: (r) => fmtDateIN((r as any).challanDate),
       },
       {
         id: "soNumber",
@@ -289,6 +292,16 @@ export default function ChallanPage() {
         enableSorting: false,
         defaultVisible: true,
         size: 220,
+        exportColumns: [
+          {
+            header: "Items",
+            value: (r) => (r as any).lines?.map((l: any, i: number) => `${i + 1}. ${l.paper} ${l.gsm}GSM ${l.size}`).join("\n") ?? "—",
+          },
+          {
+            header: "Qty (Sht)",
+            value: (r) => (r as any).lines?.map((l: any) => fmtNumIN(l.quantity)).join("\n") ?? "—",
+          },
+        ],
         cell: (info) => {
           const challan = info.row.original;
           const totalLines = challan.lines.length;
@@ -302,7 +315,7 @@ export default function ChallanPage() {
                 )}
               </p>
               <p className="text-xs text-gray-500">
-                {challan.totalQty.toLocaleString()} sheets
+                {fmtNumIN(challan.totalQty)} sheets
               </p>
             </div>
           );

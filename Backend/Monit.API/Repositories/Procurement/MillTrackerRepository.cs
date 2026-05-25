@@ -21,7 +21,7 @@ public class MillTrackerRepository(DbConnectionFactory db) : IMillTrackerReposit
             mt.MillId,
             mil.Name                                                                    AS Mill,
             mt.MaterialId,
-            ISNULL(poi.Description, mat.Description)                                   AS Paper,
+            COALESCE(poi.Description, mat.Code, mat.Description)                       AS Paper,
             ISNULL(poi.GSM,         mat.GSM)                                            AS Gsm,
             poi.Size                                                                    AS Size,
             mt.OrderedQty,

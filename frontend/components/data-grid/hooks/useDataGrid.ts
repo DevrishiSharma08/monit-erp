@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -10,6 +10,7 @@ import {
   ColumnDef,
   SortingState,
   ColumnFiltersState,
+  ColumnSizingState,
   VisibilityState,
   PaginationState,
   Table,
@@ -80,6 +81,8 @@ export function useDataGrid<TData>(
     setGlobalFilter,
   } = options;
 
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
+
   const columns = useMemo<ColumnDef<TData>[]>(
     () =>
       columnConfigs.map((config) => {
@@ -121,7 +124,9 @@ export function useDataGrid<TData>(
       columnOrder: columnOrder.length > 0 ? columnOrder : undefined,
       pagination,
       globalFilter,
+      columnSizing,
     },
+    onColumnSizingChange: (u) => setColumnSizing(resolveUpdater(u, columnSizing)),
     onSortingChange: setSorting
       ? (u) => setSorting(resolveUpdater(u, sorting))
       : undefined,

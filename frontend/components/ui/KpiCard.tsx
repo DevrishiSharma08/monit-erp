@@ -46,7 +46,7 @@ export function KpiCard({
       <p className={cn("text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate", iconColor)}>
         {title}
       </p>
-      <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">
+      <p className="mt-1.5 text-2xl sm:text-3xl font-bold text-gray-900 leading-none tabular-nums animate-kpi-value">
         {value}
       </p>
       {subtitle && (

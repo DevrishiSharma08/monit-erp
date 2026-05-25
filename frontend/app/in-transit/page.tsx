@@ -6,6 +6,7 @@ import { useStock } from "@/context/StockContext";
 import { Truck, MapPin, Clock, CheckCircle, Upload, Edit3, AlertTriangle, FileText, Camera } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
+import { fmtDateIN } from "@/lib/formatters";
 
 export default function InTransitPage() {
   const { inTransitTrackings } = useStock();
@@ -157,6 +158,8 @@ export default function InTransitPage() {
         enableSorting: true,
         defaultVisible: true,
         size: 120,
+        cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+        exportValue: (r) => fmtDateIN((r as any).dispatchedDate),
       },
       {
         id: "expectedArrival",
@@ -167,18 +170,18 @@ export default function InTransitPage() {
         defaultVisible: true,
         size: 120,
         cell: (info) => {
-          const eta = new Date(info.getValue() as string);
-          const today = new Date();
-          const isOverdue = eta < today;
+          const raw = info.getValue() as string;
+          const isOverdue = raw && new Date(raw) < new Date();
           return (
             <div className="text-sm">
-              <div className={isOverdue ? "text-red-600 font-medium" : "text-gray-900"}>
-                {info.getValue() as string}
+              <div className={isOverdue ? "text-red-600 font-medium tabular-nums" : "text-gray-900 tabular-nums"}>
+                {fmtDateIN(raw)}
               </div>
               {isOverdue && <div className="text-xs text-red-500">Delayed</div>}
             </div>
           );
         },
+        exportValue: (r) => fmtDateIN((r as any).expectedArrival),
       },
       {
         id: "currentLocation",

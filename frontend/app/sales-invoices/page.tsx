@@ -6,6 +6,7 @@ import { useStock } from "@/context/StockContext";
 import { FileText, CheckCircle2, Clock, AlertTriangle, IndianRupee, Send, Plus, X, Search } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
+import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 
 export default function SalesInvoicesPage() {
   const { challans } = useStock();
@@ -162,6 +163,8 @@ export default function SalesInvoicesPage() {
         enableSorting: true,
         defaultVisible: true,
         size: 110,
+        cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+        exportValue: (r) => fmtDateIN((r as any).invoiceDate),
       },
       {
         id: "soNumber",
@@ -212,6 +215,24 @@ export default function SalesInvoicesPage() {
         enableSorting: false,
         defaultVisible: true,
         size: 180,
+        exportColumns: [
+          {
+            header: "Item Codes",
+            value: (r) => (r as any).lines?.map((l: any, i: number) => `${i + 1}. ${l.paper} ${l.gsm}GSM ${l.size}`).join("\n") ?? "—",
+          },
+          {
+            header: "Qty (Sht)",
+            value: (r) => (r as any).lines?.map((l: any) => fmtNumIN(l.quantity)).join("\n") ?? "—",
+          },
+          {
+            header: "Rate (₹)",
+            value: (r) => (r as any).lines?.map((l: any) => `₹${fmtNumIN(l.rate, { decimals: 2 })}`).join("\n") ?? "—",
+          },
+          {
+            header: "Amount (₹)",
+            value: (r) => (r as any).lines?.map((l: any) => `₹${fmtNumIN(l.amount)}`).join("\n") ?? "—",
+          },
+        ],
         cell: (info) => {
           const lines = info.getValue() as SalesInvoice["lines"];
           const first = lines[0];
@@ -219,7 +240,7 @@ export default function SalesInvoicesPage() {
             <div>
               <div className="text-sm text-gray-900">{first.paper} {first.gsm}GSM</div>
               <div className="text-xs text-gray-500">
-                {first.quantity.toLocaleString()} sht @ ₹{first.rate}
+                {fmtNumIN(first.quantity)} sht @ ₹{fmtNumIN(first.rate, { decimals: 2 })}
                 {lines.length > 1 && <span className="text-gray-400 ml-1">(+{lines.length - 1} more)</span>}
               </div>
             </div>
@@ -238,13 +259,14 @@ export default function SalesInvoicesPage() {
           const si = info.row.original;
           return (
             <div>
-              <div className="font-medium text-gray-900">₹{si.totalAmount.toLocaleString("en-IN")}</div>
+              <div className="font-medium text-gray-900">₹{fmtNumIN(si.totalAmount)}</div>
               <div className="text-xs text-gray-400">
-                GST: ₹{(si.cgst + si.sgst + si.igst).toLocaleString("en-IN")}
+                GST: ₹{fmtNumIN(si.cgst + si.sgst + si.igst)}
               </div>
             </div>
           );
         },
+        exportValue: (r) => `₹${fmtNumIN((r as any).totalAmount)}`,
       },
       {
         id: "status",
@@ -292,9 +314,10 @@ export default function SalesInvoicesPage() {
         size: 120,
         cell: (info) => {
           const date = info.getValue() as string;
-          const isOverdue = new Date(date) < new Date() && info.row.original.paymentStatus !== "Paid";
-          return <span className={isOverdue ? "text-red-600 font-medium" : "text-gray-600"}>{date}</span>;
+          const isOverdue = date && new Date(date) < new Date() && info.row.original.paymentStatus !== "Paid";
+          return <span className={`tabular-nums ${isOverdue ? "text-red-600 font-medium" : "text-gray-600"}`}>{fmtDateIN(date)}</span>;
         },
+        exportValue: (r) => fmtDateIN((r as any).paymentDueDate),
       },
       {
         id: "tallySync",
