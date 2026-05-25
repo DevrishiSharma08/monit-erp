@@ -1,3 +1,4 @@
+using System.Globalization;
 using Monit.API.Models.DTOs.Sales;
 using Monit.API.Services.Interfaces;
 using QuestPDF.Fluent;
@@ -21,7 +22,7 @@ public class SalesOrderPdfService : ISalesOrderPdfService
         {
             container.Page(page =>
             {
-                page.Size(new PageSize(297, 210, Unit.Millimetre));
+                page.Size(new PageSize(210, 297, Unit.Millimetre));
                 page.Margin(15, Unit.Millimetre);
                 page.DefaultTextStyle(t => t.FontSize(8).FontFamily("Arial"));
 
@@ -46,7 +47,7 @@ public class SalesOrderPdfService : ISalesOrderPdfService
                     {
                         t.ColumnsDefinition(c => { c.RelativeColumn(); c.RelativeColumn(); });
                         t.Cell().Text($"Sales Order No : {so.SONumber}").Bold().FontSize(9);
-                        t.Cell().AlignRight().Text($"Sales Order Date : {so.OrderDate}").Bold().FontSize(9);
+                        t.Cell().AlignRight().Text($"Sales Order Date : {FmtDate(so.OrderDate)}").Bold().FontSize(9);
                     });
 
                     col.Item().PaddingVertical(5);
@@ -147,10 +148,10 @@ public class SalesOrderPdfService : ISalesOrderPdfService
                             DC(l.Gsm?.ToString() ?? "—");
                             DC(length);
                             DC(width);
-                            DC(l.OrderedQty.ToString("N2"), right: true);
+                            DC(FmtNum(l.OrderedQty), right: true);
                             DC("—");  // Grain (not in DTO)
-                            DC(l.Rate.ToString("N2"), right: true);
-                            DC(l.Discount > 0 ? l.Discount.ToString("N2") : "—", right: true);
+                            DC(FmtNum(l.Rate), right: true);
+                            DC(l.Discount > 0 ? FmtNum(l.Discount) : "—", right: true);
                             DC("—");  // Packing Type (not in DTO)
                             DC("");   // Remarks (empty per line)
                         }
@@ -165,7 +166,7 @@ public class SalesOrderPdfService : ISalesOrderPdfService
                          .Background(Colors.Blue.Lighten4)
                          .Border(0.5f).BorderColor(Colors.Grey.Medium)
                          .Padding(3).AlignRight()
-                         .Text($"{totalQty:N2} KGS").FontSize(8).Bold();
+                         .Text($"{FmtNum(totalQty)} KGS").FontSize(8).Bold();
                         for (var j = 0; j < 5; j++)
                             t.Cell().Background(Colors.Blue.Lighten4)
                              .Border(0.5f).BorderColor(Colors.Grey.Medium).Padding(3).Text("");
@@ -195,7 +196,7 @@ public class SalesOrderPdfService : ISalesOrderPdfService
                         THdr("Payment Terms"); THdr("Delivery Date");
                         THdr("Transit Insurance"); THdr("Instruction");
 
-                        TVal(so.PaymentTerms); TVal(so.RequiredDeliveryDate);
+                        TVal(so.PaymentTerms); TVal(FmtDate(so.RequiredDeliveryDate));
                         TVal(so.InsurancePolicyNo); TVal(so.Remarks);
                     });
 
@@ -241,6 +242,15 @@ public class SalesOrderPdfService : ISalesOrderPdfService
             });
         }).GeneratePdf();
     }
+
+    private static readonly CultureInfo InIN = new("en-IN");
+
+    private static string FmtDate(string? d) =>
+        string.IsNullOrWhiteSpace(d) ? "—" :
+        DateTime.TryParse(d, out var dt) ? dt.ToString("dd-MM-yyyy") : d;
+
+    private static string FmtNum(decimal n, int decimals = 2) =>
+        n.ToString($"N{decimals}", InIN);
 
     private static (string particular, string mill) ParseMaterial(string? code)
     {

@@ -155,7 +155,7 @@ export const millApi = {
 // ── Salesmen ──────────────────────────────────────────────────────────────────
 
 export interface SalesmanRow {
-  id: number; name: string; phone?: string;
+  id: number; name: string; phone?: string; email?: string;
   territory?: string; monthlyTarget?: number; isActive: boolean; createdAt: string;
 }
 

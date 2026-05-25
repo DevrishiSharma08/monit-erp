@@ -71,7 +71,7 @@ function KpiCard({
     <Link href={href}
       className={`group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:scale-[0.98] ${iconBg}`}>
       <p className={`text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate ${iconColor}`}>{title}</p>
-      <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{value}</p>
+      <p className="mt-1.5 text-2xl sm:text-3xl font-bold text-gray-900 leading-none tabular-nums animate-kpi-value">{value}</p>
       {sub && (
         <p className={`mt-1 text-[10px] sm:text-xs truncate ${urgent ? "text-rose-500" : "text-gray-500"}`}>{sub}</p>
       )}

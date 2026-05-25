@@ -67,6 +67,16 @@ export interface ColumnConfig<TData> {
   /** Custom export serializer — use when the column value is an object/array that needs flattening for CSV/PDF export. */
   exportValue?: (row: TData) => string | number | null;
 
+  /**
+   * Expand a single column into multiple export columns.
+   * When present, this replaces exportValue and the column header in exports.
+   * Each entry becomes its own column in CSV / Excel / PDF / Word exports.
+   */
+  exportColumns?: Array<{
+    header: string;
+    value: (row: TData) => string | number | null;
+  }>;
+
 }
 
 /**

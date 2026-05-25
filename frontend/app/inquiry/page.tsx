@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
+import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 import { InquiryForm } from "@/components/forms/InquiryForm";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { KpiCard } from "@/components/ui/KpiCard";
@@ -96,6 +97,8 @@ export default function InquiryPage() {
         enableSorting: true,
         defaultVisible: true,
         size: 110,
+        cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+        exportValue: (r) => fmtDateIN((r as any).inquiryDate),
       },
       // Customer column — hidden for customer role
       ...(!isCustomer
@@ -133,6 +136,20 @@ export default function InquiryPage() {
         enableSorting: false,
         defaultVisible: true,
         size: 200,
+        exportColumns: [
+          {
+            header: "Materials",
+            value: (r) => (r as any).requirements?.map((req: any, i: number) => `${i + 1}. ${req.materialCode || req.materialId || "—"}`).join("\n") ?? "—",
+          },
+          {
+            header: "Qty",
+            value: (r) => (r as any).requirements?.map((req: any) => `${fmtNumIN(req.quantity)} ${req.unit || ""}`).join("\n") ?? "—",
+          },
+          {
+            header: "Delivery Location",
+            value: (r) => (r as any).requirements?.map((req: any) => req.deliveryLocation || "—").join("\n") ?? "—",
+          },
+        ],
         cell: (info) => {
           const reqs = info.getValue() as CustomerInquiry["requirements"];
           if (!reqs?.length) return <span className="text-gray-300">—</span>;
@@ -145,7 +162,7 @@ export default function InquiryPage() {
               </span>
               <span className="text-xs text-gray-400">·</span>
               <span className="text-xs font-medium text-gray-600">
-                {(qty / 1000).toFixed(1)}K {reqs[0].unit}
+                {fmtNumIN(qty)} {reqs[0].unit}
               </span>
               <span className="text-xs text-gray-400">·</span>
               <span className="text-xs text-gray-500">{locs} Loc{locs !== 1 ? "s" : ""}</span>

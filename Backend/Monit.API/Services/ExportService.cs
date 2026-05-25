@@ -87,7 +87,7 @@ public class ExportService : IExportService
         {
             container.Page(page =>
             {
-                page.Size(PageSizes.A4.Landscape());
+                page.Size(headers.Count > 8 ? PageSizes.A4.Landscape() : PageSizes.A4);
                 page.Margin(1.5f, Unit.Centimetre);
                 page.DefaultTextStyle(t => t.FontSize(9).FontFamily("Arial"));
 
@@ -155,6 +155,13 @@ public class ExportService : IExportService
     public byte[] ToWord(string title, List<string> headers, List<List<string>> rows,
                          string companyName, string companyAddress)
     {
+        // A4 in twips (1 inch = 1440 twips): portrait 11906×16838, landscape 16838×11906
+        bool landscape   = headers.Count > 8;
+        uint pgWidth     = landscape ? 16838u : 11906u;
+        uint pgHeight    = landscape ? 11906u : 16838u;
+        // Body width = page width - left margin (851) - right margin (851)
+        int  bodyWidthDxa = (int)pgWidth - 1702;
+
         using var ms = new MemoryStream();
         using (var wordDoc = WordprocessingDocument.Create(ms, WordprocessingDocumentType.Document, true))
         {
@@ -170,10 +177,8 @@ public class ExportService : IExportService
                 italic: true, color: "999999"));
             body.AppendChild(new Paragraph());
 
-            // Table
+            // Table — width = full body width
             var table = new Table();
-
-            // Table style
             table.AppendChild(new TableProperties(
                 new TableBorders(
                     new TopBorder    { Val = BorderValues.Single, Size = 4 },
@@ -183,16 +188,13 @@ public class ExportService : IExportService
                     new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4 },
                     new InsideVerticalBorder   { Val = BorderValues.Single, Size = 4 }
                 ),
-                new TableWidth { Width = "9000", Type = TableWidthUnitValues.Dxa }
+                new TableWidth { Width = bodyWidthDxa.ToString(), Type = TableWidthUnitValues.Dxa }
             ));
 
             // Header row
             var headerRow = new TableRow();
             foreach (var h in headers)
-            {
-                headerRow.AppendChild(MakeTableCell(h, bold: true,
-                    bgColor: "1E3A5F", fontColor: "FFFFFF"));
-            }
+                headerRow.AppendChild(MakeTableCell(h, bold: true, bgColor: "1E3A5F", fontColor: "FFFFFF"));
             table.AppendChild(headerRow);
 
             // Data rows
@@ -207,6 +209,14 @@ public class ExportService : IExportService
             }
 
             body.AppendChild(table);
+
+            // A4 page size — must be the last child of body (Word section properties)
+            var sectPr = new SectionProperties();
+            var pgSz   = new DocumentFormat.OpenXml.Wordprocessing.PageSize { Width = pgWidth, Height = pgHeight };
+            if (landscape) pgSz.Orient = PageOrientationValues.Landscape;
+            sectPr.Append(pgSz);
+            sectPr.Append(new PageMargin { Top = 851, Right = 851, Bottom = 1134, Left = 851 });
+            body.AppendChild(sectPr);
         }
 
         return ms.ToArray();

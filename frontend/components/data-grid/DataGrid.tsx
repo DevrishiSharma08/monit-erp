@@ -109,9 +109,10 @@ function DataGridInner<TData>({
     setGlobalFilter,
   });
 
-  // Drag and drop sensors
+  // Drag and drop sensors — distance constraint lets resize handle claim the
+  // initial mousedown before DnD activates, so column resizing works properly.
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor)
   );
 

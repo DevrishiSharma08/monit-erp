@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Plus, Save, AlertTriangle, Eye, Pencil, Trash2, Loader2, Truck, X } from "lucide-react";
+import { Plus, Save, AlertTriangle, Eye, Pencil, Trash2, Loader2, Truck, X, CheckCircle2, XCircle, Car } from "lucide-react";
+import { KpiCard } from "@/components/ui/KpiCard";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { Modal } from "@/components/Modal";
@@ -176,6 +177,14 @@ export default function TransporterMasterPage() {
     },
   ], []);
 
+  const kpis = useMemo(() => {
+    const total    = data.length;
+    const active   = data.filter(d => d.isActive).length;
+    const inactive = total - active;
+    const vehicles = data.reduce((s, d) => s + (d.vehicleCount ?? 0), 0);
+    return { total, active, inactive, vehicles };
+  }, [data]);
+
   return (
     <div className="space-y-5 pb-24">
       {error && (
@@ -184,6 +193,13 @@ export default function TransporterMasterPage() {
           <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">✕</button>
         </div>
       )}
+
+      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+        <KpiCard title="Total Transporters" value={kpis.total}    subtitle="registered"          icon={Truck}        iconBg="bg-blue-50"  iconColor="text-blue-500" />
+        <KpiCard title="Active"             value={kpis.active}   subtitle="currently active"    icon={CheckCircle2} iconBg="bg-green-50" iconColor="text-green-500"  subtitleColor="green" />
+        <KpiCard title="Inactive"           value={kpis.inactive} subtitle="disabled"            icon={XCircle}      iconBg="bg-rose-50"  iconColor="text-rose-400"   subtitleColor={kpis.inactive > 0 ? "red" : "default"} />
+        <KpiCard title="Total Vehicles"     value={kpis.vehicles} subtitle="registered vehicles" icon={Car}          iconBg="bg-amber-50" iconColor="text-amber-500"  subtitleColor="amber" />
+      </div>
 
       <DataGrid
         data={data} columns={columns} tableName="transporters"

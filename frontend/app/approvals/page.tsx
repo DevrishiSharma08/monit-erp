@@ -14,6 +14,7 @@ import { Modal } from "@/components/Modal";
 import { SalesOrderForm } from "@/components/forms/SalesOrderForm";
 import { PurchaseOrderForm } from "@/components/forms/PurchaseOrderForm";
 import { cn } from "@/lib/utils";
+import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 import { createPortal } from "react-dom";
 import { useSalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
@@ -759,6 +760,8 @@ export default function ApprovalsPage() {
     {
       id: "orderDate", accessorKey: "orderDate", header: "Date",
       filterType: "date", enableSorting: true, defaultVisible: true, size: 100,
+      cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+      exportValue: (so) => fmtDateIN((so as any).orderDate),
     },
     {
       id: "customer", accessorKey: "customer", header: "Customer",
@@ -773,8 +776,37 @@ export default function ApprovalsPage() {
     },
     {
       id: "lines", accessorKey: "lines", header: "Items",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 280,
-      align: "left", noTruncate: true,
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 260, align: "left" as const,
+      exportColumns: [
+        {
+          header: "Item Codes",
+          value: (row) => (row as any).lines?.length
+            ? (row as any).lines.map((l: any, i: number) => `${i + 1}. ${l.materialCode || l.materialId || "—"}`).join("\n")
+            : "—",
+        },
+        {
+          header: "Qty (KG)",
+          value: (row) => (row as any).lines?.length
+            ? (row as any).lines.map((l: any) => fmtNumIN(lineWeightKg(l))).join("\n")
+            : "—",
+        },
+        {
+          header: "Rate (₹)",
+          value: (row) => (row as any).lines?.length
+            ? (row as any).lines.map((l: any) => `₹${fmtNumIN(l.rate)}`).join("\n")
+            : "—",
+        },
+        {
+          header: "Amount (₹)",
+          value: (row) => (row as any).lines?.length
+            ? (row as any).lines.map((l: any) => `₹${fmtNumIN(l.amount)}`).join("\n")
+            : "—",
+        },
+        {
+          header: "Delivery Address",
+          value: (row) => (row as any).lines?.[0]?.deliveryAddress || "—",
+        },
+      ],
       cell: (info) => {
         const lines = (info.getValue() as SalesOrderLine[]) ?? [];
         if (lines.length === 0) return <span className="text-gray-300 text-xs">—</span>;
@@ -786,7 +818,7 @@ export default function ApprovalsPage() {
               const shortCode = parts.length >= 4
                 ? `${parts[1]} ${parts[2]}g · ${parts[3]}`
                 : (l.materialCode || l.materialId || "—");
-              const qty = `${lineWeightKg(l).toLocaleString("en-IN")} kg`;
+              const qty = `${fmtNumIN(lineWeightKg(l))} kg`;
               return (
                 <div key={i} className="flex items-center gap-1.5 text-xs">
                   <span className="font-medium text-gray-800 truncate max-w-[170px]">{shortCode}</span>
@@ -801,6 +833,20 @@ export default function ApprovalsPage() {
           </div>
         );
       },
+    },
+    {
+      id: "linesCount", accessorKey: "lines", header: "# Items",
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 75,
+      cell: (info) => {
+        const n = (info.getValue() as SalesOrderLine[]).length;
+        return (
+          <span className={cn(
+            "inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
+            n === 1 ? "bg-gray-100 text-gray-500" : "bg-blue-50 text-blue-600 ring-1 ring-blue-100"
+          )}>{n}</span>
+        );
+      },
+      exportValue: (row) => row.lines.length,
     },
     {
       id: "totalValue", accessorKey: "totalValue", header: "Amount",
@@ -858,6 +904,8 @@ export default function ApprovalsPage() {
     {
       id: "orderDate", accessorKey: "orderDate", header: "Date",
       filterType: "date", enableSorting: true, defaultVisible: true, size: 100,
+      cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+      exportValue: (po) => fmtDateIN((po as any).orderDate),
     },
     {
       id: "millName", accessorKey: "millName", header: "Mill",
@@ -881,8 +929,41 @@ export default function ApprovalsPage() {
     },
     {
       id: "items", accessorKey: "items", header: "Items",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 240,
-      align: "left", noTruncate: true,
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 260, align: "left" as const,
+      exportColumns: [
+        {
+          header: "Material Codes",
+          value: (row) => row.items?.length
+            ? row.items.map((it: any, i: number) => `${i + 1}. ${it.description || `Material #${it.materialId}`}`).join("\n")
+            : "—",
+        },
+        {
+          header: "Qty (KG)",
+          value: (row) => row.items?.length
+            ? row.items.map((it: any) =>
+                it.weightKg && it.weightKg > 0
+                  ? fmtNumIN(it.weightKg)
+                  : `${fmtNumIN(it.quantity)} ${it.unit || ""}`.trim()
+              ).join("\n")
+            : "—",
+        },
+        {
+          header: "Rate (₹)",
+          value: (row) => row.items?.length
+            ? row.items.map((it: any) => it.rate != null ? `₹${fmtNumIN(it.rate)}` : "—").join("\n")
+            : "—",
+        },
+        {
+          header: "Amount (₹)",
+          value: (row) => row.items?.length
+            ? row.items.map((it: any) => it.amount != null ? `₹${fmtNumIN(it.amount)}` : "—").join("\n")
+            : "—",
+        },
+        {
+          header: "Delivery Address",
+          value: (row) => (row as any).directDeliveryAddress || "—",
+        },
+      ],
       cell: (info) => {
         const items = (info.getValue() as PORow["items"]) ?? [];
         if (items.length === 0) return <span className="text-gray-300 text-xs">—</span>;
@@ -891,8 +972,8 @@ export default function ApprovalsPage() {
           <div className="space-y-1 py-0.5">
             {preview.map((item, i) => {
               const qty = item.weightKg && item.weightKg > 0
-                ? `${item.weightKg.toLocaleString("en-IN")} kg`
-                : `${item.quantity.toLocaleString("en-IN")}`;
+                ? `${fmtNumIN(item.weightKg)} kg`
+                : `${fmtNumIN(item.quantity)} ${item.unit || ""}`.trim();
               return (
                 <div key={i} className="flex items-center gap-1.5 text-xs">
                   <span className="font-medium text-gray-800 truncate max-w-[150px]">
@@ -909,6 +990,20 @@ export default function ApprovalsPage() {
           </div>
         );
       },
+    },
+    {
+      id: "itemsCount", accessorKey: "items", header: "# Items",
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 75,
+      cell: (info) => {
+        const n = (info.getValue() as PORow["items"]).length;
+        return (
+          <span className={cn(
+            "inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
+            n === 1 ? "bg-gray-100 text-gray-500" : "bg-violet-50 text-violet-600 ring-1 ring-violet-100"
+          )}>{n}</span>
+        );
+      },
+      exportValue: (row) => row.items.length,
     },
     {
       id: "totalValue", accessorKey: "totalValue", header: "Amount",

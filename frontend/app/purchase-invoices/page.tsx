@@ -6,6 +6,7 @@ import { usePurchaseOrder } from "@/context/PurchaseOrderContext";
 import { FileText, Truck, CheckCircle2, AlertTriangle, IndianRupee, Clock, Plus, X, Search, ChevronDown } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
+import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 
 export default function PurchaseInvoicesPage() {
   const { purchaseOrders } = usePurchaseOrder();
@@ -161,6 +162,8 @@ export default function PurchaseInvoicesPage() {
         enableSorting: true,
         defaultVisible: true,
         size: 110,
+        cell: (info) => <span className="tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+        exportValue: (r) => fmtDateIN((r as any).invoiceDate),
       },
       {
         id: "mill",
@@ -189,12 +192,16 @@ export default function PurchaseInvoicesPage() {
         enableSorting: true,
         defaultVisible: true,
         size: 160,
+        exportColumns: [
+          { header: "Material", value: (r) => `${(r as any).paper} ${(r as any).gsm}GSM ${(r as any).size}` },
+          { header: "Qty (Sht)", value: (r) => fmtNumIN((r as any).quantity) },
+        ],
         cell: (info) => {
           const pi = info.row.original;
           return (
             <div>
               <div className="font-medium text-gray-900">{pi.paper}</div>
-              <div className="text-xs text-gray-500">{pi.gsm} GSM &middot; {pi.size} &middot; {pi.quantity.toLocaleString()} sht</div>
+              <div className="text-xs text-gray-500">{pi.gsm} GSM &middot; {pi.size} &middot; {fmtNumIN(pi.quantity)} sht</div>
             </div>
           );
         },
@@ -211,11 +218,12 @@ export default function PurchaseInvoicesPage() {
           const pi = info.row.original;
           return (
             <div>
-              <div className="font-medium text-gray-900">₹{pi.totalAmount.toLocaleString("en-IN")}</div>
-              <div className="text-xs text-gray-400">Base: ₹{pi.baseAmount.toLocaleString("en-IN")}</div>
+              <div className="font-medium text-gray-900">₹{fmtNumIN(pi.totalAmount)}</div>
+              <div className="text-xs text-gray-400">Base: ₹{fmtNumIN(pi.baseAmount)}</div>
             </div>
           );
         },
+        exportValue: (r) => `₹${fmtNumIN((r as any).totalAmount)}`,
       },
       {
         id: "deliveryMode",
@@ -282,9 +290,10 @@ export default function PurchaseInvoicesPage() {
         size: 120,
         cell: (info) => {
           const date = info.getValue() as string;
-          const isOverdue = new Date(date) < new Date() && info.row.original.paymentStatus !== "Paid";
-          return <span className={isOverdue ? "text-red-600 font-medium" : "text-gray-600"}>{date}</span>;
+          const isOverdue = date && new Date(date) < new Date() && info.row.original.paymentStatus !== "Paid";
+          return <span className={`tabular-nums ${isOverdue ? "text-red-600 font-medium" : "text-gray-600"}`}>{fmtDateIN(date)}</span>;
         },
+        exportValue: (r) => fmtDateIN((r as any).paymentDueDate),
       },
     ],
     [statusOptions, paymentOptions]

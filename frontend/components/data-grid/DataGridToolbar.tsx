@@ -73,23 +73,40 @@ export function DataGridToolbar<TData>({
     const visibleCols = table
       .getAllLeafColumns()
       .filter((col: any) => col.getIsVisible() && col.id !== "_select" && col.id !== "_actions");
-    const headers = visibleCols.map((col: any) =>
-      typeof col.columnDef.header === "string" ? col.columnDef.header : col.id
-    );
     const configMap = new Map(columnConfigs.map((c) => [c.id, c]));
+
+    // Build headers + per-column value resolvers, expanding exportColumns into multiple columns
+    const headers: string[] = [];
+    const resolvers: Array<(row: any) => string> = [];
+
+    visibleCols.forEach((col: any) => {
+      const config = configMap.get(col.id);
+      if (config?.exportColumns?.length) {
+        config.exportColumns.forEach((ec: { header: string; value: (row: any) => any }) => {
+          headers.push(ec.header);
+          resolvers.push((row: any) => {
+            const v = ec.value(row.original);
+            return v === null || v === undefined ? "" : String(v);
+          });
+        });
+      } else {
+        headers.push(typeof col.columnDef.header === "string" ? col.columnDef.header : col.id);
+        resolvers.push((row: any) => {
+          if (config?.exportValue) {
+            const v = config.exportValue(row.original);
+            return v === null || v === undefined ? "" : String(v);
+          }
+          const val = row.getValue(col.id);
+          if (val === null || val === undefined) return "";
+          if (typeof val === "boolean") return val ? "Yes" : "No";
+          if (typeof val === "object") return "";
+          return String(val);
+        });
+      }
+    });
+
     const rows = table.getFilteredRowModel().rows.map((row: any) =>
-      visibleCols.map((col: any) => {
-        const config = configMap.get(col.id);
-        if (config?.exportValue) {
-          const v = config.exportValue(row.original);
-          return v === null || v === undefined ? "" : String(v);
-        }
-        const val = row.getValue(col.id);
-        if (val === null || val === undefined) return "";
-        if (typeof val === "boolean") return val ? "Yes" : "No";
-        if (typeof val === "object") return "";
-        return String(val);
-      })
+      resolvers.map((resolver) => resolver(row))
     );
     return { headers, rows };
   };

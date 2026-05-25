@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Plus, Save, AlertTriangle, Eye, Pencil, Trash2, Loader2, Layers, Scale } from "lucide-react";
+import { Plus, Save, AlertTriangle, Eye, Pencil, Trash2, Loader2, Layers, Scale, CheckCircle2, XCircle, Building2, Tag } from "lucide-react";
+import { KpiCard } from "@/components/ui/KpiCard";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { Modal } from "@/components/Modal";
@@ -281,6 +282,15 @@ export default function ItemMasterPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
 
+  // ── KPIs ────────────────────────────────────────────────────────────────────
+  const kpis = useMemo(() => {
+    const total    = data.length;
+    const active   = data.filter(d => d.isActive).length;
+    const inactive = total - active;
+    const mills    = new Set(data.map(d => d.millId)).size;
+    return { total, active, inactive, mills };
+  }, [data]);
+
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5 pb-24">
@@ -290,6 +300,13 @@ export default function ItemMasterPage() {
           <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">✕</button>
         </div>
       )}
+
+      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+        <KpiCard title="Total Items"   value={kpis.total}    subtitle="all item codes"          icon={Layers}       iconBg="bg-blue-50"   iconColor="text-blue-500" />
+        <KpiCard title="Active"        value={kpis.active}   subtitle="in use"                  icon={CheckCircle2} iconBg="bg-green-50"  iconColor="text-green-500"  subtitleColor="green" />
+        <KpiCard title="Inactive"      value={kpis.inactive} subtitle="disabled"                icon={XCircle}      iconBg="bg-rose-50"   iconColor="text-rose-400"   subtitleColor={kpis.inactive > 0 ? "red" : "default"} />
+        <KpiCard title="Mills Covered" value={kpis.mills}    subtitle="unique mills with items" icon={Building2}    iconBg="bg-violet-50" iconColor="text-violet-500" subtitleColor="blue" />
+      </div>
 
       <DataGrid
         data={data} columns={columns} tableName="items"

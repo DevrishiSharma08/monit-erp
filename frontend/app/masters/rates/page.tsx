@@ -11,6 +11,7 @@ import { Modal } from "@/components/Modal";
 import { ActionMenu } from "@/components/ActionMenu";
 import { Combobox, ComboboxOption } from "@/components/ui/Combobox";
 import { cn } from "@/lib/utils";
+import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 import {
   rateApi, RateRow, RateHistoryRow,
   stockGroupApi, SubGroupDropdown,
@@ -355,6 +356,7 @@ export default function RateMasterPage() {
           ₹{(info.getValue() as number).toFixed(2)}
         </span>
       ),
+      exportValue: (r) => `₹${fmtNumIN((r as any).amount, { decimals: 2 })}`,
     },
     {
       id: "discount", accessorKey: "discount", header: "Discount (₹/KG)",
@@ -365,11 +367,16 @@ export default function RateMasterPage() {
           ? <span className="font-medium text-sm text-rose-600">−₹{v.toFixed(2)}</span>
           : <span className="text-xs text-gray-300">—</span>;
       },
+      exportValue: (r) => {
+        const v = (r as any).discount;
+        return v && v > 0 ? `₹${fmtNumIN(v, { decimals: 2 })}` : "—";
+      },
     },
     {
       id: "effectiveFrom", accessorKey: "effectiveFrom", header: "Effective From",
       filterType: "none", enableSorting: true, defaultVisible: true, size: 120,
-      cell: (info) => <span className="text-xs text-gray-600">{info.getValue() as string}</span>,
+      cell: (info) => <span className="text-xs text-gray-600 tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+      exportValue: (r) => fmtDateIN((r as any).effectiveFrom),
     },
     {
       id: "isActive", accessorKey: "isActive", header: "Status",
@@ -622,6 +629,11 @@ export default function RateMasterPage() {
               </label>
               {activeTab === "Sale" && (
                 <p className="text-[11px] text-gray-400 mb-2">Leave empty for a universal rate (all customers).</p>
+              )}
+              {activeTab === "Purchase" && fRateCat === "Customer" && fCustomerIds.length === 0 && (
+                <p className="text-[11px] text-amber-600 mb-2 flex items-center gap-1">
+                  <span>⚠</span> Select at least one customer for a customer-wise purchase rate.
+                </p>
               )}
               <CustomerMultiSelect customers={customers} selected={fCustomerIds} onChange={setFCustomerIds} />
             </div>

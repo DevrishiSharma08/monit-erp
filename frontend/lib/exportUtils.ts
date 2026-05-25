@@ -40,6 +40,15 @@ export function exportExcel({ headers, rows, title = "Sheet1" }: ExportData, fil
     return { wch: Math.min(Math.max(maxLen + 2, 10), 50) };
   });
 
+  // A4 print settings (paperSize 9 = A4; landscape for wide tables)
+  (ws as any)["!pageSetup"] = {
+    paperSize: 9,
+    orientation: headers.length > 8 ? "landscape" : "portrait",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+  };
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, title.slice(0, 31));
   XLSX.writeFile(wb, `${filename}.xlsx`);
@@ -48,6 +57,12 @@ export function exportExcel({ headers, rows, title = "Sheet1" }: ExportData, fil
 // ── DOCX (HTML-as-Word) ───────────────────────────────────────────────────────
 
 export function exportDocx({ headers, rows, title = "" }: ExportData, filename: string): void {
+  const landscape = headers.length > 8;
+  // A4 in twips: portrait 11906×16838, landscape 16838×11906
+  const pgW = landscape ? "16838" : "11906";
+  const pgH = landscape ? "11906" : "16838";
+  const orient = landscape ? `w:orient="landscape"` : "";
+
   const th = headers
     .map((h) => `<th style="background:#1e3a5f;color:#fff;padding:6px 10px;font-size:11px;border:1px solid #ccc;">${h}</th>`)
     .join("");
@@ -56,7 +71,7 @@ export function exportDocx({ headers, rows, title = "" }: ExportData, filename: 
     .map(
       (row, i) =>
         `<tr style="background:${i % 2 === 0 ? "#fff" : "#eef4ff"};">${row
-          .map((c) => `<td style="padding:5px 10px;font-size:10px;border:1px solid #ddd;">${c}</td>`)
+          .map((c) => `<td style="padding:5px 10px;font-size:10px;border:1px solid #ddd;white-space:pre-wrap;">${c}</td>`)
           .join("")}</tr>`
     )
     .join("");
@@ -65,10 +80,30 @@ export function exportDocx({ headers, rows, title = "" }: ExportData, filename: 
     xmlns:w="urn:schemas-microsoft-com:office:word"
     xmlns="http://www.w3.org/TR/REC-html40">
   <head><meta charset="UTF-8">
-    <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
+    <!--[if gte mso 9]><xml>
+      <w:WordDocument>
+        <w:View>Print</w:View>
+        <w:Zoom>100</w:Zoom>
+      </w:WordDocument>
+    </xml><![endif]-->
+    <style>
+      @page {
+        size: ${landscape ? "29.7cm 21cm" : "21cm 29.7cm"};
+        margin: 1.5cm 1.5cm 2cm 1.5cm;
+        mso-page-orientation: ${landscape ? "landscape" : "portrait"};
+      }
+      body { font-family: Arial, sans-serif; }
+      div.Section1 { page: Section1; }
+    </style>
+    <!--[if gte mso 9]><xml>
+      <w:sectPr>
+        <w:pgSz w:w="${pgW}" w:h="${pgH}" ${orient}/>
+        <w:pgMar w:top="851" w:right="851" w:bottom="1134" w:left="851"/>
+      </w:sectPr>
+    </xml><![endif]-->
   </head>
   <body style="font-family:Arial,sans-serif;">
-    ${title ? `<h2 style="font-size:14px;margin-bottom:10px;">${title}</h2>` : ""}
+    ${title ? `<h2 style="font-size:14px;margin-bottom:10px;color:#1e3a5f;">${title}</h2>` : ""}
     <table border="1" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;">
       <thead><tr>${th}</tr></thead>
       <tbody>${trs}</tbody>
@@ -86,7 +121,8 @@ export async function exportPdf({ headers, rows, title = "" }: ExportData, filen
   const { default: jsPDF } = await import("jspdf");
   const { default: autoTable } = await import("jspdf-autotable");
 
-  const doc = new jsPDF({ orientation: rows[0]?.length > 8 ? "landscape" : "portrait" });
+  const orientation = headers.length > 8 ? "landscape" : "portrait";
+  const doc = new jsPDF({ orientation, format: "a4", unit: "mm" });
 
   if (title) {
     doc.setFontSize(13);
