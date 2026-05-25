@@ -238,7 +238,7 @@ export interface PurchaseAllocation {
 
   allocationDate: string;
   expectedArrival?: string;
-  status: 'Pending PO' | 'PO Raised' | 'In Production' | 'In Transit' | 'Received';
+  status: 'Pending PO' | 'PO Raised' | 'In Production' | 'Dispatched' | 'Received';
   deliveryMode?: 'Direct To Customer' | 'To Godown'; // set during truck load planning
 }
 
@@ -536,7 +536,7 @@ export interface PurchaseOrder {
   totalValue: number;
 
   // Status
-  status: 'Draft' | 'Sent to Mill' | 'Acknowledged' | 'In Production' | 'Partial Ready' | 'Ready' | 'Dispatched' | 'In Transit' | 'Part Received' | 'Completed';
+  status: 'Draft' | 'Sent to Mill' | 'Acknowledged' | 'In Production' | 'Partial Ready' | 'Ready' | 'Dispatched' | 'Part Received' | 'Completed';
 
   // Tally Integration (hidden fields)
   tallyLedgerName?: string;
@@ -614,7 +614,7 @@ export interface TruckLoadPlan {
   // Items — one per PO item; multiple POs can share a truck
   items: TruckLoadPlanItem[];
 
-  status: 'Planned' | 'Loading' | 'In Transit' | 'Delivered';
+  status: 'Planned' | 'Loading' | 'Dispatched' | 'Received';
 
   // Reference
   inTransitTrackerId?: string;
@@ -649,7 +649,7 @@ export interface InTransitTracking {
   currentLocation?: string;
   lastUpdate?: string;
 
-  status: 'Dispatched' | 'In Transit' | 'Reached Destination' | 'Unloading' | 'Delivered';
+  status: 'Dispatched' | 'Reached Destination' | 'Unloading' | 'Received';
 
   // Location updates
   locationUpdates: {
@@ -702,7 +702,7 @@ export interface PurchaseInvoice {
   grnNumber?: string; // GRN created after receipt
 
   // Status
-  status: 'Punched' | 'In Transit' | 'Received' | 'GRN Done';
+  status: 'Punched' | 'Dispatched' | 'Received' | 'GRN Done';
 
   // Payment
   paymentStatus: 'Pending' | 'Partially Paid' | 'Paid';
@@ -3059,7 +3059,7 @@ export const mockTruckLoadPlans: TruckLoadPlan[] = [
     plannedDeliveryDate: '2024-01-24',
     actualLoadDate: '2024-01-24',
     actualDeliveryDate: '2024-01-24',
-    status: 'Delivered',
+    status: 'Received',
     inTransitTrackerId: '1',
     items: [
       {
@@ -3093,7 +3093,7 @@ export const mockTruckLoadPlans: TruckLoadPlan[] = [
     plannedDeliveryDate: '2024-01-19',
     actualLoadDate: '2024-01-19',
     actualDeliveryDate: '2024-01-19',
-    status: 'Delivered',
+    status: 'Received',
     inTransitTrackerId: '2',
     items: [
       {
@@ -3127,7 +3127,7 @@ export const mockTruckLoadPlans: TruckLoadPlan[] = [
     plannedLoadDate: '2024-01-25',
     plannedDeliveryDate: '2024-01-27',
     actualLoadDate: '2024-01-25',
-    status: 'In Transit',
+    status: 'Dispatched',
     inTransitTrackerId: '3',
     items: [
       {
@@ -3174,7 +3174,7 @@ export const mockTruckLoadPlans: TruckLoadPlan[] = [
     plannedLoadDate: '2024-01-26',
     plannedDeliveryDate: '2024-01-26',
     actualLoadDate: '2024-01-26',
-    status: 'In Transit',
+    status: 'Dispatched',
     inTransitTrackerId: '4',
     items: [
       {
@@ -3207,7 +3207,7 @@ export const mockTruckLoadPlans: TruckLoadPlan[] = [
     plannedLoadDate: '2024-01-27',
     plannedDeliveryDate: '2024-01-30',
     actualLoadDate: '2024-01-27',
-    status: 'In Transit',
+    status: 'Dispatched',
     inTransitTrackerId: '5',
     items: [
       {
@@ -3267,8 +3267,8 @@ export const mockInTransitTrackings: InTransitTracking[] = [
     deliveryMode: 'Direct To Customer',
     dispatchedDate: '2024-01-24',
     expectedArrival: '2024-01-24',
-    currentLocation: 'Delivered',
-    status: 'Delivered',
+    currentLocation: 'Received',
+    status: 'Received',
     locationUpdates: [
       { timestamp: '2024-01-24 10:30', location: 'Lasudia Godown', remarks: 'Loaded and dispatched' },
       { timestamp: '2024-01-24 11:15', location: 'AB Road', remarks: 'In transit' },
@@ -3290,8 +3290,8 @@ export const mockInTransitTrackings: InTransitTracking[] = [
     deliveryMode: 'Direct To Customer',
     dispatchedDate: '2024-01-19',
     expectedArrival: '2024-01-19',
-    currentLocation: 'Delivered',
-    status: 'Delivered',
+    currentLocation: 'Received',
+    status: 'Received',
     locationUpdates: [
       { timestamp: '2024-01-19 15:15', location: 'Lasudia Godown', remarks: 'Loaded and dispatched' },
       { timestamp: '2024-01-19 16:00', location: 'AB Road', remarks: 'Reached destination' },
@@ -3335,7 +3335,7 @@ export const mockInTransitTrackings: InTransitTracking[] = [
     dispatchedDate: '2024-01-26',
     expectedArrival: '2024-01-26',
     currentLocation: 'Ring Road',
-    status: 'In Transit',
+    status: 'Dispatched',
     locationUpdates: [
       { timestamp: '2024-01-26 10:30', location: 'Lasudia Godown', remarks: 'Loading completed, dispatched' },
       { timestamp: '2024-01-26 11:15', location: 'Ring Road', remarks: 'In transit to Vijay Nagar' }
@@ -3355,7 +3355,7 @@ export const mockInTransitTrackings: InTransitTracking[] = [
     dispatchedDate: '2024-01-27',
     expectedArrival: '2024-01-30',
     currentLocation: 'Nagpur',
-    status: 'In Transit',
+    status: 'Dispatched',
     locationUpdates: [
       { timestamp: '2024-01-27 08:00', location: 'ITC Paperboards, Bhadrachalam', remarks: 'Mill dispatch completed' },
       { timestamp: '2024-01-27 18:00', location: 'Hyderabad', remarks: 'Crossed Hyderabad checkpoint' },
@@ -3424,7 +3424,7 @@ export const mockPurchaseInvoices: PurchaseInvoice[] = [
     igst: 144000,
     totalAmount: 944000,
     deliveryMode: 'To Godown',
-    status: 'In Transit',
+    status: 'Dispatched',
     paymentStatus: 'Pending',
     paymentDueDate: '2024-02-27',
     remarks: 'Material dispatched from Bhadrachalam, ETA Jan 30'

@@ -26,7 +26,7 @@ export default function InTransitPage() {
 
   // Check if overdue
   const isOverdue = (eta: string, status: string) => {
-    if (status === "Delivered") return false;
+    if (status === "Received") return false;
     const etaDate = new Date(eta);
     const today = new Date();
     return etaDate < today;
@@ -35,21 +35,19 @@ export default function InTransitPage() {
   const kpis = useMemo(() => {
     const total = inTransitTrackings.length;
     const dispatched = inTransitTrackings.filter((t) => t.status === "Dispatched").length;
-    const inTransit = inTransitTrackings.filter((t) => t.status === "In Transit").length;
     const reachedDest = inTransitTrackings.filter((t) => t.status === "Reached Destination").length;
-    const delivered = inTransitTrackings.filter((t) => t.status === "Delivered").length;
+    const received = inTransitTrackings.filter((t) => t.status === "Received").length;
     const overdue = inTransitTrackings.filter((t) => isOverdue(t.expectedArrival, t.status)).length;
-    return { total, dispatched, inTransit, reachedDest, delivered, overdue };
+    return { total, dispatched, reachedDest, received, overdue };
   }, [inTransitTrackings]);
 
   const statusOptions = useMemo(
     () => [
       { label: "Loading", value: "Loading" },
       { label: "Dispatched", value: "Dispatched" },
-      { label: "In Transit", value: "In Transit" },
       { label: "Reached Destination", value: "Reached Destination" },
       { label: "Unloading", value: "Unloading" },
-      { label: "Delivered", value: "Delivered" },
+      { label: "Received", value: "Received" },
       { label: "Delayed", value: "Delayed" },
     ],
     []
@@ -213,9 +211,8 @@ export default function InTransitPage() {
           const status = info.getValue() as string;
           const colors = {
             "Dispatched": "bg-blue-100 text-blue-700",
-            "In Transit": "bg-orange-100 text-orange-700",
             "Reached Destination": "bg-purple-100 text-purple-700",
-            "Delivered": "bg-green-100 text-green-700",
+            "Received": "bg-green-100 text-green-700",
           };
           return (
             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[status as keyof typeof colors]}`}>
@@ -323,19 +320,6 @@ export default function InTransitPage() {
         <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">In Transit</p>
-              <p className="mt-1.5 text-2xl font-bold text-gray-900">{kpis.inTransit}</p>
-              <p className="mt-0.5 text-xs text-orange-600">On the road</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-50">
-              <Truck className="h-5 w-5 text-orange-500" />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
               <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Reached</p>
               <p className="mt-1.5 text-2xl font-bold text-gray-900">{kpis.reachedDest}</p>
               <p className="mt-0.5 text-xs text-purple-600">At destination</p>
@@ -349,8 +333,8 @@ export default function InTransitPage() {
         <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Delivered</p>
-              <p className="mt-1.5 text-2xl font-bold text-gray-900">{kpis.delivered}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Received</p>
+              <p className="mt-1.5 text-2xl font-bold text-gray-900">{kpis.received}</p>
               <p className="mt-0.5 text-xs text-green-600">Completed</p>
             </div>
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-50">
@@ -425,10 +409,9 @@ export default function InTransitPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
                 <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                   <option value="Dispatched">Dispatched</option>
-                  <option value="In Transit">In Transit</option>
                   <option value="Reached Destination">Reached Destination</option>
                   <option value="Unloading">Unloading</option>
-                  <option value="Delivered">Delivered</option>
+                  <option value="Received">Received</option>
                   <option value="Delayed">Delayed</option>
                 </select>
               </div>

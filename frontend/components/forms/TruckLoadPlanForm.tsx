@@ -273,8 +273,8 @@ export function TruckLoadPlanForm({ initialData, onSubmit, onCancel }: TruckLoad
             >
               <option value="Planned">Planned</option>
               <option value="Loading">Loading</option>
-              <option value="In Transit">In Transit</option>
-              <option value="Delivered">Delivered</option>
+              <option value="Dispatched">Dispatched</option>
+              <option value="Received">Received</option>
             </select>
           </div>
         </div>
@@ -630,7 +630,7 @@ export function TruckLoadPlanForm({ initialData, onSubmit, onCancel }: TruckLoad
             />
           </div>
 
-          {formData.status === 'In Transit' || formData.status === 'Delivered' ? (
+          {formData.status === 'Dispatched' || formData.status === 'Received' ? (
             <>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">LR Number</label>
@@ -655,9 +655,9 @@ export function TruckLoadPlanForm({ initialData, onSubmit, onCancel }: TruckLoad
             </>
           ) : null}
 
-          {formData.status === 'Delivered' ? (
+          {formData.status === 'Received' ? (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Actual Delivery Date</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Actual Received Date</label>
               <input
                 type="date"
                 value={formData.actualDeliveryDate || ''}

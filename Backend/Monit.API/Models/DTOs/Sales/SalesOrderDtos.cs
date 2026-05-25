@@ -54,6 +54,7 @@ public class SalesOrderListDto
     public string?  InsurancePolicyNo    { get; set; }
     public decimal  TotalValue           { get; set; }
     public string?  EmailSentAt          { get; set; }
+    public int      LinkedPoCount        { get; set; }
     public List<SalesOrderLineDto> Lines { get; set; } = [];
 }
 

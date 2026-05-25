@@ -23,8 +23,8 @@ export default function TransporterPerformancePage() {
       const name = p.transporterName ?? "Unknown";
       if (!loadMap[name]) loadMap[name] = { total: 0, delivered: 0, inTransit: 0 };
       loadMap[name].total += 1;
-      if (p.status === "Delivered") loadMap[name].delivered += 1;
-      if (p.status === "In Transit") loadMap[name].inTransit += 1;
+      if (p.status === "Received") loadMap[name].delivered += 1;
+      if (p.status === "Dispatched") loadMap[name].inTransit += 1;
     });
 
     const rows: TransporterRow[] = mockTransporters.map((t) => {
@@ -74,10 +74,10 @@ export default function TransporterPerformancePage() {
       chartType="bar"
       chartColor="#22c55e"
       chartFormatValue={(v) => `${v} / 5`}
-      tableColumns={["Transporter", "Area Covered", "Total Loads", "Delivered", "In Transit", "Rate/MT", "Rating"]}
+      tableColumns={["Transporter", "Area Covered", "Total Loads", "Received", "Dispatched", "Rate/MT", "Rating"]}
       exportFilename="transporter-performance"
       exportData={[
-        ["Transporter", "Area Covered", "Total Loads", "Delivered", "In Transit", "Rate/MT (₹)", "Rating (/5)"],
+        ["Transporter", "Area Covered", "Total Loads", "Received", "Dispatched", "Rate/MT (₹)", "Rating (/5)"],
         ...rows.map((r) => [r.name, r.areaCovered, r.totalLoads, r.delivered, r.inTransit, r.ratePerMT, r.serviceRating]),
       ]}
     >
@@ -89,8 +89,8 @@ export default function TransporterPerformancePage() {
                 <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-gray-500">Transporter</th>
                 <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-gray-500">Area Covered</th>
                 <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-gray-500 text-right">Total Loads</th>
-                <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-gray-500 text-right">Delivered</th>
-                <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-gray-500 text-right">In Transit</th>
+                <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-gray-500 text-right">Received</th>
+                <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-gray-500 text-right">Dispatched</th>
                 <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-gray-500 text-right">Rate/MT</th>
                 <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-gray-500">Rating</th>
               </tr>

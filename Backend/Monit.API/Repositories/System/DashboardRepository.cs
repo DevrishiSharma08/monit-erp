@@ -25,9 +25,9 @@ public class DashboardRepository(DbConnectionFactory db) : IDashboardRepository
                   (SELECT COUNT(*) FROM inventory.GRNs
                    WHERE Status NOT IN ('Stock Updated') AND IsDeleted=0)
                   +
-                  -- In-Transit TLPs that have no GRN created yet
+                  -- Dispatched TLPs that have no GRN created yet
                   (SELECT COUNT(*) FROM procurement.TruckLoadPlans tlp
-                   WHERE tlp.Status = 'In Transit' AND tlp.IsDeleted = 0
+                   WHERE tlp.Status = 'Dispatched' AND tlp.IsDeleted = 0
                      AND NOT EXISTS (
                        SELECT 1 FROM inventory.GRNs g
                        WHERE g.SourceLoadPlanId = tlp.Id AND g.IsDeleted = 0

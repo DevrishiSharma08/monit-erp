@@ -51,6 +51,13 @@ public class SalesOrdersController(ISalesOrderService svc) : ControllerBase
         => Ok(ApiResponse<SalesOrderListDto>.Ok(
             await svc.UpdateAsync(id, dto, CurrentUser), "Sales order updated successfully."));
 
+    [HttpPatch("{id:int}/approve")]
+    public async Task<IActionResult> Approve(int id)
+    {
+        await svc.ApproveAsync(id, CurrentUser);
+        return Ok(ApiResponse.Ok("Sales order approved — status set to Pending Allocation."));
+    }
+
     [HttpDelete("{id:int}")]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> Delete(int id)

@@ -6,7 +6,7 @@ import { TruckLoadPlan, TruckLoadPlanItem, MillOrderTracker } from "@/types/pape
 import {
   Truck, Clock, CheckCircle2, Plus, Package, AlertCircle,
   MoreVertical, Eye, EyeOff, Trash2, Printer, RefreshCw, X, Weight,
-  ChevronDown, ChevronRight, GripVertical, Filter, Search,
+  GripVertical, Filter, Search,
 } from "lucide-react";
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
@@ -33,12 +33,12 @@ import type { TransporterVehicleDto } from "@/lib/api-services";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_COLOR: Record<string, string> = {
-  Planned:      "bg-blue-50 text-blue-700 border border-blue-200",
-  Loading:      "bg-amber-50 text-amber-700 border border-amber-200",
-  "In Transit": "bg-purple-50 text-purple-700 border border-purple-200",
-  Delivered:    "bg-green-50 text-green-700 border border-green-200",
+  Planned:    "bg-blue-50 text-blue-700 border border-blue-200",
+  Loading:    "bg-amber-50 text-amber-700 border border-amber-200",
+  Dispatched: "bg-purple-50 text-purple-700 border border-purple-200",
+  Received:   "bg-green-50 text-green-700 border border-green-200",
 };
-const STATUS_SEQ: TruckLoadPlan["status"][] = ["Planned", "Loading", "In Transit", "Delivered"];
+const STATUS_SEQ: TruckLoadPlan["status"][] = ["Planned", "Loading", "Dispatched", "Received"];
 
 const PENDING_COLS = [
   { id: "status",    label: "Status"           },
@@ -1169,16 +1169,16 @@ function StatusUpdateModal({ plan, onClose, onSave }: {
         </div>
         <div>
           <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-            {newStatus === "Delivered" ? "Actual Delivery Date" : "Actual Load Date"}
+            {newStatus === "Received" ? "Actual Received Date" : "Actual Load Date"}
           </label>
           <input type="date" value={actualDate} onChange={(e) => setActualDate(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
         </div>
       </div>
 
-      {newStatus === "In Transit" && (
+      {newStatus === "Dispatched" && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-          Setting to <strong>In Transit</strong> marks this load as dispatched. Mill Tracker will be updated automatically.
+          Setting to <strong>Dispatched</strong> marks this load as sent from the mill. Mill Tracker will be updated automatically.
         </div>
       )}
 
@@ -1188,8 +1188,8 @@ function StatusUpdateModal({ plan, onClose, onSave }: {
         <button type="button"
           onClick={() => onSave({
             status: newStatus,
-            actualLoadDate: newStatus === "In Transit" || newStatus === "Loading" ? actualDate : plan.actualLoadDate,
-            actualDeliveryDate: newStatus === "Delivered" ? actualDate : plan.actualDeliveryDate,
+            actualLoadDate: newStatus === "Dispatched" || newStatus === "Loading" ? actualDate : plan.actualLoadDate,
+            actualDeliveryDate: newStatus === "Received" ? actualDate : plan.actualDeliveryDate,
           })}
           className="rounded-lg bg-blue-500 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-600 active:scale-95 transition-all">
           Update Status
@@ -1329,7 +1329,7 @@ function PlanActionsMenu({ plan, onView, onUpdateStatus, onDelete, onPrint }: {
           <button onClick={act(onView)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50">
             <Eye className="h-3.5 w-3.5 text-gray-400" /> View Details
           </button>
-          {plan.status !== "Delivered" && (
+          {plan.status !== "Received" && (
             <button onClick={act(onUpdateStatus)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50">
               <RefreshCw className="h-3.5 w-3.5 text-blue-400" /> Update Status
             </button>
@@ -1408,8 +1408,8 @@ function TruckLoadPlanPage() {
     pending:   readyTrackers.length,
     planned:   truckLoadPlans.filter((t) => t.status === "Planned").length,
     loading:   truckLoadPlans.filter((t) => t.status === "Loading").length,
-    inTransit: truckLoadPlans.filter((t) => t.status === "In Transit").length,
-    delivered: truckLoadPlans.filter((t) => t.status === "Delivered").length,
+    inTransit: truckLoadPlans.filter((t) => t.status === "Dispatched").length,
+    delivered: truckLoadPlans.filter((t) => t.status === "Received").length,
   }), [truckLoadPlans, readyTrackers]);
 
   const filteredPlans = useMemo(() =>
@@ -1489,7 +1489,7 @@ function TruckLoadPlanPage() {
       });
       const updated = mapApiPlan(apiPlan);
       setTruckLoadPlans((prev) => prev.map((p) => p.id === activePlan.id ? updated : p));
-      if (patch.status === "In Transit") await refreshReadyTrackers();
+      if (patch.status === "Dispatched") await refreshReadyTrackers();
       success(`${activePlan.planNumber} → ${patch.status}`);
       setShowStatusModal(false);
       setActivePlan(null);
@@ -1765,8 +1765,8 @@ function TruckLoadPlanPage() {
   const statusKpis = [
     { key: "planned" as const,   label: "Planned" as TruckLoadPlan["status"],    icon: Clock,         iconBg: "bg-blue-50",   iconColor: "text-blue-500",   activeBg: "bg-blue-500",   activeBorder: "border-blue-400",   hover: "hover:border-blue-200" },
     { key: "loading" as const,   label: "Loading" as TruckLoadPlan["status"],    icon: Package,       iconBg: "bg-amber-50",  iconColor: "text-amber-500",  activeBg: "bg-amber-500",  activeBorder: "border-amber-400",  hover: "hover:border-amber-200" },
-    { key: "inTransit" as const, label: "In Transit" as TruckLoadPlan["status"], icon: Truck,         iconBg: "bg-purple-50", iconColor: "text-purple-500", activeBg: "bg-purple-500", activeBorder: "border-purple-400", hover: "hover:border-purple-200" },
-    { key: "delivered" as const, label: "Delivered" as TruckLoadPlan["status"],  icon: CheckCircle2,  iconBg: "bg-green-50",  iconColor: "text-green-500",  activeBg: "bg-green-500",  activeBorder: "border-green-400",  hover: "hover:border-green-200" },
+    { key: "inTransit" as const, label: "Dispatched" as TruckLoadPlan["status"], icon: Truck,         iconBg: "bg-purple-50", iconColor: "text-purple-500", activeBg: "bg-purple-500", activeBorder: "border-purple-400", hover: "hover:border-purple-200" },
+    { key: "delivered" as const, label: "Received" as TruckLoadPlan["status"],   icon: CheckCircle2,  iconBg: "bg-green-50",  iconColor: "text-green-500",  activeBg: "bg-green-500",  activeBorder: "border-green-400",  hover: "hover:border-green-200" },
   ];
 
   // ── Render ─────────────────────────────────────────────────────────────────

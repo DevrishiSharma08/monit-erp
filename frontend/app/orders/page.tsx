@@ -16,6 +16,7 @@ import { emailSentCache } from "@/lib/emailSentCache";
 import { useSalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
 import { cn } from "@/lib/utils";
+import { lineWeightKg, lineSheetCount } from "@/lib/weight";
 import { createPortal } from "react-dom";
 import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
 import { SharePanel, ShareData } from "@/components/ShareMenu";
@@ -237,7 +238,7 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
                   <tr className="bg-gray-50 border-b border-gray-200">
                     <th className="px-3 py-2 text-left font-semibold text-gray-500">#</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">Material</th>
-                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Qty / Wt</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Weight (kg)</th>
                     <th className="px-3 py-2 text-right font-semibold text-gray-600">Rate</th>
                     <th className="px-3 py-2 text-right font-semibold text-gray-500">Disc</th>
                     <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>
@@ -252,16 +253,19 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
                       <td className="px-3 py-2.5">
                         <p className="font-semibold text-gray-900">{line.materialCode || line.materialId}</p>
                         {line.gsm && <p className="text-[10px] text-gray-400 mt-0.5">{line.gsm}g · {line.size}</p>}
+                        {line.remarks && <p className="text-[10px] text-amber-600 italic mt-0.5">{line.remarks}</p>}
                       </td>
                       <td className="px-3 py-2.5 text-right font-medium text-gray-900">
-                        {line.qty !== undefined && line.qty > 0 ? (
-                          <>
-                            <span className="text-blue-700 font-semibold">{line.qty.toLocaleString()} Sh</span>
-                            {line.weightKg && <span className="block text-[10px] text-gray-400">{line.weightKg.toLocaleString()} KG</span>}
-                          </>
-                        ) : (
-                          <span className="text-blue-700 font-semibold">{(line.weightKg ?? line.orderedQty).toLocaleString()} KG</span>
-                        )}
+                        {(() => {
+                          const wt = lineWeightKg(line);
+                          const sh = lineSheetCount(line);
+                          return (
+                            <>
+                              <span className="text-blue-700 font-semibold">{wt.toLocaleString("en-IN")} kg</span>
+                              {sh !== null && <span className="block text-[10px] text-gray-400">{sh.toLocaleString("en-IN")} sheets</span>}
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2.5 text-right text-gray-700">₹{line.rate.toLocaleString("en-IN")}</td>
                       <td className="px-3 py-2.5 text-right text-gray-500">
@@ -345,7 +349,7 @@ export default function OrdersPage() {
   // ── KPIs ────────────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
     const weightKg = (orders: typeof salesOrders) =>
-      orders.reduce((s, o) => s + o.lines.reduce((ls, l) => ls + (l.weightKg ?? 0), 0), 0);
+      orders.reduce((s, o) => s + o.lines.reduce((ls, l) => ls + lineWeightKg(l), 0), 0);
 
     const approvalOrders  = salesOrders.filter((o) => o.status === "Approval Pending");
     const pendingOrders   = salesOrders.filter((o) => ["Draft", "Pending Allocation"].includes(o.status));
@@ -387,9 +391,7 @@ export default function OrdersPage() {
 
   const buildEmailData = (so: SalesOrder): EmailFormData => {
     const lines = so.lines.map((l, i) => {
-      const qty = l.weightKg && l.weightKg > 0
-        ? `${l.weightKg.toLocaleString("en-IN")} KG`
-        : `${l.orderedQty.toLocaleString("en-IN")} ${l.unit || ""}`.trim();
+      const qty = `${lineWeightKg(l).toLocaleString("en-IN")} KG`;
       return `  ${i + 1}. ${l.materialCode || l.materialId} — ${qty} — ₹${l.rate.toLocaleString("en-IN")}/- — Amt: ₹${l.amount.toLocaleString("en-IN")}`;
     }).join("\n");
     // Pre-select the default contact email as the initial TO
@@ -449,9 +451,7 @@ export default function OrdersPage() {
         const first = lines[0];
         if (!first) return <span className="text-gray-400 text-xs">—</span>;
         const code = first.materialCode || first.materialId || "—";
-        const qty = first.weightKg && first.weightKg > 0
-          ? `${first.weightKg.toLocaleString("en-IN")} KG`
-          : `${first.orderedQty.toLocaleString("en-IN")} ${first.unit || "KG"}`.trim();
+        const qty = `${lineWeightKg(first).toLocaleString("en-IN")} kg`;
         return (
           <div className="text-xs leading-snug">
             <div className="font-medium text-gray-900">{code}</div>
@@ -534,7 +534,7 @@ export default function OrdersPage() {
             emailSent={emailSentIds.has(so.id)}
             shareData={(() => {
               const itemLines = so.lines.map((l, i) => {
-                const qty = l.weightKg && l.weightKg > 0 ? `${l.weightKg.toLocaleString("en-IN")} KG` : `${l.orderedQty.toLocaleString("en-IN")} ${l.unit || "KG"}`.trim();
+                const qty = `${lineWeightKg(l).toLocaleString("en-IN")} KG`;
                 return `  ${i + 1}. ${l.materialCode || l.materialId} — ${qty} @ ₹${l.rate.toLocaleString("en-IN")}`;
               }).join("\n");
               return {

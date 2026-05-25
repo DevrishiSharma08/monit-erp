@@ -1308,7 +1308,7 @@ function GRNPage() {
     try {
       const [grnRes, tlpRes, whRes] = await Promise.all([
         grnApi.list({ pageSize: 200 }),
-        truckLoadPlanApi.list({ status: "In Transit", pageSize: 200 }),
+        truckLoadPlanApi.list({ status: "Dispatched", pageSize: 200 }),
         warehouseApi.dropdown(),
       ]);
       setGrns(grnRes.items);
@@ -1365,7 +1365,7 @@ function GRNPage() {
 
   const handleSaveGRN = async (dtos: CreateGrnDto[], tlpId: number) => {
     await Promise.all(dtos.map((dto) => grnApi.create(dto)));
-    await truckLoadPlanApi.updateStatus(tlpId, { status: "Delivered" }).catch(() => {});
+    await truckLoadPlanApi.updateStatus(tlpId, { status: "Received" }).catch(() => {});
     await load();
     setShowCreateModal(false);
     setSelectedTlp(null);

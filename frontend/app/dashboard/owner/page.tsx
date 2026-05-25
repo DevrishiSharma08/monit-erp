@@ -133,7 +133,7 @@ export default function OwnerDashboard() {
     const openOrders = mockSalesOrders.filter((so) => so.status !== "Completed" && so.status !== "Closed" && so.status !== "Cancelled").length;
     const pendingPOs = mockPurchaseOrders.filter((po) => po.status !== "Completed").length;
     const stockValue = mockStockLots.reduce((s, l) => s + l.availableQty * 50, 0); // rough value
-    const trucksInTransit = mockTruckLoadPlans.filter((t) => t.status === "In Transit").length;
+    const trucksInTransit = mockTruckLoadPlans.filter((t) => t.status === "Dispatched").length;
     const overdueInvoices = mockSalesInvoices.filter((i) => i.paymentStatus === "Overdue").length;
 
     return {
@@ -208,7 +208,7 @@ export default function OwnerDashboard() {
           icon={Factory} iconBg="bg-amber-50" iconColor="text-amber-600" />
         <KpiCard title="Low Stock" value={String(stats.lowStock)}
           icon={Package} iconBg="bg-rose-50" iconColor="text-rose-600" />
-        <KpiCard title="In Transit" value={String(businessHealth.trucksInTransit)}
+        <KpiCard title="Dispatched" value={String(businessHealth.trucksInTransit)}
           icon={Truck} iconBg="bg-indigo-50" iconColor="text-indigo-600" />
         <KpiCard title="Gross Margin" value={`${businessHealth.grossMargin}%`}
           sub="Revenue - purchase"

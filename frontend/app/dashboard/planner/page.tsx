@@ -38,8 +38,8 @@ export default function PlannerDashboard() {
     const total = mockTruckLoadPlans.length;
     const planned = mockTruckLoadPlans.filter((t) => t.status === "Planned").length;
     const loading = mockTruckLoadPlans.filter((t) => t.status === "Loading").length;
-    const inTransit = mockTruckLoadPlans.filter((t) => t.status === "In Transit").length;
-    const delivered = mockTruckLoadPlans.filter((t) => t.status === "Delivered").length;
+    const inTransit = mockTruckLoadPlans.filter((t) => t.status === "Dispatched").length;
+    const delivered = mockTruckLoadPlans.filter((t) => t.status === "Received").length;
     return { total, planned, loading, dispatched: inTransit, delivered };
   }, []);
 
@@ -48,7 +48,7 @@ export default function PlannerDashboard() {
     const total = mockPurchaseOrders.length;
     const pending = mockPurchaseOrders.filter((po) => po.status === "Draft" || po.status === "Sent to Mill").length;
     const confirmed = mockPurchaseOrders.filter((po) => po.status === "Acknowledged" || po.status === "In Production").length;
-    const inTransit = mockPurchaseOrders.filter((po) => po.status === "In Transit" || po.status === "Dispatched").length;
+    const inTransit = mockPurchaseOrders.filter((po) => po.status === "Dispatched").length;
     const received = mockPurchaseOrders.filter((po) => po.status === "Part Received" || po.status === "Completed").length;
     return { total, pending, confirmed, inTransit, received };
   }, []);
@@ -115,9 +115,8 @@ export default function PlannerDashboard() {
   const truckStatusColor: Record<string, string> = {
     Planned: "bg-blue-100 text-blue-700",
     Loading: "bg-yellow-100 text-yellow-700",
-    Dispatched: "bg-indigo-100 text-indigo-700",
-    "In Transit": "bg-purple-100 text-purple-700",
-    Delivered: "bg-green-100 text-green-700",
+    Dispatched: "bg-purple-100 text-purple-700",
+    Received: "bg-green-100 text-green-700",
     Cancelled: "bg-gray-100 text-gray-500",
   };
 
@@ -131,7 +130,7 @@ export default function PlannerDashboard() {
         <KpiCard title="Loading Now" value={String(truckStats.loading)}
           sub="Active loading"
           icon={Package} iconBg="bg-yellow-50" iconColor="text-yellow-500" />
-        <KpiCard title="In Transit" value={String(truckStats.dispatched)}
+        <KpiCard title="Dispatched" value={String(truckStats.dispatched)}
           sub="On the road"
           icon={MapPinned} iconBg="bg-purple-50" iconColor="text-purple-500" />
         <KpiCard title="Dispatch Ready" value={String(dispatchReady)}
@@ -159,7 +158,7 @@ export default function PlannerDashboard() {
               <Tooltip />
               <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
               <Bar dataKey="pending" name="Pending (K)" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="delivered" name="Delivered (K)" fill="#10b981" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="delivered" name="Received (K)" fill="#10b981" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -171,8 +170,8 @@ export default function PlannerDashboard() {
             {[
               { status: "Planned", count: truckStats.planned, color: "bg-blue-500", icon: Clock },
               { status: "Loading", count: truckStats.loading, color: "bg-yellow-500", icon: Package },
-              { status: "Dispatched", count: truckStats.dispatched, color: "bg-indigo-500", icon: Truck },
-              { status: "Delivered", count: truckStats.delivered, color: "bg-green-500", icon: CheckCircle2 },
+              { status: "Dispatched", count: truckStats.dispatched, color: "bg-purple-500", icon: Truck },
+              { status: "Received", count: truckStats.delivered, color: "bg-green-500", icon: CheckCircle2 },
             ].map((item) => (
               <div key={item.status} className="flex items-center gap-3">
                 <div className={`flex h-8 w-8 items-center justify-center rounded-full ${item.color} bg-opacity-15`}>
@@ -199,7 +198,7 @@ export default function PlannerDashboard() {
               {[
                 { label: "Pending / Sent", count: millStats.pending, dot: "bg-orange-500" },
                 { label: "Confirmed", count: millStats.confirmed, dot: "bg-blue-500" },
-                { label: "In Transit", count: millStats.inTransit, dot: "bg-purple-500" },
+                { label: "Dispatched", count: millStats.inTransit, dot: "bg-purple-500" },
                 { label: "Received", count: millStats.received, dot: "bg-green-500" },
               ].map((item) => (
                 <div key={item.label} className="flex items-center justify-between text-xs">

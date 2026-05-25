@@ -36,7 +36,7 @@ interface PurchaseOrderContextValue {
 
   /** Mill tracker rows that have readyQty still unDispatched — shown on TLP page */
   readyTrackers: MillOrderTracker[];
-  /** TLPs with status "In Transit" that haven't been fully GRN-ed yet */
+  /** TLPs with status "Dispatched" that haven't been fully GRN-ed yet */
   dispatchedTLPs: TruckLoadPlan[];
 }
 
@@ -257,7 +257,7 @@ export function PurchaseOrderProvider({ children }: { children: ReactNode }) {
   );
 
   const dispatchedTLPs = useMemo(
-    () => truckLoadPlans.filter(t => t.status === "In Transit"),
+    () => truckLoadPlans.filter(t => t.status === "Dispatched"),
     [truckLoadPlans]
   );
 

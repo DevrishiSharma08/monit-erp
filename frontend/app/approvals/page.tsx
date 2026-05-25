@@ -19,6 +19,7 @@ import { useSalesOrder } from "@/context/SalesOrderContext";
 import { useToast } from "@/context/ToastContext";
 import { poApi, PORow, CreatePODto, salesOrderApi, customerApi, millApi } from "@/lib/api-services";
 import { emailSentCache } from "@/lib/emailSentCache";
+import { lineWeightKg, lineSheetCount } from "@/lib/weight";
 import { KpiCard } from "@/components/ui/KpiCard";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -153,7 +154,7 @@ function ApprovalViewModal({
                   <tr className="bg-gray-50 border-b border-gray-200">
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">#</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">Material</th>
-                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Qty / Weight</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Weight (kg)</th>
                     <th className="px-3 py-2 text-right font-semibold text-gray-600">Rate</th>
                     <th className="px-3 py-2 text-right font-semibold text-gray-500">Disc %</th>
                     <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>
@@ -166,18 +167,19 @@ function ApprovalViewModal({
                       <td className="px-3 py-2.5">
                         <p className="font-medium text-gray-900">{line.materialCode || line.materialId}</p>
                         {line.gsm && <p className="text-gray-400">{line.gsm}g · {line.size}</p>}
+                        {line.remarks && <p className="text-[10px] text-amber-600 italic mt-0.5">{line.remarks}</p>}
                       </td>
                       <td className="px-3 py-2.5 text-right font-medium text-gray-900">
-                        {(line as any).qty !== undefined && (line as any).qty > 0 ? (
-                          <span>
-                            {(line as any).qty.toLocaleString()} Sheets
-                            {(line as any).weightKg ? (
-                              <span className="block text-xs text-gray-400">{(line as any).weightKg.toLocaleString()} KG</span>
-                            ) : null}
-                          </span>
-                        ) : (
-                          <span>{((line as any).weightKg ?? line.orderedQty).toLocaleString()} KG</span>
-                        )}
+                        {(() => {
+                          const wt = lineWeightKg(line);
+                          const sh = lineSheetCount(line);
+                          return (
+                            <>
+                              <span className="font-semibold text-gray-900">{wt.toLocaleString("en-IN")} kg</span>
+                              {sh !== null && <span className="block text-[10px] text-gray-400">{sh.toLocaleString("en-IN")} sheets</span>}
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2.5 text-right text-gray-700">₹{line.rate.toLocaleString("en-IN")}</td>
                       <td className="px-3 py-2.5 text-right text-gray-500">
@@ -358,8 +360,7 @@ function POApprovalViewModal({
                   <tr className="bg-gray-50 border-b border-gray-200 text-gray-600">
                     <th className="px-2 py-2 text-left font-semibold w-7">#</th>
                     <th className="px-2 py-2 text-left font-semibold">Material</th>
-                    <th className="px-2 py-2 text-right font-semibold">Qty</th>
-                    <th className="px-2 py-2 text-right font-semibold">Wt (KG)</th>
+                    <th className="px-2 py-2 text-right font-semibold">Weight (kg)</th>
                     <th className="px-2 py-2 text-right font-semibold">Rate (₹)</th>
                     <th className="px-2 py-2 text-right font-semibold">Disc%</th>
                     <th className="px-2 py-2 text-right font-semibold">Final (₹)</th>
@@ -369,6 +370,9 @@ function POApprovalViewModal({
                 <tbody>
                   {po.items.map((item, idx) => {
                     const rawRate = item.discount && item.discount > 0 ? (item.rate / (1 - item.discount / 100)) : 0;
+                    const wt = lineWeightKg({ weightKg: item.weightKg, quantity: item.quantity, gsm: item.gsm, size: item.size });
+                    const sheetsHint = item.weightKg && item.weightKg > 0 && item.quantity > 0 && item.quantity !== item.weightKg
+                      ? item.quantity : null;
                     return (
                       <tr key={item.id} className="border-t border-gray-100 hover:bg-gray-50/50">
                         <td className="px-2 py-2.5 text-gray-400">{idx + 1}</td>
@@ -381,11 +385,9 @@ function POApprovalViewModal({
                           )}
                           {item.remark && <p className="text-[10px] text-amber-600 italic mt-0.5">{item.remark}</p>}
                         </td>
-                        <td className="px-2 py-2.5 text-right font-medium text-gray-900">
-                          {item.quantity.toLocaleString("en-IN")}
-                        </td>
-                        <td className="px-2 py-2.5 text-right text-gray-600">
-                          {item.weightKg && item.weightKg > 0 ? item.weightKg.toLocaleString("en-IN") : "—"}
+                        <td className="px-2 py-2.5 text-right font-semibold text-gray-900">
+                          {wt > 0 ? wt.toLocaleString("en-IN") : "—"}
+                          {sheetsHint && <div className="text-[10px] font-normal text-gray-400">{sheetsHint.toLocaleString("en-IN")} sheets</div>}
                         </td>
                         <td className="px-2 py-2.5 text-right text-gray-600">
                           {rawRate > 0 ? rawRate.toLocaleString("en-IN") : item.rate > 0 ? item.rate.toLocaleString("en-IN") : "—"}
@@ -407,9 +409,9 @@ function POApprovalViewModal({
                   <tr className="bg-violet-50 border-t-2 border-violet-200">
                     <td colSpan={2} className="px-2 py-2.5 text-right text-xs font-semibold text-violet-700">Total</td>
                     <td className="px-2 py-2.5 text-right text-xs font-bold text-violet-800">
-                      {po.totalQuantity.toLocaleString("en-IN")}
+                      {po.items.reduce((s, i) => s + lineWeightKg({ weightKg: i.weightKg, quantity: i.quantity, gsm: i.gsm, size: i.size }), 0).toLocaleString("en-IN")} kg
                     </td>
-                    <td colSpan={4} />
+                    <td colSpan={3} />
                     <td className="px-2 py-2.5 text-right text-sm font-black text-violet-800">
                       ₹{po.totalValue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                     </td>
@@ -506,7 +508,7 @@ export default function ApprovalsPage() {
   const loadPendingPOs = useCallback(async () => {
     setPoLoading(true);
     try {
-      const result = await poApi.list({ status: "Approval Pending", pageSize: 200 });
+      const result = await poApi.list({ status: "Approval Pending", requireSoApproved: true, pageSize: 200 });
       setPendingPOs(result.items);
     } catch {
       // silently fail — tab shows empty state
@@ -596,17 +598,30 @@ export default function ApprovalsPage() {
     setEditingOrder(undefined);
   }, [reload, success]);
 
-  const handleApprove = useCallback((id: string) => {
-    updateSalesOrder(id, { status: "Pending Allocation" });
-    setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
-    setViewOrder(null);
-    success("SO approved → Pending Allocation.");
-  }, [updateSalesOrder, success]);
+  const handleApprove = useCallback(async (id: string) => {
+    try {
+      await salesOrderApi.approve(Number(id));
+      updateSalesOrder(id, { status: "Pending Allocation" });
+      setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      setViewOrder(null);
+      success("SO approved → Pending Allocation.");
+      reload();
+    } catch {
+      showError("Failed to approve SO. Please try again.");
+    }
+  }, [updateSalesOrder, success, showError, reload]);
 
   const handleApproveAndSend = useCallback(async (so: SalesOrder) => {
-    updateSalesOrder(so.id, { status: "Pending Allocation" });
-    setSelectedIds((prev) => { const n = new Set(prev); n.delete(so.id); return n; });
-    setViewOrder(null);
+    try {
+      await salesOrderApi.approve(Number(so.id));
+      updateSalesOrder(so.id, { status: "Pending Allocation" });
+      setSelectedIds((prev) => { const n = new Set(prev); n.delete(so.id); return n; });
+      setViewOrder(null);
+      reload();
+    } catch {
+      showError("Failed to approve SO. Please try again.");
+      return;
+    }
     try {
       const raw = await customerApi.getContacts(parseInt(so.customerId));
       setEmailContacts(raw.filter((c) => c.email).map((c) => ({
@@ -617,14 +632,21 @@ export default function ApprovalsPage() {
     }
     setEmailOrder(so);
     success("SO approved → Pending Allocation. Compose email below.");
-  }, [updateSalesOrder, success]);
+  }, [updateSalesOrder, success, showError, reload]);
 
-  const handleApproveSelected = useCallback(() => {
-    const count = selectedIds.size;
-    selectedIds.forEach((id) => updateSalesOrder(id, { status: "Pending Allocation" }));
-    setSelectedIds(new Set());
-    success(`${count} order${count !== 1 ? "s" : ""} approved → Pending Allocation.`);
-  }, [selectedIds, updateSalesOrder, success]);
+  const handleApproveSelected = useCallback(async () => {
+    const ids = [...selectedIds];
+    const count = ids.length;
+    try {
+      await Promise.all(ids.map((id) => salesOrderApi.approve(Number(id))));
+      ids.forEach((id) => updateSalesOrder(id, { status: "Pending Allocation" }));
+      setSelectedIds(new Set());
+      success(`${count} order${count !== 1 ? "s" : ""} approved → Pending Allocation.`);
+      reload();
+    } catch {
+      showError("Some approvals failed. Please refresh and try again.");
+    }
+  }, [selectedIds, updateSalesOrder, success, showError, reload]);
 
   const handleSendEmail = useCallback(async (data: EmailFormData) => {
     if (!emailOrder) return;
@@ -751,9 +773,11 @@ export default function ApprovalsPage() {
     },
     {
       id: "lines", accessorKey: "lines", header: "Items",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 260,
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 280,
+      align: "left", noTruncate: true,
       cell: (info) => {
-        const lines = info.getValue() as SalesOrderLine[];
+        const lines = (info.getValue() as SalesOrderLine[]) ?? [];
+        if (lines.length === 0) return <span className="text-gray-300 text-xs">—</span>;
         const preview = lines.slice(0, 2);
         return (
           <div className="space-y-1 py-0.5">
@@ -762,9 +786,7 @@ export default function ApprovalsPage() {
               const shortCode = parts.length >= 4
                 ? `${parts[1]} ${parts[2]}g · ${parts[3]}`
                 : (l.materialCode || l.materialId || "—");
-              const qty = (l as any).weightKg
-                ? `${(l as any).weightKg.toLocaleString("en-IN")} KG`
-                : `${l.orderedQty.toLocaleString("en-IN")}`;
+              const qty = `${lineWeightKg(l).toLocaleString("en-IN")} kg`;
               return (
                 <div key={i} className="flex items-center gap-1.5 text-xs">
                   <span className="font-medium text-gray-800 truncate max-w-[170px]">{shortCode}</span>
@@ -859,21 +881,28 @@ export default function ApprovalsPage() {
     },
     {
       id: "items", accessorKey: "items", header: "Items",
-      filterType: "none", enableSorting: false, defaultVisible: true, size: 220,
+      filterType: "none", enableSorting: false, defaultVisible: true, size: 240,
+      align: "left", noTruncate: true,
       cell: (info) => {
-        const items = info.getValue() as PORow["items"];
+        const items = (info.getValue() as PORow["items"]) ?? [];
+        if (items.length === 0) return <span className="text-gray-300 text-xs">—</span>;
         const preview = items.slice(0, 2);
         return (
           <div className="space-y-1 py-0.5">
-            {preview.map((item, i) => (
-              <div key={i} className="flex items-center gap-1.5 text-xs">
-                <span className="font-medium text-gray-800 truncate max-w-[140px]">
-                  {item.description || `Material #${item.materialId}`}
-                </span>
-                <span className="flex-shrink-0 text-gray-400">·</span>
-                <span className="flex-shrink-0 text-gray-500">{item.quantity.toLocaleString("en-IN")}</span>
-              </div>
-            ))}
+            {preview.map((item, i) => {
+              const qty = item.weightKg && item.weightKg > 0
+                ? `${item.weightKg.toLocaleString("en-IN")} kg`
+                : `${item.quantity.toLocaleString("en-IN")}`;
+              return (
+                <div key={i} className="flex items-center gap-1.5 text-xs">
+                  <span className="font-medium text-gray-800 truncate max-w-[150px]">
+                    {item.description || `Material #${item.materialId}`}
+                  </span>
+                  <span className="flex-shrink-0 text-gray-400">·</span>
+                  <span className="flex-shrink-0 text-gray-500">{qty}</span>
+                </div>
+              );
+            })}
             {items.length > 2 && (
               <span className="text-[10px] text-gray-400">+{items.length - 2} more</span>
             )}

@@ -32,7 +32,9 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
             so.TotalValue,
             so.Remarks,
             so.InsurancePolicyNo,
-            CONVERT(NVARCHAR(20), so.EmailSentAt, 120) AS EmailSentAt
+            CONVERT(NVARCHAR(20), so.EmailSentAt, 120) AS EmailSentAt,
+            (SELECT COUNT(*) FROM procurement.PurchaseOrders po
+              WHERE po.LinkedSOId = so.Id AND po.IsDeleted = 0)  AS LinkedPoCount
         FROM   sales.SalesOrders          so
         JOIN   masters.Customers           c  ON c.Id  = so.CustomerId
         LEFT JOIN masters.Salesmen         s  ON s.Id  = so.SalesmanId
@@ -240,15 +242,27 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
                 UpdatedBy           = updatedBy
             }, tx);
 
-            // replace all lines — hard-delete so the unique (SOId, LineNumber) constraint isn't blocked by soft-deleted rows
+            // replace all lines — SOFT-delete (hard DELETE breaks FK_PurchaseOrderItems_SOLine
+            // when a PO item references this SO line). Migration 27 made the (SOId, LineNumber)
+            // unique index filtered on IsDeleted = 0, so soft-deleted rows don't block re-insert.
             await conn.ExecuteAsync(
-                "DELETE FROM sales.SalesOrderLines WHERE SOId=@Id",
-                new { Id = id }, tx);
+                "UPDATE sales.SalesOrderLines SET IsDeleted=1, DeletedAt=GETUTCDATE(), DeletedBy=@By WHERE SOId=@Id AND IsDeleted=0",
+                new { Id = id, By = updatedBy }, tx);
 
             await InsertLinesAsync(conn, tx, id, dto.Lines, updatedBy);
             tx.Commit();
         }
         catch { tx.Rollback(); throw; }
+    }
+
+    // ── UpdateStatus (used by Approve / status transitions) ──────────────────
+
+    public async Task UpdateStatusAsync(int id, string status, string updatedBy)
+    {
+        using var conn = db.Create();
+        await conn.ExecuteAsync(
+            "UPDATE sales.SalesOrders SET Status=@Status, UpdatedAt=GETUTCDATE(), UpdatedBy=@By WHERE Id=@Id AND IsDeleted=0",
+            new { Id = id, Status = status, By = updatedBy });
     }
 
     // ── SoftDelete ────────────────────────────────────────────────────────────

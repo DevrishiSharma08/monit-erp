@@ -82,7 +82,7 @@ public class NotificationRepository(DbConnectionFactory db) : INotificationRepos
         LEFT JOIN system.NotificationState ns
                ON ns.NotifKey = 'TLP-' + CAST(tlp.Id AS NVARCHAR(10)) AND ns.UserId = @UserId
         WHERE tlp.IsDeleted = 0
-          AND tlp.Status = 'In Transit'
+          AND tlp.Status = 'Dispatched'
           AND NOT EXISTS (
               SELECT 1 FROM inventory.GRNs g
               WHERE g.SourceLoadPlanId = tlp.Id AND g.IsDeleted = 0

@@ -10,6 +10,7 @@ public interface ISalesOrderService
     Task<SalesOrderListDto>              GetByIdAsync(int id);
     Task<SalesOrderListDto>              CreateAsync(CreateSalesOrderDto dto, string createdBy);
     Task<SalesOrderListDto>              UpdateAsync(int id, UpdateSalesOrderDto dto, string updatedBy);
+    Task                                 ApproveAsync(int id, string updatedBy);
     Task                                 DeleteAsync(int id, string deletedBy);
     Task<SendMailResponseDto>            SendEmailAsync(int id, SendMailRequestDto dto);
     Task<byte[]>                         GetPdfAsync(int id);

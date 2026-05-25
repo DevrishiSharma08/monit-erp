@@ -51,6 +51,13 @@ public class SalesOrderService(
         if (errors.Count > 0) throw new ValidationException(errors);
     }
 
+    public async Task ApproveAsync(int id, string updatedBy)
+    {
+        // Ensure the SO exists (throws if not)
+        await GetByIdAsync(id);
+        await repo.UpdateStatusAsync(id, "Pending Allocation", updatedBy);
+    }
+
     public Task DeleteAsync(int id, string deletedBy)
         => repo.SoftDeleteAsync(id, deletedBy);
 

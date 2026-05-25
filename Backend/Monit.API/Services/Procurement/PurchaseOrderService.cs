@@ -31,7 +31,8 @@ public class PurchaseOrderService(
         var po       = MapToListDto(dto);
         var id       = await repo.CreateAsync(po, dto.Items, createdBy);
         var fullPo   = await GetByIdAsync(id);
-        await millTrackerRepo.CreateForPoAsync(fullPo, createdBy);
+        // Mill Tracker rows are NOT created here — they're created on Approve so a pending
+        // PO doesn't appear in MOT until an admin explicitly approves it.
         return fullPo;
     }
 
@@ -45,14 +46,19 @@ public class PurchaseOrderService(
         if (!string.IsNullOrEmpty(dto.Status)) po.Status = dto.Status;
         await repo.UpdateAsync(id, po, dto.Items, updatedBy);
         var updatedPo = await GetByIdAsync(id);
-        await millTrackerRepo.SyncForPoUpdateAsync(id, oldPo, updatedPo, updatedBy);
+        // Only sync MOT if the PO has already been approved (trackers exist). Editing a
+        // still-pending PO must not auto-create trackers.
+        if (!string.Equals(oldPo.Status, "Approval Pending", StringComparison.OrdinalIgnoreCase))
+            await millTrackerRepo.SyncForPoUpdateAsync(id, oldPo, updatedPo, updatedBy);
         return updatedPo;
     }
 
     public async Task ApproveAsync(int id, string updatedBy)
     {
-        await GetByIdAsync(id);
+        var po = await GetByIdAsync(id);
         await repo.UpdateStatusAsync(id, "Sent to Mill", updatedBy);
+        // Create MOT rows once the PO is approved — pending POs stay invisible in MOT until now
+        await millTrackerRepo.CreateForPoAsync(po, updatedBy);
     }
 
     public async Task DeleteAsync(int id, string deletedBy)

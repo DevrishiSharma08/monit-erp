@@ -22,6 +22,7 @@ import { poApi, PORow, POItemRow, CreatePODto, millApi } from "@/lib/api-service
 import { SharePanel, ShareData } from "@/components/ShareMenu";
 import { emailSentCache } from "@/lib/emailSentCache";
 import { cn } from "@/lib/utils";
+import { lineWeightKg, lineSheetCount } from "@/lib/weight";
 
 // ─── SO status colours (for inline SO view modal) ─────────────────────────────
 
@@ -49,7 +50,6 @@ const STATUS_COLOR: Record<string, string> = {
   "Partial Ready":    "bg-amber-50 text-amber-600",
   "Ready":            "bg-green-50 text-green-600",
   "Dispatched":       "bg-orange-50 text-orange-600",
-  "In Transit":       "bg-indigo-50 text-indigo-600",
   "Part Received":    "bg-teal-50 text-teal-600",
   "Completed":        "bg-emerald-50 text-emerald-600",
 };
@@ -104,7 +104,7 @@ function PurchaseOrdersPage() {
     pending:      pos.filter((p) => ["Approval Pending","Draft","Sent to Mill","Acknowledged"].includes(p.status)).length,
     inProduction: pos.filter((p) => ["In Production","Partial Ready"].includes(p.status)).length,
     ready:        pos.filter((p) => p.status === "Ready").length,
-    dispatched:   pos.filter((p) => ["Dispatched","In Transit","Part Received","Completed"].includes(p.status)).length,
+    dispatched:   pos.filter((p) => ["Dispatched","Part Received","Completed"].includes(p.status)).length,
     totalValue:   pos.reduce((s, p) => s + p.totalValue, 0),
     pendingPO:    pendingPoSOs.length,
   }), [pos, pendingPoSOs]);
@@ -178,9 +178,7 @@ function PurchaseOrdersPage() {
         const po = info.row.original;
         const first = po.items[0];
         if (!first) return <span className="text-gray-300 text-xs">—</span>;
-        const weightLine = first.weightKg && first.weightKg > 0
-          ? `${first.weightKg.toLocaleString("en-IN")} KG`
-          : `${first.quantity.toLocaleString("en-IN")} ${first.unit || ""}`.trim();
+        const weightLine = `${lineWeightKg({ weightKg: first.weightKg, quantity: first.quantity, gsm: first.gsm, size: first.size }).toLocaleString("en-IN")} kg`;
         return (
           <div className="text-xs leading-snug">
             <div className="font-medium text-gray-900 truncate">
@@ -426,9 +424,7 @@ function PurchaseOrdersPage() {
       const baseRate = item.discount && item.discount > 0
         ? (item.rate / (1 - item.discount / 100))
         : item.rate;
-      const qty = item.weightKg && item.weightKg > 0
-        ? `${item.weightKg.toLocaleString("en-IN")} KG`
-        : `${item.quantity.toLocaleString("en-IN")} ${item.unit || ""}`.trim();
+      const qty = `${lineWeightKg({ weightKg: item.weightKg, quantity: item.quantity, gsm: item.gsm, size: item.size }).toLocaleString("en-IN")} KG`;
       return `  ${i + 1}. ${item.description || "—"} — ${qty} — ₹${baseRate.toFixed(2)}/- — Amt: ₹${item.amount.toLocaleString("en-IN")}`;
     }).join("\n");
     const body = [
@@ -447,9 +443,7 @@ function PurchaseOrdersPage() {
       `Items:`,
       itemLines,
       ``,
-      totalWeightKg > 0
-        ? `Total Wt   : ${totalWeightKg.toLocaleString("en-IN")} KG`
-        : `Total Qty  : ${po.totalQuantity.toLocaleString("en-IN")}`,
+      `Total Wt   : ${(totalWeightKg > 0 ? totalWeightKg : po.items.reduce((s, i) => s + lineWeightKg({ weightKg: i.weightKg, quantity: i.quantity, gsm: i.gsm, size: i.size }), 0)).toLocaleString("en-IN")} KG`,
       `Total Value: ₹${po.totalValue.toLocaleString("en-IN")}`,
       ...(po.specialInstructions ? [``, `Special Instructions:`, po.specialInstructions] : []),
       ``,
@@ -898,10 +892,16 @@ function SOViewModal({ so, onClose, onRaisePO }: {
                         {line.gsm && <p className="text-gray-400">{line.gsm}g · {line.size}</p>}
                       </td>
                       <td className="px-3 py-2.5 text-right font-medium text-gray-900">
-                        {line.qty !== undefined && line.qty > 0
-                          ? <span>{line.qty.toLocaleString()} Sheets{line.weightKg ? <span className="block text-[10px] text-gray-400">{line.weightKg.toLocaleString()} KG</span> : null}</span>
-                          : <span>{(line.weightKg ?? line.orderedQty).toLocaleString()} KG</span>
-                        }
+                        {(() => {
+                          const wt = lineWeightKg(line);
+                          const sh = lineSheetCount(line);
+                          return (
+                            <>
+                              <span className="font-semibold text-gray-900">{wt.toLocaleString("en-IN")} kg</span>
+                              {sh !== null && <span className="block text-[10px] text-gray-400">{sh.toLocaleString("en-IN")} sheets</span>}
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2.5 text-right text-gray-700">₹{line.rate.toLocaleString("en-IN")}</td>
                       <td className="px-3 py-2.5 text-right font-bold text-gray-900">
@@ -1013,7 +1013,7 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
             { label: "PO Date",           value: po.orderDate },
             { label: "Expected Delivery", value: po.expectedDeliveryDate || "—" },
             { label: "Payment Terms",     value: po.paymentTerms || "—" },
-            { label: "Total Qty",         value: po.totalQuantity.toLocaleString("en-IN") },
+            { label: "Total Weight",      value: `${po.items.reduce((s, i) => s + lineWeightKg({ weightKg: i.weightKg, qty: i.quantity, gsm: i.gsm, size: i.size }), 0).toLocaleString("en-IN")} kg` },
             ...(po.millSONumber ? [{ label: "Mill SO No.", value: po.millSONumber }] : []),
           ].map(({ label, value }) => (
             <div key={label} className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
@@ -1099,8 +1099,7 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
                 <tr className="bg-gray-50 text-gray-500">
                   <th className="px-2 py-2 text-left font-medium w-7">#</th>
                   <th className="px-2 py-2 text-left font-medium">Material</th>
-                  <th className="px-2 py-2 text-right font-medium">Qty</th>
-                  <th className="px-2 py-2 text-right font-medium">Wt (KG)</th>
+                  <th className="px-2 py-2 text-right font-medium">Weight (kg)</th>
                   <th className="px-2 py-2 text-right font-medium">Rate (₹)</th>
                   <th className="px-2 py-2 text-right font-medium">Disc%</th>
                   <th className="px-2 py-2 text-right font-medium">Final (₹)</th>
@@ -1111,6 +1110,10 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
                 {po.items.map((item: POItemRow, idx: number) => {
                   const rawRate   = item.discount && item.discount > 0 ? (item.rate / (1 - item.discount / 100)) : 0;
                   const finalRate = item.rate;
+                  const wt        = lineWeightKg({ weightKg: item.weightKg, quantity: item.quantity, gsm: item.gsm, size: item.size });
+                  // If weightKg is set AND item.quantity is a different value, treat quantity as sheets (secondary info)
+                  const sheetsHint = item.weightKg && item.weightKg > 0 && item.quantity > 0 && item.quantity !== item.weightKg
+                    ? item.quantity : null;
                   return (
                     <tr key={item.id} className="hover:bg-gray-50/50">
                       <td className="px-2 py-2 text-gray-400">{idx + 1}</td>
@@ -1123,11 +1126,9 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
                         )}
                         {item.remark && <div className="text-[10px] text-amber-600 italic mt-0.5">{item.remark}</div>}
                       </td>
-                      <td className="px-2 py-2 text-right font-medium text-gray-800">
-                        {item.quantity.toLocaleString("en-IN")}
-                      </td>
-                      <td className="px-2 py-2 text-right text-gray-600">
-                        {item.weightKg && item.weightKg > 0 ? item.weightKg.toLocaleString("en-IN") : "—"}
+                      <td className="px-2 py-2 text-right font-semibold text-gray-900">
+                        {wt > 0 ? wt.toLocaleString("en-IN") : "—"}
+                        {sheetsHint && <div className="text-[10px] font-normal text-gray-400">{sheetsHint.toLocaleString("en-IN")} sheets</div>}
                       </td>
                       <td className="px-2 py-2 text-right text-gray-600">
                         {rawRate > 0 ? rawRate.toLocaleString("en-IN") : finalRate > 0 ? finalRate.toLocaleString("en-IN") : "—"}
@@ -1149,9 +1150,9 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
                 <tr className="bg-blue-50 border-t border-blue-100">
                   <td colSpan={2} className="px-2 py-2 text-xs font-semibold text-blue-700">Total</td>
                   <td className="px-2 py-2 text-right text-xs font-bold text-blue-800">
-                    {po.totalQuantity.toLocaleString("en-IN")}
+                    {po.items.reduce((s, i) => s + lineWeightKg({ weightKg: i.weightKg, quantity: i.quantity, gsm: i.gsm, size: i.size }), 0).toLocaleString("en-IN")} kg
                   </td>
-                  <td colSpan={4} />
+                  <td colSpan={3} />
                   <td className="px-2 py-2 text-right text-xs font-black text-blue-900">
                     ₹{po.totalValue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                   </td>

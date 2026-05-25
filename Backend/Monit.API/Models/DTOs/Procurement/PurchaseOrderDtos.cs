@@ -117,4 +117,10 @@ public class PurchaseOrderFilterRequest : FilterRequest
     public string? Status  { get; set; }
     public int?    MillId  { get; set; }
     public string? POType  { get; set; }
+
+    /// <summary>
+    /// When true, exclude POs whose linked SO is still pending approval.
+    /// Used by Approvals page so an admin can't approve a PO before its parent SO.
+    /// </summary>
+    public bool RequireSoApproved { get; set; }
 }

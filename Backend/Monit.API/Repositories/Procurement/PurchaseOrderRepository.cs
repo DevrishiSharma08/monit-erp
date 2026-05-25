@@ -73,7 +73,7 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
         var (where, param) = BuildWhere(f);
         var orderBy = SafeColumn(f.SortBy, "OrderDate") + " " + f.SafeSortOrder;
 
-        var countSql = $"SELECT COUNT(*) FROM procurement.PurchaseOrders po LEFT JOIN masters.Mills m ON m.Id=po.MillId WHERE {where}";
+        var countSql = $"SELECT COUNT(*) FROM procurement.PurchaseOrders po LEFT JOIN masters.Mills m ON m.Id=po.MillId LEFT JOIN sales.SalesOrders so ON so.Id=po.LinkedSOId WHERE {where}";
         var dataSql  = $"{PoSelect} WHERE {where} ORDER BY po.{orderBy} OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY";
 
         param.Add("Offset",   f.Offset);
@@ -331,6 +331,11 @@ public class PurchaseOrderRepository(DbConnectionFactory db) : IPurchaseOrderRep
         if (!string.IsNullOrWhiteSpace(f.Status)) { parts.Add("po.Status=@Status"); p.Add("Status", f.Status); }
         if (!string.IsNullOrWhiteSpace(f.POType)) { parts.Add("po.POType=@POType"); p.Add("POType", f.POType); }
         if (f.MillId.HasValue)                    { parts.Add("po.MillId=@MillId"); p.Add("MillId", f.MillId.Value); }
+        // Hide POs whose parent SO is still pending approval — Approvals page opts in.
+        // COALESCE handles NULL so.Status (orphaned LinkedSOId or SO with NULL status):
+        // such POs are treated as "SO not pending" so they still appear in approvals.
+        if (f.RequireSoApproved)
+            parts.Add("(po.LinkedSOId IS NULL OR COALESCE(so.Status, '') <> 'Approval Pending')");
 
         return (string.Join(" AND ", parts), p);
     }

@@ -186,9 +186,16 @@ public class MillTrackerRepository(DbConnectionFactory db) : IMillTrackerReposit
         using var tx   = conn.BeginTransaction();
         try
         {
+            // Idempotent: skip items that already have a (non-deleted) tracker row.
+            // Lets us safely call this on Approve even if older flow already created some.
+            var existingItemIds = (await conn.QueryAsync<int>(
+                "SELECT POItemId FROM procurement.MillTrackers WHERE POId=@POId AND POItemId IS NOT NULL AND IsDeleted=0",
+                new { POId = po.Id }, tx)).ToHashSet();
+
             foreach (var item in po.Items)
             {
                 if (item.MaterialId <= 0) continue; // FK requires valid material
+                if (existingItemIds.Contains(item.Id)) continue; // already tracked
                 var orderedQty = item.WeightKg.HasValue && item.WeightKg > 0 ? item.WeightKg.Value : item.Quantity;
                 await conn.ExecuteAsync(insertSql, new
                 {

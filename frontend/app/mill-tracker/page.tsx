@@ -832,7 +832,7 @@ function MillTrackerPage() {
                 plannedLoadDate: latestBatch?.date || today,
                 plannedDeliveryDate: editingTracker.expectedDelivery,
                 actualLoadDate: latestBatch?.date || today,
-                status: "In Transit",
+                status: "Dispatched",
                 items: [{
                   id: `item_${Date.now()}`,
                   trackerSourceId: editingTracker.id,

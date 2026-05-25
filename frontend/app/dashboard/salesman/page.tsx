@@ -216,7 +216,7 @@ export default function SalesmanDashboard() {
             <div className="grid grid-cols-4 gap-2 text-center">
               {[
                 { label: "Orders", value: sm.totalOrders, color: "text-blue-600" },
-                { label: "Delivered", value: sm.delivered, color: "text-green-600" },
+                { label: "Received", value: sm.delivered, color: "text-green-600" },
                 { label: "Pending", value: sm.pending, color: "text-orange-600" },
                 { label: "Customers", value: sm.uniqueCustomers, color: "text-indigo-600" },
               ].map((stat) => (

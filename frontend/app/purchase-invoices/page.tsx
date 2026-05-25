@@ -30,7 +30,7 @@ export default function PurchaseInvoicesPage() {
 
   const kpis = useMemo(() => {
     const total = mockPurchaseInvoices.length;
-    const inTransit = mockPurchaseInvoices.filter((pi) => pi.status === "In Transit" || pi.status === "Punched").length;
+    const inTransit = mockPurchaseInvoices.filter((pi) => pi.status === "Dispatched" || pi.status === "Punched").length;
     const received = mockPurchaseInvoices.filter((pi) => pi.status === "Received").length;
     const grnDone = mockPurchaseInvoices.filter((pi) => pi.status === "GRN Done").length;
     const totalValue = mockPurchaseInvoices.reduce((sum, pi) => sum + pi.totalAmount, 0);
@@ -105,7 +105,7 @@ export default function PurchaseInvoicesPage() {
   const statusOptions = useMemo(
     () => [
       { label: "Punched", value: "Punched" },
-      { label: "In Transit", value: "In Transit" },
+      { label: "Dispatched", value: "Dispatched" },
       { label: "Received", value: "Received" },
       { label: "GRN Done", value: "GRN Done" },
     ],
@@ -124,7 +124,7 @@ export default function PurchaseInvoicesPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Punched": return "bg-gray-100 text-gray-700";
-      case "In Transit": return "bg-blue-100 text-blue-700";
+      case "Dispatched": return "bg-blue-100 text-blue-700";
       case "Received": return "bg-orange-100 text-orange-700";
       case "GRN Done": return "bg-green-100 text-green-700";
       default: return "bg-gray-100 text-gray-700";
@@ -309,7 +309,7 @@ export default function PurchaseInvoicesPage() {
         <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">In Transit</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Dispatched</p>
               <p className="mt-1.5 text-2xl font-bold text-gray-900">{kpis.inTransit}</p>
               <p className="mt-0.5 text-xs text-blue-600">Stock on the way</p>
             </div>
@@ -439,7 +439,7 @@ export default function PurchaseInvoicesPage() {
                         </div>
                         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                           po.status === 'Completed' ? 'bg-green-100 text-green-700' :
-                          po.status === 'In Transit' ? 'bg-blue-100 text-blue-700' :
+                          po.status === 'Dispatched' ? 'bg-blue-100 text-blue-700' :
                           'bg-gray-100 text-gray-700'
                         }`}>
                           {po.status}

@@ -247,9 +247,7 @@ function POFormPreview({ form, items, onBack, onSave, isLoading }: {
                 <th className="px-2 py-2 text-left">Material</th>
                 <th className="px-2 py-2">GSM</th>
                 <th className="px-2 py-2">Size</th>
-                <th className="px-2 py-2">Qty</th>
-                <th className="px-2 py-2">Wt (KG)</th>
-                <th className="px-2 py-2">Unit</th>
+                <th className="px-2 py-2">Weight (kg)</th>
                 <th className="px-2 py-2">Rate (₹)</th>
                 <th className="px-2 py-2">Disc%</th>
                 <th className="px-2 py-2">Final (₹)</th>
@@ -257,7 +255,11 @@ function POFormPreview({ form, items, onBack, onSave, isLoading }: {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {items.map((item, idx) => (
+              {items.map((item, idx) => {
+                const wt = item.weightKg > 0 ? item.weightKg : item.quantity;
+                const sheetsHint = item.weightKg > 0 && item.quantity > 0 && item.quantity !== item.weightKg
+                  ? item.quantity : null;
+                return (
                 <tr key={item.tempId} className="hover:bg-gray-50/60 text-right">
                   <td className="px-2 py-2 text-left text-gray-400">{idx + 1}</td>
                   <td className="px-2 py-2 text-left">
@@ -266,9 +268,10 @@ function POFormPreview({ form, items, onBack, onSave, isLoading }: {
                   </td>
                   <td className="px-2 py-2 text-gray-600">{item.gsm || "—"}</td>
                   <td className="px-2 py-2 text-gray-600">{item.size || "—"}</td>
-                  <td className="px-2 py-2 font-medium text-gray-800">{item.quantity.toLocaleString("en-IN")}</td>
-                  <td className="px-2 py-2 text-gray-600">{item.weightKg > 0 ? item.weightKg.toLocaleString("en-IN") : "—"}</td>
-                  <td className="px-2 py-2 text-gray-500">{item.unit || "—"}</td>
+                  <td className="px-2 py-2 font-semibold text-gray-900">
+                    {wt > 0 ? wt.toLocaleString("en-IN") : "—"}
+                    {sheetsHint && <div className="text-[10px] font-normal text-gray-400">{sheetsHint.toLocaleString("en-IN")} sheets</div>}
+                  </td>
                   <td className="px-2 py-2 text-gray-600">{item.rate > 0 ? item.rate.toLocaleString("en-IN") : "—"}</td>
                   <td className="px-2 py-2 text-gray-500">{item.discount > 0 ? `${item.discount}%` : "—"}</td>
                   <td className="px-2 py-2 font-semibold text-blue-700">{item.finalPrice > 0 ? item.finalPrice.toFixed(2) : "—"}</td>
@@ -276,14 +279,14 @@ function POFormPreview({ form, items, onBack, onSave, isLoading }: {
                     {item.amount > 0 ? `₹${item.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "—"}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
             <tfoot>
               <tr className="bg-blue-50 border-t-2 border-blue-200 text-right font-bold">
                 <td colSpan={4} className="px-2 py-2.5 text-left text-xs text-blue-700">Total</td>
-                <td className="px-2 py-2.5 text-xs text-blue-800">{totalQty.toLocaleString("en-IN")}</td>
-                <td className="px-2 py-2.5 text-xs text-blue-800">{totalWt > 0 ? totalWt.toLocaleString("en-IN") : "—"}</td>
-                <td colSpan={4} />
+                <td className="px-2 py-2.5 text-xs text-blue-800">{(totalWt > 0 ? totalWt : totalQty).toLocaleString("en-IN")} kg</td>
+                <td colSpan={3} />
                 <td className="px-2 py-2.5 text-sm font-black text-blue-900">
                   ₹{totalVal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                 </td>

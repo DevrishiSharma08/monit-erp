@@ -24,7 +24,7 @@ export default function InTransitDelayReportPage() {
 
     const rows: DelayRow[] = mockInTransitTrackings.map((t) => {
       const expected = new Date(t.expectedArrival);
-      const isDelivered = t.status === "Delivered";
+      const isDelivered = t.status === "Received";
       const delayDays = isDelivered
         ? (t.deliveredDate ? Math.max(0, Math.ceil((new Date(t.deliveredDate).getTime() - expected.getTime()) / (1000 * 60 * 60 * 24))) : 0)
         : Math.max(0, Math.ceil((today.getTime() - expected.getTime()) / (1000 * 60 * 60 * 24)));
@@ -44,12 +44,12 @@ export default function InTransitDelayReportPage() {
 
     const delayed = rows.filter((r) => r.delayDays > 0).length;
     const onTime = rows.filter((r) => r.delayDays === 0).length;
-    const inTransit = rows.filter((r) => r.status === "In Transit" || r.status === "Dispatched").length;
+    const inTransit = rows.filter((r) => r.status === "Dispatched").length;
     const avgDelay = delayed > 0 ? Math.round(rows.filter((r) => r.delayDays > 0).reduce((s, r) => s + r.delayDays, 0) / delayed) : 0;
 
     const kpis = [
       { label: "Total Shipments", value: String(rows.length), icon: MapPinned, iconBg: "bg-blue-50", iconColor: "text-blue-500" },
-      { label: "In Transit", value: String(inTransit), icon: Clock, iconBg: "bg-indigo-50", iconColor: "text-indigo-500" },
+      { label: "Dispatched", value: String(inTransit), icon: Clock, iconBg: "bg-indigo-50", iconColor: "text-indigo-500" },
       { label: "Delayed", value: String(delayed), sub: `Avg ${avgDelay} days late`, icon: AlertTriangle, iconBg: "bg-red-50", iconColor: "text-red-500", valueColor: delayed > 0 ? "text-red-600" : "text-gray-900" },
       { label: "On Time", value: String(onTime), icon: CheckCircle2, iconBg: "bg-green-50", iconColor: "text-green-500" },
     ];
@@ -123,8 +123,8 @@ export default function InTransitDelayReportPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                      r.status === "Delivered" ? "bg-green-100 text-green-700" :
-                      r.status === "In Transit" ? "bg-blue-100 text-blue-700" :
+                      r.status === "Received" ? "bg-green-100 text-green-700" :
+                      r.status === "Dispatched" ? "bg-blue-100 text-blue-700" :
                       r.status === "Dispatched" ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600"
                     }`}>{r.status}</span>
                   </td>

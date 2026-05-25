@@ -546,6 +546,7 @@ export interface SalesOrderLineDto {
   orderedQty: number; weightKg?: number; qty?: number;
   rate: number; discount: number; finalPrice?: number; amount: number;
   deliveryAddress?: string; requiredDeliveryDate?: string;
+  remarks?: string;
   status: string; allocatedQty: number; pendingQty: number;
 }
 
@@ -561,6 +562,7 @@ export interface SalesOrderRow {
   remarks?: string; insurancePolicyNo?: string;
   totalValue: number;
   emailSentAt?: string;
+  linkedPoCount?: number;
   lines: SalesOrderLineDto[];
 }
 
@@ -592,6 +594,7 @@ export const salesOrderApi = {
   getById:   (id: number) => apiFetch<SalesOrderRow>(`${SO_BASE}/${id}`),
   create:    (dto: CreateSODto) => apiFetch<SalesOrderRow>(SO_BASE, { method: "POST", body: JSON.stringify(dto) }),
   update:    (id: number, dto: UpdateSODto) => apiFetch<SalesOrderRow>(`${SO_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
+  approve:   (id: number) => apiFetch<void>(`${SO_BASE}/${id}/approve`, { method: "PATCH" }),
   remove:    (id: number) => apiFetch<void>(`${SO_BASE}/${id}`, { method: "DELETE" }),
   sendEmail:   (id: number, dto: SendMailRequest) =>
                  apiFetch<SendMailResponse>(`${SO_BASE}/${id}/send-email`, { method: "POST", body: JSON.stringify(dto) }),
@@ -650,7 +653,7 @@ export interface UpdatePODto extends CreatePODto { status?: string; }
 
 const PO_BASE = "/api/v1/purchase-orders";
 export const poApi = {
-  list:    (p: { status?: string; millId?: number; poType?: string; search?: string; page?: number; pageSize?: number } = {}) =>
+  list:    (p: { status?: string; millId?: number; poType?: string; search?: string; requireSoApproved?: boolean; page?: number; pageSize?: number } = {}) =>
              apiFetch<Paged<PORow>>(PO_BASE + qs({ ...p, page: p.page ?? 1, pageSize: p.pageSize ?? 50 })),
   getById: (id: number) => apiFetch<PORow>(`${PO_BASE}/${id}`),
   create:  (dto: CreatePODto) => apiFetch<PORow>(PO_BASE, { method: "POST", body: JSON.stringify(dto) }),

@@ -9,6 +9,7 @@ public interface ISalesOrderRepository
     Task<SalesOrderListDto?>             GetByIdAsync(int id);
     Task<int>                            CreateAsync(CreateSalesOrderDto dto, string createdBy);
     Task                                 UpdateAsync(int id, UpdateSalesOrderDto dto, string updatedBy);
+    Task                                 UpdateStatusAsync(int id, string status, string updatedBy);
     Task                                 SoftDeleteAsync(int id, string deletedBy);
     Task                                 MarkEmailSentAsync(int id);
 }

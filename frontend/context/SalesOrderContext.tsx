@@ -56,6 +56,7 @@ export interface SalesOrder {
   remarks?: string;
   insurancePolicyNo?: string;
   totalValue: number;
+  linkedPoCount: number;
   lines: SOLine[];
   linkedPoIds?: string[];
 }
@@ -84,6 +85,7 @@ function toSO(r: SalesOrderRow): SalesOrder {
     remarks:          r.remarks,
     insurancePolicyNo: r.insurancePolicyNo,
     totalValue:       r.totalValue,
+    linkedPoCount:    r.linkedPoCount ?? 0,
     lines: r.lines.map(l => ({
       id:               String(l.id),
       lineNumber:       l.lineNumber,
@@ -101,6 +103,7 @@ function toSO(r: SalesOrderRow): SalesOrder {
       amount:           l.amount,
       deliveryAddress:  l.deliveryAddress,
       requiredDeliveryDate: l.requiredDeliveryDate,
+      remarks:          l.remarks,
       status:           l.status,
       allocatedQty:     l.allocatedQty,
       pendingQty:       l.pendingQty,
@@ -158,11 +161,18 @@ export function SalesOrderProvider({ children }: { children: ReactNode }) {
       )
     ), []);
 
+  // SO appears in "Pending PO" only when:
+  //   1. It's been approved (status != Approval Pending / Cancelled / Closed), AND
+  //   2. No active PO already exists for it (server-side linkedPoCount = 0,
+  //      OR locally-tracked linkedPoIds is empty — covers freshly-created POs
+  //      before next reload).
   const pendingPoSOs = useMemo(
-    () => salesOrders.filter(
-      so => !["Cancelled", "Closed"].includes(so.status) &&
-            (!so.linkedPoIds || so.linkedPoIds.length === 0)
-    ),
+    () => salesOrders.filter(so => {
+      if (["Approval Pending", "Cancelled", "Closed"].includes(so.status)) return false;
+      if ((so.linkedPoCount ?? 0) > 0) return false;
+      if (so.linkedPoIds && so.linkedPoIds.length > 0) return false;
+      return true;
+    }),
     [salesOrders]
   );
 

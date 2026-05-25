@@ -119,7 +119,7 @@ export interface TruckLoadPlan {
   actualDeliveryDate?: string;
 
   items: TruckLoadPlanItem[];
-  status: "Planned" | "Loading" | "In Transit" | "Delivered";
+  status: "Planned" | "Loading" | "Dispatched" | "Received";
 
   inTransitTrackerId?: string;
 }

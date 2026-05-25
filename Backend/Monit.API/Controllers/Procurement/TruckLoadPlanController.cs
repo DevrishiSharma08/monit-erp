@@ -50,7 +50,7 @@ public class TruckLoadPlanController(ITruckLoadPlanService svc) : ControllerBase
 
     /// <summary>
     /// PATCH /api/v1/truck-load-plans/{id}/status — advance plan status.
-    /// Moving to "In Transit" automatically updates DispatchedQty on all linked mill trackers.
+    /// Moving to "Dispatched" automatically updates DispatchedQty on all linked mill trackers.
     /// </summary>
     [HttpPatch("{id:int}/status")]
     public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateTruckLoadPlanStatusDto dto)
