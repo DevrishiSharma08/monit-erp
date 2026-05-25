@@ -1,4 +1,6 @@
-"use client";
+﻿"use client";
+
+import { PermGuard } from "@/components/PermGuard";
 
 import { useState, useMemo, useCallback } from "react";
 import { mockPurchaseInvoices, mockGRNs, PurchaseInvoice, GRN, PurchaseOrder } from "@/data/mockData";
@@ -8,7 +10,7 @@ import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 
-export default function PurchaseInvoicesPage() {
+function PurchaseInvoicesPage() {
   const { purchaseOrders } = usePurchaseOrder();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createStep, setCreateStep] = useState<'select-po' | 'fill-details'>('select-po');
@@ -726,4 +728,8 @@ export default function PurchaseInvoicesPage() {
       )}
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="po.read"><PurchaseInvoicesPage /></PermGuard>;
 }

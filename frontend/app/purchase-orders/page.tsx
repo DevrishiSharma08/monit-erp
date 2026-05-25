@@ -276,7 +276,7 @@ function PurchaseOrdersPage() {
       },
     },
     {
-      id: "actions", accessorKey: "id", header: "",
+      id: "_actions", accessorKey: "id", header: "",
       filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48,
       cell: (info) => {
         const po = info.row.original;
@@ -361,7 +361,7 @@ function PurchaseOrdersPage() {
       filterType: "text", enableSorting: false, defaultVisible: true, size: 120,
     },
     {
-      id: "actions", accessorKey: "id", header: "",
+      id: "_actions", accessorKey: "id", header: "",
       filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48,
       cell: (info) => {
         const so = info.row.original as SalesOrder;

@@ -13,6 +13,7 @@ public interface IUserRepository
     Task<bool>                      UsernameExistsAsync(string username, int? excludeId = null);
     Task<int>                       CreateAsync(User user);
     Task                            UpdateAsync(User user);
+    Task<string?>                   GetPasswordAsync(int userId);
     Task                            UpdatePasswordAsync(int id, string password, string updatedBy);
     Task                            SoftDeleteAsync(int id, string deletedBy);
 

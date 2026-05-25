@@ -38,6 +38,7 @@ public class TruckLoadPlanItemDto
     public string?  DeliveryAddress  { get; set; }
     public string?  MillInvoiceNo    { get; set; }
     public string?  DeliveryBillNo   { get; set; }
+    public string   ShipmentMode     { get; set; } = "Normal";
 }
 
 // ─── Plan DTO ─────────────────────────────────────────────────────────────────

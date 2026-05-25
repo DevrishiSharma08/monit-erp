@@ -50,9 +50,11 @@ public class TruckLoadPlanRepository(DbConnectionFactory db) : ITruckLoadPlanRep
             i.LoadOrder,
             i.DeliveryLocation, i.DeliveryAddress,
             i.MillInvoiceNo, i.DeliveryBillNo,
-            l.LoadType
+            l.LoadType,
+            ISNULL(po.ShipmentMode, 'Normal') AS ShipmentMode
         FROM procurement.TruckLoadPlanItems i
         LEFT JOIN procurement.TruckLoadPlanLoads l ON l.Id = i.LoadId AND l.IsDeleted = 0
+        LEFT JOIN procurement.PurchaseOrders po ON po.PONumber = i.PoNumber AND po.IsDeleted = 0
         WHERE i.IsDeleted = 0";
 
     // ── Queries ──────────────────────────────────────────────────────────────

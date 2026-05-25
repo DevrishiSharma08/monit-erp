@@ -95,7 +95,10 @@ public class UserManagementService(
         await userRepo.UpdateAsync(user);
 
         if (dto.BothCompaniesAccess)
+        {
+            user.Password = await userRepo.GetPasswordAsync(id) ?? "";
             await userRepo.UpsertByUsernameForCompanyAsync(user, OtherCompany(CurrentCompanyId));
+        }
 
         return await GetByIdAsync(id);
     }

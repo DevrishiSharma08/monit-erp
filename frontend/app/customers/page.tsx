@@ -1,4 +1,6 @@
-"use client";
+﻿"use client";
+
+import { PermGuard } from "@/components/PermGuard";
 
 import { useMemo, useState } from "react";
 import { mockCustomers, Customer } from "@/data/mockData";
@@ -8,7 +10,7 @@ import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { Modal } from "@/components/Modal";
 import { CustomerForm } from "@/components/forms/CustomerForm";
 
-export default function CustomersPage() {
+function CustomersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -266,7 +268,7 @@ export default function CustomersPage() {
         },
       },
       {
-        id: "actions",
+        id: "_actions",
         accessorKey: "id",
         header: "Actions",
         filterType: "none",
@@ -428,4 +430,8 @@ export default function CustomersPage() {
       </button>
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="masters.read"><CustomersPage /></PermGuard>;
 }

@@ -5,7 +5,7 @@ import { notificationApi, NotificationDto } from "@/lib/api-services";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type NotifType = "SO" | "PO" | "GRN" | "TLP" | "MILL";
+export type NotifType = "SO" | "PO" | "GRN" | "TLP" | "MILL" | "STOCK";
 
 export interface AppNotification {
   id: string;

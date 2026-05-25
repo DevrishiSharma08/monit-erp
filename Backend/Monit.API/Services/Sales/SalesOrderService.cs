@@ -61,6 +61,12 @@ public class SalesOrderService(
     public Task DeleteAsync(int id, string deletedBy)
         => repo.SoftDeleteAsync(id, deletedBy);
 
+    public async Task<List<SoLinkedPoDto>> GetLinkedPOsAsync(int soId)
+    {
+        await GetByIdAsync(soId); // validates SO exists
+        return await repo.GetLinkedPOsAsync(soId);
+    }
+
     public async Task<SendMailResponseDto> SendEmailAsync(int id, SendMailRequestDto dto)
     {
         if (dto.To.All(string.IsNullOrWhiteSpace))

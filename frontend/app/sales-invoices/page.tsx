@@ -1,4 +1,6 @@
-"use client";
+﻿"use client";
+
+import { PermGuard } from "@/components/PermGuard";
 
 import { useState, useMemo, useCallback } from "react";
 import { mockSalesInvoices, mockSalesOrders, SalesInvoice, Challan } from "@/data/mockData";
@@ -8,7 +10,7 @@ import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 
-export default function SalesInvoicesPage() {
+function SalesInvoicesPage() {
   const { challans } = useStock();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createStep, setCreateStep] = useState<'select-source' | 'fill-details'>('select-source');
@@ -735,4 +737,8 @@ export default function SalesInvoicesPage() {
       )}
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="so.read"><SalesInvoicesPage /></PermGuard>;
 }

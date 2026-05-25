@@ -1,6 +1,7 @@
-"use client";
+﻿"use client";
 
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { PermGuard } from "@/components/PermGuard";
 import { SalesOrder, SOLine as SalesOrderLine } from "@/context/SalesOrderContext";
 import {
   ThumbsUp, Clock, IndianRupee, Eye, Mail, X, Check, Package,
@@ -26,7 +27,7 @@ import { KpiCard } from "@/components/ui/KpiCard";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildEmailData(so: SalesOrder): EmailFormData {
-  const totalKg = so.lines.reduce((s, l) => s + ((l as any).weightKg ?? 0), 0);
+  const totalKg = so.lines.reduce((s, l) => s + lineWeightKg(l as any), 0);
   return {
     to:      (so as any).customerEmail ? [(so as any).customerEmail] : [],
     cc:      [],
@@ -34,7 +35,7 @@ function buildEmailData(so: SalesOrder): EmailFormData {
     body: [
       `Dear ${so.customer},`,
       ``,
-      `Your Sales Order ${so.soNumber} dated ${so.orderDate} has been approved and is now being processed.`,
+      `Your Sales Order ${so.soNumber} dated ${fmtDateIN(so.orderDate)} has been approved and is now being processed.`,
       ``,
       `Order Summary:`,
       `  • Items       : ${so.lines.length}`,
@@ -52,7 +53,7 @@ function buildEmailData(so: SalesOrder): EmailFormData {
 }
 
 function buildPOEmailData(po: PORow): EmailFormData {
-  const totalWeightKg = po.items.reduce((s, i) => s + (i.weightKg ?? 0), 0);
+  const totalWeightKg = po.items.reduce((s, i) => s + lineWeightKg(i as any), 0);
   return {
     to:      [],
     cc:      [],
@@ -60,7 +61,7 @@ function buildPOEmailData(po: PORow): EmailFormData {
     body: [
       `Dear ${po.millName},`,
       ``,
-      `We are pleased to confirm Purchase Order ${po.poNumber} dated ${po.orderDate}.`,
+      `We are pleased to confirm Purchase Order ${po.poNumber} dated ${fmtDateIN(po.orderDate)}.`,
       ``,
       `Order Summary:`,
       `  • Items       : ${po.items.length}`,
@@ -69,7 +70,7 @@ function buildPOEmailData(po: PORow): EmailFormData {
         : `  • Total Qty   : ${po.totalQuantity.toLocaleString("en-IN")}`,
       `  • Total Value : ₹${po.totalValue.toLocaleString("en-IN")}`,
       po.deliveryMode ? `  • Delivery    : ${po.deliveryMode}` : "",
-      po.expectedDeliveryDate ? `  • Expected By : ${po.expectedDeliveryDate}` : "",
+      po.expectedDeliveryDate ? `  • Expected By : ${fmtDateIN(po.expectedDeliveryDate)}` : "",
       ``,
       `Please acknowledge receipt and confirm production schedule.`,
       ``,
@@ -102,7 +103,7 @@ function ApprovalViewModal({
             </div>
             <div>
               <h2 className="text-base font-bold text-gray-900">{so.soNumber}</h2>
-              <p className="text-xs text-gray-500">{so.customer} · {so.orderDate}</p>
+              <p className="text-xs text-gray-500">{so.customer} · {fmtDateIN(so.orderDate)}</p>
             </div>
             <span className="ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-orange-50 text-orange-600">
               Approval Pending
@@ -122,7 +123,7 @@ function ApprovalViewModal({
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {[
                 { label: "SO Number",     value: so.soNumber,               blue: true },
-                { label: "Order Date",    value: so.orderDate },
+                { label: "Order Date",    value: fmtDateIN(so.orderDate) },
                 { label: "Customer",      value: so.customer },
                 { label: "Contact",       value: so.contactPerson || "—" },
                 { label: "Salesman",      value: so.salesman },
@@ -264,7 +265,7 @@ function POApprovalViewModal({
             </div>
             <div>
               <h2 className="text-base font-bold text-gray-900">{po.poNumber}</h2>
-              <p className="text-xs text-gray-500">{po.millName} · {po.orderDate}</p>
+              <p className="text-xs text-gray-500">{po.millName} · {fmtDateIN(po.orderDate)}</p>
             </div>
           </div>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-gray-100 text-gray-400 flex-shrink-0">
@@ -279,8 +280,8 @@ function POApprovalViewModal({
           <div className="rounded-xl bg-gray-50 p-3 grid grid-cols-3 gap-x-4 gap-y-3">
             {[
               { label: "Mill",              value: po.millName },
-              { label: "PO Date",           value: po.orderDate },
-              { label: "Expected Delivery", value: po.expectedDeliveryDate || "—" },
+              { label: "PO Date",           value: fmtDateIN(po.orderDate) },
+              { label: "Expected Delivery", value: fmtDateIN(po.expectedDeliveryDate) },
               { label: "Payment Terms",     value: po.paymentTerms || "—" },
               { label: "Total Qty",         value: po.totalQuantity.toLocaleString("en-IN") },
               { label: "Total Value",       value: `₹${po.totalValue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` },
@@ -478,7 +479,7 @@ function POApprovalViewModal({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function ApprovalsPage() {
+function ApprovalsPage() {
   const { salesOrders, updateSalesOrder, reload } = useSalesOrder();
   const { success, error: showError } = useToast();
 
@@ -524,7 +525,7 @@ export default function ApprovalsPage() {
 
   const soKpis = useMemo(() => {
     const totalKg = pendingOrders.reduce(
-      (s, o) => s + o.lines.reduce((ls, l) => ls + ((l as any).weightKg ?? 0), 0), 0,
+      (s, o) => s + o.lines.reduce((ls, l) => ls + lineWeightKg(l as any), 0), 0,
     );
     const totalValue = pendingOrders.reduce((s, o) => s + o.totalValue, 0);
     const today = new Date();
@@ -1305,4 +1306,8 @@ export default function ApprovalsPage() {
 
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="approvals.read"><ApprovalsPage /></PermGuard>;
 }

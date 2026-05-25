@@ -109,6 +109,87 @@ public class NotificationRepository(DbConnectionFactory db) : INotificationRepos
           AND mt.ProductionStatus IN ('Order Placed','In Production','Partial Ready')
           AND ISNULL(ns.IsDismissed, 0) = 0
 
+        UNION ALL
+
+        -- PO delivery overdue (expected delivery date passed, order still open)
+        SELECT
+            'PO-OD-' + CAST(po.Id AS NVARCHAR(10))                                    AS [Key],
+            'PO'                                                                        AS [Type],
+            'PO Delivery Overdue'                                                       AS Title,
+            po.PONumber + ' — Expected '
+                + CONVERT(NVARCHAR(10), po.ExpectedDeliveryDate, 103)
+                + ' ('
+                + CAST(DATEDIFF(day, po.ExpectedDeliveryDate, CAST(GETUTCDATE() AS DATE)) AS NVARCHAR(10))
+                + ' days late) — '
+                + ISNULL(m.Name, '')                                                   AS Body,
+            po.PONumber                                                                 AS RefNumber,
+            '/purchase-orders'                                                          AS Href,
+            ISNULL(ns.IsRead, 0)                                                       AS IsRead,
+            CONVERT(NVARCHAR(30), ISNULL(po.UpdatedAt, po.CreatedAt), 126)            AS NotifTs
+        FROM  procurement.PurchaseOrders po
+        LEFT JOIN masters.Mills m ON m.Id = po.MillId
+        LEFT JOIN system.NotificationState ns
+               ON ns.NotifKey = 'PO-OD-' + CAST(po.Id AS NVARCHAR(10)) AND ns.UserId = @UserId
+        WHERE po.IsDeleted = 0
+          AND po.ExpectedDeliveryDate IS NOT NULL
+          AND po.ExpectedDeliveryDate < CAST(GETUTCDATE() AS DATE)
+          AND po.Status NOT IN ('Completed', 'Received', 'Cancelled')
+          AND ISNULL(ns.IsDismissed, 0) = 0
+
+        UNION ALL
+
+        -- GRNs stuck in QC Pending for more than 2 days
+        SELECT
+            'GRN-QC-' + CAST(g.Id AS NVARCHAR(10))                                    AS [Key],
+            'GRN'                                                                       AS [Type],
+            'GRN QC Overdue'                                                            AS Title,
+            g.GRNNumber + ' pending QC for '
+                + CAST(DATEDIFF(day, g.GRNDate, CAST(GETUTCDATE() AS DATE)) AS NVARCHAR(10))
+                + ' days — '
+                + ISNULL(mil.Name, '')                                                  AS Body,
+            g.GRNNumber                                                                 AS RefNumber,
+            '/grn'                                                                      AS Href,
+            ISNULL(ns.IsRead, 0)                                                       AS IsRead,
+            CONVERT(NVARCHAR(30), ISNULL(g.UpdatedAt, g.CreatedAt), 126)              AS NotifTs
+        FROM  inventory.GRNs g
+        LEFT JOIN masters.Mills mil ON mil.Id = g.MillId
+        LEFT JOIN system.NotificationState ns
+               ON ns.NotifKey = 'GRN-QC-' + CAST(g.Id AS NVARCHAR(10)) AND ns.UserId = @UserId
+        WHERE g.IsDeleted = 0
+          AND g.Status = 'QC Pending'
+          AND DATEDIFF(day, g.GRNDate, CAST(GETUTCDATE() AS DATE)) > 2
+          AND ISNULL(ns.IsDismissed, 0) = 0
+
+        UNION ALL
+
+        -- Stock lots sitting in inventory for more than 90 days
+        SELECT
+            'STOCK-AGE-' + CAST(sl.Id AS NVARCHAR(10))                                AS [Key],
+            'STOCK'                                                                     AS [Type],
+            'Old Stock Alert'                                                           AS Title,
+            sl.LotNumber + ' — '
+                + ISNULL(mat.Description, '') + ' ' + CAST(sl.GSM AS NVARCHAR(10)) + ' GSM'
+                + ' in ' + ISNULL(wh.Name, '')
+                + ' for ' + CAST(DATEDIFF(day, g.GRNDate, CAST(GETUTCDATE() AS DATE)) AS NVARCHAR(10))
+                + ' days ('
+                + CAST(CAST(sl.AvailableQty AS INT) AS NVARCHAR(10))
+                + ' kg available)'                                                      AS Body,
+            sl.LotNumber                                                                AS RefNumber,
+            '/stock-lots'                                                               AS Href,
+            ISNULL(ns.IsRead, 0)                                                       AS IsRead,
+            CONVERT(NVARCHAR(30), sl.CreatedAt, 126)                                  AS NotifTs
+        FROM  inventory.StockLots sl
+        JOIN  inventory.GRNs g   ON g.Id   = sl.GRNId       AND g.IsDeleted  = 0
+        JOIN  masters.Materials mat ON mat.Id = sl.MaterialId
+        JOIN  masters.Warehouses wh  ON wh.Id  = sl.WarehouseId
+        LEFT JOIN system.NotificationState ns
+               ON ns.NotifKey = 'STOCK-AGE-' + CAST(sl.Id AS NVARCHAR(10)) AND ns.UserId = @UserId
+        WHERE sl.IsDeleted = 0
+          AND sl.[Status] = 'Available'
+          AND sl.AvailableQty > 0
+          AND DATEDIFF(day, g.GRNDate, CAST(GETUTCDATE() AS DATE)) > 90
+          AND ISNULL(ns.IsDismissed, 0) = 0
+
         ORDER BY NotifTs DESC";
 
     private const string MergeSql = @"

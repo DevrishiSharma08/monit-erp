@@ -12,4 +12,5 @@ public interface ISalesOrderRepository
     Task                                 UpdateStatusAsync(int id, string status, string updatedBy);
     Task                                 SoftDeleteAsync(int id, string deletedBy);
     Task                                 MarkEmailSentAsync(int id);
+    Task<List<SoLinkedPoDto>>            GetLinkedPOsAsync(int soId);
 }

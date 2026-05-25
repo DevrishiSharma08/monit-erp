@@ -30,12 +30,14 @@ import {
   Filter,
   EyeOff,
   MoreVertical,
+  Share2,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { Modal } from "@/components/Modal";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { fmtDateIN } from "@/lib/formatters";
+import { SharePanel, ShareData } from "@/components/ShareMenu";
 
 // ─── Timestamp formatter (UTC → IST) ─────────────────────────────────────────
 function fmtDateTime(raw?: string | null): string {
@@ -243,6 +245,44 @@ function MillTrackerPage() {
   }), [millTrackers, searchQuery, filterStatus, filterCustomer, filterMill,
        filterPoNumber, filterSoNumber, filterPaper, filterGsm, filterExpFrom, filterExpTo]);
 
+  // ── Export filtered trackers to CSV ──────────────────────────────────────
+  const exportToCSV = useCallback(() => {
+    const headers = [
+      "PO Number", "PO Date", "Mill", "Item Code", "GSM", "Size",
+      "Ordered (kg)", "Ready (kg)", "Dispatched (kg)", "Balance (kg)",
+      "Customer", "Mill SO Number", "SO Customer",
+      "Expected Delivery", "SO Delivery Date", "Production Status",
+    ];
+    const rows = filteredTrackers.map((t) => [
+      t.poNumber,
+      fmtDateIN(t.poDate),
+      t.mill,
+      t.paper,
+      t.gsm,
+      t.size,
+      t.orderedQty,
+      t.readyQty,
+      t.dispatchedQty,
+      t.balanceQty,
+      t.customerName ?? "",
+      t.millSONumber ?? "",
+      t.soCustomerName ?? "",
+      fmtDateIN(t.expectedDelivery),
+      fmtDateIN(t.soDeliveryDate),
+      t.productionStatus,
+    ]);
+    const csv = [headers, ...rows]
+      .map((r) => r.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `Mill_Tracker_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filteredTrackers]);
+
   // ── Customer groups ────────────────────────────────────────────────────────
   const customerGroups = useMemo<CustomerGroup[]>(() => {
     const map: Record<string, { customerName: string; customerId?: string; mills: Record<string, MillOrderTracker[]> }> = {};
@@ -311,6 +351,8 @@ function MillTrackerPage() {
     const [open, setOpen] = useState(false);
     const btnRef = useRef<HTMLButtonElement>(null);
     const [pos, setPos] = useState({ top: 0, right: 0 });
+    const [shareOpen, setShareOpen] = useState(false);
+    const [shareAnchor, setShareAnchor] = useState<{ top: number; right: number } | null>(null);
 
     const toggle = (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -319,6 +361,22 @@ function MillTrackerPage() {
         setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
       }
       setOpen((v) => !v);
+    };
+
+    const shareData: ShareData = {
+      title: tracker.poNumber,
+      subject: `Mill Order ${tracker.poNumber} — ${tracker.mill}`,
+      text: `PO Number: ${tracker.poNumber}\nMill: ${tracker.mill}\nItem: ${tracker.paper}\nGSM: ${tracker.gsm} · ${tracker.size}\nOrdered: ${tracker.orderedQty} kg\nReady: ${tracker.readyQty} kg\nStatus: ${tracker.productionStatus}`,
+    };
+
+    const handleShare = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setOpen(false);
+      if (btnRef.current) {
+        const r = btnRef.current.getBoundingClientRect();
+        setShareAnchor({ top: r.bottom + 4, right: window.innerWidth - r.right });
+      }
+      setShareOpen(true);
     };
 
     return (
@@ -346,8 +404,16 @@ function MillTrackerPage() {
                 className="flex w-full items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
                 <History className="h-3.5 w-3.5 shrink-0"/><span>History</span>
               </button>
+              <div className="border-t border-gray-100"/>
+              <button onClick={handleShare}
+                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors">
+                <Share2 className="h-3.5 w-3.5 shrink-0 text-blue-500"/><span>Share</span>
+              </button>
             </div>
           </>
+        )}
+        {shareOpen && shareAnchor && (
+          <SharePanel data={shareData} anchor={shareAnchor} onClose={() => setShareOpen(false)} />
         )}
       </div>
     );
@@ -356,57 +422,57 @@ function MillTrackerPage() {
   const columns: ColumnConfig<MillOrderTracker>[] = useMemo(() => [
     { id: "rowNo",           accessorKey: "id",               header: "#",             filterType: "none",   enableSorting: false, enableHiding: false,  defaultVisible: true,  size: 45,
       cell: (info) => <span className="text-xs text-gray-400 tabular-nums">{info.row.index + 1}</span> },
-    { id: "poNumber",        accessorKey: "poNumber",         header: "PO Number",     filterType: "text",   enableSorting: true,  enableHiding: false,  defaultVisible: true,  size: 145,
+    { id: "poNumber",        accessorKey: "poNumber",         header: "PO Number",     filterType: "text",   enableSorting: true,  enableHiding: false,  defaultVisible: true,  size: 155,
       cell: (info) => {
         const po = info.getValue() as string;
         const lineNo = poItemLineMap.get(info.row.original.id);
         return (
           <div className="leading-tight">
-            <span className="font-semibold text-sm text-purple-700">{po}</span>
+            <span className="font-semibold text-purple-700">{po}</span>
             {lineNo && <span className="font-mono text-xs text-purple-400"> #{lineNo}</span>}
           </div>
         );
       } },
-    { id: "poDate",          accessorKey: "poDate",           header: "Order Date",    filterType: "none",   enableSorting: true,  defaultVisible: true,  size: 95,
-      cell: (info) => <span className="text-xs text-gray-600 tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+    { id: "poDate",          accessorKey: "poDate",           header: "Order Date",    filterType: "none",   enableSorting: true,  defaultVisible: true,  size: 115,
+      cell: (info) => <span className="text-gray-600 tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
       exportValue: (r) => fmtDateIN((r as any).poDate) },
-    { id: "millName",        accessorKey: "mill",             header: "Mill",          filterType: "text",   enableSorting: true,  defaultVisible: true,  size: 150,
+    { id: "millName",        accessorKey: "mill",             header: "Mill",          filterType: "text",   enableSorting: true,  defaultVisible: true,  size: 160,
       cell: (info) => { const t = info.row.original; return (
-        <div className="text-xs leading-tight">
+        <div className="leading-tight">
           <div className="font-semibold text-gray-800">{t.mill}</div>
-          {t.millUnitName && <div className="text-[10px] text-blue-600 mt-0.5">{t.millUnitName}</div>}
+          {t.millUnitName && <div className="text-xs text-blue-600 mt-0.5">{t.millUnitName}</div>}
         </div>
       ); } },
-    { id: "itemCode",        accessorKey: "paper",            header: "Item Code",     filterType: "text",   enableSorting: false, defaultVisible: true,  size: 210, align: "left" as const,
+    { id: "itemCode",        accessorKey: "paper",            header: "Item Code",     filterType: "text",   enableSorting: false, defaultVisible: true,  size: 255, align: "left" as const,
       cell: (info) => { const t = info.row.original; return (
-        <div className="text-xs leading-tight text-left">
+        <div className="leading-tight text-left">
           <div className="font-medium text-gray-900">{t.paper}</div>
-          <div className="text-[10px] text-gray-500 mt-0.5">{t.gsm} GSM · {t.size}</div>
+          <div className="text-xs text-gray-500 mt-0.5">{t.gsm} GSM · {t.size}</div>
         </div>
       ); } },
-    { id: "orderedQty",      accessorKey: "orderedQty",       header: "Ordered (kg)",  filterType: "none",   enableSorting: true,  defaultVisible: true,  size: 90,
-      cell: (info) => { const v = info.getValue() as number; return <span className="font-medium tabular-nums text-xs">{v > 0 ? v.toLocaleString() : "—"}</span>; } },
-    { id: "readyQty",        accessorKey: "readyQty",         header: "Ready (kg)",    filterType: "none",   enableSorting: true,  defaultVisible: true,  size: 85,
-      cell: (info) => { const v = info.getValue() as number; return <span className={`tabular-nums text-xs font-medium ${v > 0 ? "text-green-600" : "text-gray-400"}`}>{v > 0 ? v.toLocaleString() : "—"}</span>; } },
-    { id: "dispatchedQty",   accessorKey: "dispatchedQty",    header: "Dispatched (kg)",filterType: "none",  enableSorting: true,  defaultVisible: true,  size: 100,
-      cell: (info) => { const v = info.getValue() as number; return v > 0 ? <span className="font-medium text-xs text-blue-600 tabular-nums">{v.toLocaleString()}</span> : <span className="text-gray-300 text-xs">—</span>; } },
-    { id: "balanceQty",      accessorKey: "balanceQty",       header: "Balance (kg)",  filterType: "none",   enableSorting: true,  defaultVisible: false, size: 90,
-      cell: (info) => { const v = info.getValue() as number; return <span className={`tabular-nums text-xs font-medium ${v > 0 ? "text-orange-600" : "text-green-600"}`}>{v > 0 ? v.toLocaleString() : "—"}</span>; } },
-    { id: "customerName",    accessorKey: "customerName",     header: "Customer",      filterType: "text",   enableSorting: true,  defaultVisible: true,  size: 130,
-      cell: (info) => info.getValue() ? <span className="font-medium text-xs text-blue-700">{info.getValue() as string}</span> : <span className="text-xs text-gray-400">Stock PO</span> },
-    { id: "millSONumber",    accessorKey: "millSONumber",     header: "Mill SO No.",   filterType: "text",   enableSorting: true,  defaultVisible: true,  size: 100,
-      cell: (info) => info.getValue() ? <span className="font-mono text-xs text-purple-700">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
-    { id: "soCustomerName",  accessorKey: "soCustomerName",   header: "SO Customer",   filterType: "text",   enableSorting: true,  defaultVisible: false, size: 130,
-      cell: (info) => info.getValue() ? <span className="text-xs text-gray-700">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
-    { id: "expectedDelivery",accessorKey: "expectedDelivery", header: "Del. Date",     filterType: "none",   enableSorting: true,  defaultVisible: true,  size: 95,
-      cell: (info) => <span className="text-xs text-gray-700 tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
+    { id: "orderedQty",      accessorKey: "orderedQty",       header: "Ordered (kg)",  filterType: "none",   enableSorting: true,  defaultVisible: true,  size: 125,
+      cell: (info) => { const v = info.getValue() as number; return <span className="font-medium tabular-nums">{v > 0 ? v.toLocaleString("en-IN") : "—"}</span>; } },
+    { id: "readyQty",        accessorKey: "readyQty",         header: "Ready (kg)",    filterType: "none",   enableSorting: true,  defaultVisible: true,  size: 110,
+      cell: (info) => { const v = info.getValue() as number; return <span className={`tabular-nums font-medium ${v > 0 ? "text-green-600" : "text-gray-400"}`}>{v > 0 ? v.toLocaleString("en-IN") : "—"}</span>; } },
+    { id: "dispatchedQty",   accessorKey: "dispatchedQty",    header: "Dispatched (kg)", filterType: "none", enableSorting: true,  defaultVisible: true,  size: 145,
+      cell: (info) => { const v = info.getValue() as number; return v > 0 ? <span className="font-medium text-blue-600 tabular-nums">{v.toLocaleString("en-IN")}</span> : <span className="text-gray-300">—</span>; } },
+    { id: "balanceQty",      accessorKey: "balanceQty",       header: "Balance (kg)",  filterType: "none",   enableSorting: true,  defaultVisible: false, size: 105,
+      cell: (info) => { const v = info.getValue() as number; return <span className={`tabular-nums font-medium ${v > 0 ? "text-orange-600" : "text-green-600"}`}>{v > 0 ? v.toLocaleString("en-IN") : "—"}</span>; } },
+    { id: "customerName",    accessorKey: "customerName",     header: "Customer",      filterType: "text",   enableSorting: true,  defaultVisible: true,  size: 140,
+      cell: (info) => info.getValue() ? <span className="font-medium text-blue-700">{info.getValue() as string}</span> : <span className="text-gray-400 text-xs">Stock PO</span> },
+    { id: "millSONumber",    accessorKey: "millSONumber",     header: "Mill SO No.",   filterType: "text",   enableSorting: true,  defaultVisible: true,  size: 110,
+      cell: (info) => info.getValue() ? <span className="font-mono text-purple-700">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
+    { id: "soCustomerName",  accessorKey: "soCustomerName",   header: "SO Customer",   filterType: "text",   enableSorting: true,  defaultVisible: false, size: 140,
+      cell: (info) => info.getValue() ? <span className="text-gray-700">{info.getValue() as string}</span> : <span className="text-gray-300 text-xs">—</span> },
+    { id: "expectedDelivery",accessorKey: "expectedDelivery", header: "Del. Date",     filterType: "none",   enableSorting: true,  defaultVisible: true,  size: 112,
+      cell: (info) => <span className="text-gray-700 tabular-nums">{fmtDateIN(info.getValue() as string)}</span>,
       exportValue: (r) => fmtDateIN((r as any).expectedDelivery) },
-    { id: "soDeliveryDate",  accessorKey: "soDeliveryDate",   header: "SO Del. Date",  filterType: "none",   enableSorting: true,  defaultVisible: false, size: 95,
-      cell: (info) => info.getValue() ? <span className="text-xs text-gray-700 tabular-nums">{fmtDateIN(info.getValue() as string)}</span> : <span className="text-gray-300 text-xs">—</span>,
+    { id: "soDeliveryDate",  accessorKey: "soDeliveryDate",   header: "SO Del. Date",  filterType: "none",   enableSorting: true,  defaultVisible: false, size: 120,
+      cell: (info) => info.getValue() ? <span className="text-gray-700 tabular-nums">{fmtDateIN(info.getValue() as string)}</span> : <span className="text-gray-300 text-xs">—</span>,
       exportValue: (r) => fmtDateIN((r as any).soDeliveryDate) },
-    { id: "productionStatus",accessorKey: "productionStatus", header: "Status",        filterType: "select", filterOptions: productionStatusOptions, enableSorting: true, defaultVisible: true, size: 120,
-      cell: (info) => { const s = info.getValue() as string; return <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[s] || "bg-gray-100 text-gray-600"}`}>{s}</span>; } },
-    { id: "actions",         accessorKey: "id",               header: "",              filterType: "none",   enableSorting: false, enableHiding: false,  defaultVisible: true,  size: 52, sticky: "right" as const,
+    { id: "productionStatus",accessorKey: "productionStatus", header: "Status",        filterType: "select", filterOptions: productionStatusOptions, enableSorting: true, defaultVisible: true, size: 140,
+      cell: (info) => { const s = info.getValue() as string; return <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[s] || "bg-gray-100 text-gray-600"}`}>{s}</span>; } },
+    { id: "_actions",        accessorKey: "id",               header: "",              filterType: "none",   enableSorting: false, enableHiding: false,  defaultVisible: true,  size: 52, sticky: "right" as const,
       cell: (info) => <ThreeDotsMenu tracker={info.row.original}/> },
   ], [productionStatusOptions, poItemLineMap]);
 
@@ -625,6 +691,12 @@ function MillTrackerPage() {
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setShowImpExp(false)}/>
                 <div className="absolute right-0 top-full mt-1 z-30 w-52 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                  <button onClick={() => { exportToCSV(); setShowImpExp(false); }}
+                    className="flex w-full items-center gap-2.5 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">
+                    <Download className="h-4 w-4 text-green-500 shrink-0"/>
+                    <div className="text-left"><p className="text-xs font-medium">Export CSV</p><p className="text-[11px] text-gray-400">Download filtered data ({filteredTrackers.length} rows)</p></div>
+                  </button>
+                  <div className="border-t border-gray-100"/>
                   <button onClick={() => { setShowBulkUploadModal(true); setShowImpExp(false); }}
                     className="flex w-full items-center gap-2.5 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">
                     <Upload className="h-4 w-4 text-gray-400 shrink-0"/>

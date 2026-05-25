@@ -19,6 +19,7 @@ import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { createPortal } from "react-dom";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { fmtDateIN } from "@/lib/formatters";
+import { SharePanel, ShareData } from "@/components/ShareMenu";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1236,13 +1237,15 @@ function ViewGRNModal({
 
 // ─── Row Actions Dropdown ──────────────────────────────────────────────────────
 
-function RowActions({ onView, onEdit, onDelete }: {
-  onView: () => void; onEdit: () => void; onDelete: () => void;
+function RowActions({ grn, onView, onEdit, onDelete }: {
+  grn: GrnRow; onView: () => void; onEdit: () => void; onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, right: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareAnchor, setShareAnchor] = useState<{ top: number; right: number } | null>(null);
 
   const toggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1264,6 +1267,22 @@ function RowActions({ onView, onEdit, onDelete }: {
 
   const action = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); setOpen(false); fn(); };
 
+  const shareData: ShareData = {
+    title: grn.grnNumber,
+    subject: `GRN ${grn.grnNumber} — ${grn.millName}`,
+    text: `GRN Number: ${grn.grnNumber}\nMill: ${grn.millName}\nGRN Date: ${fmtDateIN(grn.grnDate)}\nWarehouse: ${grn.warehouseName ?? "—"}\nStatus: ${grn.status}`,
+  };
+
+  const handleShare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen(false);
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setShareAnchor({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
+    setShareOpen(true);
+  };
+
   return (
     <>
       <button ref={btnRef} onClick={toggle}
@@ -1273,18 +1292,27 @@ function RowActions({ onView, onEdit, onDelete }: {
       {open && createPortal(
         <div ref={menuRef} style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 9999 }}
           className="w-44 rounded-xl border border-gray-200 bg-white shadow-xl py-1">
-          {[
-            { label: "View Details", icon: Eye, fn: onView },
-            { label: "Edit GRN",    icon: Pencil, fn: onEdit },
-            { label: "Delete",      icon: Trash2, fn: onDelete, red: true },
-          ].map(({ label, icon: Icon, fn, red }) => (
-            <button key={label} onClick={action(fn)}
-              className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-sm transition-colors hover:bg-gray-50 ${red ? "text-red-600 hover:bg-red-50" : "text-gray-700"}`}>
-              <Icon className="h-3.5 w-3.5" /> {label}
-            </button>
-          ))}
+          <button onClick={action(onView)}
+            className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm transition-colors hover:bg-gray-50 text-gray-700">
+            <Eye className="h-3.5 w-3.5" /> View Details
+          </button>
+          <button onClick={action(onEdit)}
+            className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm transition-colors hover:bg-gray-50 text-gray-700">
+            <Pencil className="h-3.5 w-3.5" /> Edit GRN
+          </button>
+          <button onClick={handleShare}
+            className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm transition-colors hover:bg-blue-50 hover:text-blue-700 text-gray-700">
+            <Share2 className="h-3.5 w-3.5 text-blue-500" /> Share
+          </button>
+          <button onClick={action(onDelete)}
+            className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm transition-colors hover:bg-red-50 text-red-600">
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </button>
         </div>,
         document.body
+      )}
+      {shareOpen && shareAnchor && (
+        <SharePanel data={shareData} anchor={shareAnchor} onClose={() => setShareOpen(false)} />
       )}
     </>
   );
@@ -1465,6 +1493,11 @@ function GRNPage() {
           </div>
         );
       },
+      exportColumns: [
+        { header: "Ordered (kg)",  value: (r) => qtyToKg(r as any, (r as any).orderedQty).toLocaleString("en-IN") },
+        { header: "Received (kg)", value: (r) => qtyToKg(r as any, (r as any).receivedQty).toLocaleString("en-IN") },
+        { header: "Balance (kg)",  value: (r) => qtyToKg(r as any, (r as any).balanceQty).toLocaleString("en-IN") },
+      ],
     },
     {
       id: "warehouseName", accessorKey: "warehouseName", header: "Warehouse",
@@ -1487,6 +1520,7 @@ function GRNPage() {
           </div>
         );
       },
+      exportValue: (r) => (r as any).effectiveClientName || (r as any).customerName || "—",
     },
     {
       id: "qcResult", accessorKey: "qcResult", header: "QC",
@@ -1512,12 +1546,13 @@ function GRNPage() {
       cell: (info) => <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(info.getValue() as string)}`}>{info.getValue() as string}</span>,
     },
     {
-      id: "actions", accessorKey: "id", header: "",
+      id: "_actions", accessorKey: "id", header: "",
       filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48,
       cell: (info) => {
         const grn = info.row.original;
         return (
           <RowActions
+            grn={grn}
             onView={() => openView(grn)}
             onEdit={() => openEdit(grn)}
             onDelete={() => handleDeleteGRN(grn.id)}
@@ -1628,6 +1663,7 @@ function GRNPage() {
             data={grns}
             columns={columns}
             tableName="grns"
+            exportFilename="GRN_List"
             enableFilters={true}
             enablePagination={true}
             enableColumnReordering={true}

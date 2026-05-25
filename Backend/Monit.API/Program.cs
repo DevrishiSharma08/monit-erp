@@ -1,4 +1,5 @@
 using Dapper;
+using Microsoft.Data.SqlClient;
 using Microsoft.OpenApi.Models;
 using Monit.API.Common.Helpers;
 using Monit.API.Common.Middleware;
@@ -78,4 +79,41 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
+// ─── Ensure notification schema exists in all company DBs ────────────────────
+await EnsureNotificationSchemaAsync(appConfig);
+
 app.Run();
+
+static async Task EnsureNotificationSchemaAsync(AppConfig config)
+{
+    const string sql = @"
+        IF NOT EXISTS (
+            SELECT 1 FROM sys.objects
+            WHERE object_id = OBJECT_ID(N'system.NotificationState') AND type = 'U'
+        )
+        BEGIN
+            CREATE TABLE system.NotificationState (
+                Id          INT IDENTITY(1,1) PRIMARY KEY,
+                UserId      INT          NOT NULL,
+                NotifKey    NVARCHAR(50) NOT NULL,
+                IsRead      BIT          NOT NULL DEFAULT 0,
+                IsDismissed BIT          NOT NULL DEFAULT 0,
+                UpdatedAt   DATETIME2    NOT NULL DEFAULT GETUTCDATE(),
+                CONSTRAINT UQ_NotifState UNIQUE (UserId, NotifKey)
+            );
+        END";
+
+    foreach (var connStr in new[] { config.Company1ConnectionString, config.Company2ConnectionString })
+    {
+        try
+        {
+            await using var conn = new SqlConnection(connStr);
+            await conn.OpenAsync();
+            await conn.ExecuteAsync(sql);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning("Could not ensure NotificationState schema on one company DB: {Message}", ex.Message);
+        }
+    }
+}

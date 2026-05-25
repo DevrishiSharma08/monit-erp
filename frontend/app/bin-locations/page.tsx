@@ -1,4 +1,6 @@
-"use client";
+﻿"use client";
+
+import { PermGuard } from "@/components/PermGuard";
 
 import { useMemo, useState } from "react";
 import { mockBinLocations, BinLocation } from "@/data/mockData";
@@ -6,7 +8,7 @@ import { Warehouse, MapPin, CheckCircle, Wrench, AlertCircle } from "lucide-reac
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 
-export default function BinLocationsPage() {
+function BinLocationsPage() {
   const kpis = useMemo(() => {
     const totalBins = mockBinLocations.length;
     const activeBins = mockBinLocations.filter((bin) => bin.status === "Active").length;
@@ -328,4 +330,8 @@ export default function BinLocationsPage() {
       />
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="masters.read"><BinLocationsPage /></PermGuard>;
 }

@@ -404,6 +404,30 @@ public class SalesOrderRepository(DbConnectionFactory db) : ISalesOrderRepositor
     private static DateTime? ParseDateNullable(string? s) =>
         DateTime.TryParse(s, out var d) ? d : null;
 
+    // ── GetLinkedPOs ──────────────────────────────────────────────────────────
+
+    public async Task<List<SoLinkedPoDto>> GetLinkedPOsAsync(int soId)
+    {
+        const string sql = @"
+            SELECT
+                po.Id,
+                po.PONumber,
+                CONVERT(NVARCHAR(10), po.OrderDate, 23)            AS OrderDate,
+                ISNULL(m.Name, po.MillName)                        AS MillName,
+                po.Status,
+                ISNULL(po.TotalValue, 0)                           AS TotalValue,
+                CONVERT(NVARCHAR(10), po.ExpectedDeliveryDate, 23) AS ExpectedDeliveryDate,
+                (SELECT COUNT(*) FROM procurement.PurchaseOrderItems pi
+                  WHERE pi.POId = po.Id AND pi.IsDeleted = 0)      AS ItemCount
+            FROM procurement.PurchaseOrders po
+            LEFT JOIN masters.Mills m ON m.Id = po.MillId
+            WHERE po.LinkedSOId = @SoId AND po.IsDeleted = 0
+            ORDER BY po.OrderDate DESC";
+
+        using var conn = db.Create();
+        return (await conn.QueryAsync<SoLinkedPoDto>(sql, new { SoId = soId })).ToList();
+    }
+
     private static string SafeCol(string? col, string fallback) =>
         col?.ToLower() switch
         {

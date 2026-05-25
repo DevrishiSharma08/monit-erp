@@ -1,4 +1,6 @@
-"use client";
+﻿"use client";
+
+import { PermGuard } from "@/components/PermGuard";
 
 import { useMemo, useState } from "react";
 import { SalesOrder, SOLine as SalesOrderLine } from "@/context/SalesOrderContext";
@@ -22,6 +24,7 @@ import { createPortal } from "react-dom";
 import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
 import { SharePanel, ShareData } from "@/components/ShareMenu";
 import { useRef, useEffect } from "react";
+import type { SoLinkedPo } from "@/lib/api-services";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -159,6 +162,13 @@ const STATUS_HEADER_BG: Record<string, string> = {
 function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrder; onEdit: () => void; onSend?: () => void; onClose: () => void; emailSent?: boolean }) {
   const statusCls   = SO_STATUS_COLORS[so.status] ?? "bg-gray-100 text-gray-600";
   const headerBg    = STATUS_HEADER_BG[so.status] ?? "bg-blue-50";
+  const [linkedPOs, setLinkedPOs] = useState<SoLinkedPo[]>([]);
+
+  useEffect(() => {
+    if ((so.linkedPoCount ?? 0) === 0) return;
+    salesOrderApi.getLinkedPOs(Number(so.id)).then(setLinkedPOs).catch(() => {});
+  }, [so.id, so.linkedPoCount]);
+
   const deliveryCls = so.deliveryMode === "From Stock"
     ? "bg-green-50 text-green-600"
     : so.deliveryMode === "Direct Mill Delivery"
@@ -296,6 +306,49 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
             </div>
           </div>
 
+          {/* Linked Purchase Orders */}
+          {(so.linkedPoCount ?? 0) > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">
+                Linked Purchase Orders <span className="ml-1 text-purple-500">({so.linkedPoCount})</span>
+              </p>
+              {linkedPOs.length === 0 ? (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-xs text-gray-400">Loading…</div>
+              ) : (
+                <div className="rounded-xl border border-purple-100 overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-purple-50 border-b border-purple-100">
+                        <th className="px-3 py-2 text-left font-semibold text-purple-600">PO Number</th>
+                        <th className="px-3 py-2 text-left font-semibold text-purple-600">Mill</th>
+                        <th className="px-3 py-2 text-left font-semibold text-purple-600">Date</th>
+                        <th className="px-3 py-2 text-left font-semibold text-purple-600">Exp. Delivery</th>
+                        <th className="px-3 py-2 text-right font-semibold text-purple-600">Value</th>
+                        <th className="px-3 py-2 text-left font-semibold text-purple-600">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {linkedPOs.map((po, idx) => (
+                        <tr key={po.id} className={idx % 2 === 0 ? "bg-white border-t border-gray-100" : "bg-slate-50/60 border-t border-gray-100"}>
+                          <td className="px-3 py-2.5 font-semibold text-purple-700">{po.poNumber}</td>
+                          <td className="px-3 py-2.5 text-gray-700">{po.millName}</td>
+                          <td className="px-3 py-2.5 text-gray-600">{fmtDateIN(po.orderDate)}</td>
+                          <td className="px-3 py-2.5 text-gray-600">{po.expectedDeliveryDate ? fmtDateIN(po.expectedDeliveryDate) : "—"}</td>
+                          <td className="px-3 py-2.5 text-right font-semibold text-gray-800">₹{fmtNumIN(po.totalValue)}</td>
+                          <td className="px-3 py-2.5">
+                            <span className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium bg-purple-50 text-purple-700 border border-purple-100">
+                              {po.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           {so.remarks && (
             <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
               <p className="text-[10px] text-amber-500 font-semibold">Remarks</p>
@@ -329,7 +382,7 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function OrdersPage() {
+function OrdersPage() {
   const { success } = useToast();
   const { salesOrders, reload, deleteSalesOrder } = useSalesOrder();
 
@@ -558,7 +611,7 @@ export default function OrdersPage() {
       },
     },
     {
-      id: "actions", accessorKey: "id", header: "",
+      id: "_actions", accessorKey: "id", header: "",
       filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48,
       cell: (info) => {
         const so = info.row.original;
@@ -716,4 +769,8 @@ export default function OrdersPage() {
 
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="so.read"><OrdersPage /></PermGuard>;
 }

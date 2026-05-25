@@ -1,4 +1,6 @@
-"use client";
+﻿"use client";
+
+import { PermGuard } from "@/components/PermGuard";
 
 import { useState, useMemo, useCallback } from "react";
 import { mockTallyExports, mockSalesInvoices, mockPurchaseInvoices, TallyExport } from "@/data/mockData";
@@ -6,7 +8,7 @@ import { FileSpreadsheet, CheckCircle2, AlertTriangle, Clock, Send, RefreshCw, X
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 
-export default function TallyExportPage() {
+function TallyExportPage() {
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [batchForm, setBatchForm] = useState({
     exportType: 'Sales Invoice' as TallyExport['exportType'],
@@ -514,4 +516,8 @@ export default function TallyExportPage() {
       )}
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="so.read"><TallyExportPage /></PermGuard>;
 }

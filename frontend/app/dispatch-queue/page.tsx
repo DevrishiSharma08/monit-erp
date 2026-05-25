@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
+import { PermGuard } from "@/components/PermGuard";
 import { PickPlan, PickPlanLine, Challan, ChallanLine } from "@/data/mockData";
 import { Truck, Clock, AlertTriangle, CheckCircle2, Package, ArrowRight, Sparkles } from "lucide-react";
 import { useStock } from "@/context/StockContext";
@@ -34,7 +35,7 @@ interface StockBin {
   selectedQty: number;
 }
 
-export default function DispatchQueuePage() {
+function DispatchQueuePage() {
   const { stockLots, allocateLot, pickPlans, addPickPlan, addChallan } = useStock();
   const { salesOrders } = useSalesOrder();
   const { success } = useToast();
@@ -682,4 +683,8 @@ export default function DispatchQueuePage() {
       )}
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="logistics.read"><DispatchQueuePage /></PermGuard>;
 }

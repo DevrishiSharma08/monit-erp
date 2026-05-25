@@ -12,7 +12,7 @@ public class TruckLoadPlanService(
 ) : ITruckLoadPlanService
 {
     // ── Valid status progression ──────────────────────────────────────────────
-    private static readonly string[] StatusSeq = ["Planned", "Loading", "In Transit", "Delivered"];
+    private static readonly string[] StatusSeq = ["Planned", "Loading", "Dispatched", "Received"];
 
     // ── Queries ───────────────────────────────────────────────────────────────
 
@@ -65,10 +65,10 @@ public class TruckLoadPlanService(
         // ── Persist plan status ───────────────────────────────────────────────
         await planRepo.UpdateStatusAsync(id, dto, updatedBy);
 
-        // ── When truck moves to "In Transit" → sync mill trackers ─────────────
+        // ── When truck moves to "Dispatched" → sync mill trackers ────────────
         // This is the key business rule: mill dispatch dispatched qty advances
         // and status becomes Dispatched / Partial Dispatched accordingly.
-        if (dto.Status == "In Transit")
+        if (dto.Status == "Dispatched")
             await SyncTrackerDispatchAsync(plan, updatedBy);
 
         return await GetByIdAsync(id);

@@ -58,6 +58,20 @@ public class SalesOrderListDto
     public List<SalesOrderLineDto> Lines { get; set; } = [];
 }
 
+// ─── Linked PO summary (returned by GET /sales-orders/{id}/purchase-orders) ──
+
+public class SoLinkedPoDto
+{
+    public int     Id                   { get; set; }
+    public string  PONumber             { get; set; } = string.Empty;
+    public string  OrderDate            { get; set; } = string.Empty;
+    public string  MillName             { get; set; } = string.Empty;
+    public string  Status               { get; set; } = string.Empty;
+    public decimal TotalValue           { get; set; }
+    public string? ExpectedDeliveryDate { get; set; }
+    public int     ItemCount            { get; set; }
+}
+
 // ─── Create / Update line ─────────────────────────────────────────────────────
 
 public class UpsertSalesOrderLineDto

@@ -14,4 +14,5 @@ public interface ISalesOrderService
     Task                                 DeleteAsync(int id, string deletedBy);
     Task<SendMailResponseDto>            SendEmailAsync(int id, SendMailRequestDto dto);
     Task<byte[]>                         GetPdfAsync(int id);
+    Task<List<SoLinkedPoDto>>            GetLinkedPOsAsync(int soId);
 }

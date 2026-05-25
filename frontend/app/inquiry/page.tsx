@@ -1,4 +1,6 @@
-"use client";
+﻿"use client";
+
+import { PermGuard } from "@/components/PermGuard";
 
 import { useMemo, useState } from "react";
 import { CustomerInquiry } from "@/data/mockData";
@@ -44,7 +46,7 @@ const PRIORITY_OPTIONS = [
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function InquiryPage() {
+function InquiryPage() {
   const { user, isCustomer, isAdmin, isSalesman } = useAuth();
   const { success } = useToast();
   const { inquiries, addInquiry, updateInquiry } = useInquiry();
@@ -224,7 +226,7 @@ export default function InquiryPage() {
         : []),
       // Actions column
       {
-        id: "actions",
+        id: "_actions",
         accessorKey: "id",
         header: "Actions",
         filterType: "none",
@@ -391,4 +393,8 @@ export default function InquiryPage() {
       </Modal>
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="so.read"><InquiryPage /></PermGuard>;
 }

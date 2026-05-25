@@ -1,4 +1,6 @@
-"use client";
+﻿"use client";
+
+import { PermGuard } from "@/components/PermGuard";
 
 import { useState, useMemo, useCallback } from "react";
 import { Challan, InTransitTracking } from "@/data/mockData";
@@ -31,7 +33,7 @@ import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 
-export default function ChallanPage() {
+function ChallanPage() {
   const { stockLots, dispatchLot, challans, updateChallan, addInTransitTracking } = useStock();
   const { salesOrders, updateSalesOrder } = useSalesOrder();
   const { success } = useToast();
@@ -1382,4 +1384,8 @@ export default function ChallanPage() {
       )}
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="logistics.read"><ChallanPage /></PermGuard>;
 }

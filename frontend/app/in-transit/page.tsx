@@ -1,4 +1,6 @@
-"use client";
+﻿"use client";
+
+import { PermGuard } from "@/components/PermGuard";
 
 import { useMemo, useState } from "react";
 import { InTransitTracking } from "@/data/mockData";
@@ -8,7 +10,7 @@ import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { fmtDateIN } from "@/lib/formatters";
 
-export default function InTransitPage() {
+function InTransitPage() {
   const { inTransitTrackings } = useStock();
   const [showStatusUpdateModal, setShowStatusUpdateModal] = useState(false);
   const [selectedTracking, setSelectedTracking] = useState<InTransitTracking | null>(null);
@@ -248,7 +250,7 @@ export default function InTransitPage() {
         },
       },
       {
-        id: "actions",
+        id: "_actions",
         accessorKey: "id",
         header: "Actions",
         filterType: "none",
@@ -650,4 +652,8 @@ export default function InTransitPage() {
       )}
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="logistics.read"><InTransitPage /></PermGuard>;
 }

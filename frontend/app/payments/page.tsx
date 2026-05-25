@@ -1,4 +1,6 @@
-"use client";
+﻿"use client";
+
+import { PermGuard } from "@/components/PermGuard";
 
 import { useMemo, useState } from "react";
 import {
@@ -21,7 +23,7 @@ import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
 
 type Tab = "received" | "paid";
 
-export default function PaymentsPage() {
+function PaymentsPage() {
   const [activeTab, setActiveTab] = useState<Tab>("received");
 
   // ── KPIs: Received from Customers ────────────────────────────────────────────
@@ -537,4 +539,8 @@ export default function PaymentsPage() {
       )}
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="so.read"><PaymentsPage /></PermGuard>;
 }

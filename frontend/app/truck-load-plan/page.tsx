@@ -6,7 +6,7 @@ import { TruckLoadPlan, TruckLoadPlanItem, MillOrderTracker } from "@/types/pape
 import {
   Truck, Clock, CheckCircle2, Plus, Package, AlertCircle,
   MoreVertical, Eye, EyeOff, Trash2, Printer, RefreshCw, X, Weight,
-  GripVertical, Filter, Search,
+  GripVertical, Filter, Search, Share2,
 } from "lucide-react";
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
@@ -22,7 +22,8 @@ import { Modal } from "@/components/Modal";
 import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
 import { useToast } from "@/context/ToastContext";
 import { cn } from "@/lib/utils";
-import { fmtDateIN } from "@/lib/formatters";
+import { fmtDateIN, fmtNumIN } from "@/lib/formatters";
+import { lineWeightKg } from "@/lib/weight";
 import {
   truckLoadPlanApi, TruckLoadPlanApiDto, TruckLoadPlanItemApiDto,
   millTrackerApi, MillTrackerRow,
@@ -30,6 +31,7 @@ import {
   type TlpLoadType,
 } from "@/lib/api-services";
 import type { TransporterVehicleDto } from "@/lib/api-services";
+import { SharePanel, ShareData } from "@/components/ShareMenu";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -67,7 +69,7 @@ const TRACKER_STATUS_BADGE: Record<string, string> = {
 
 // ─── Local type extensions (load types not in shared mockData) ─────────────────
 
-type TLPItemEx = TruckLoadPlanItem & { loadType?: TlpLoadType; planQty?: number };
+type TLPItemEx = TruckLoadPlanItem & { loadType?: TlpLoadType; planQty?: number; shipmentMode?: string };
 type TLPLoadEx = { id: number; loadType: TlpLoadType; loadSequence: number; address?: string; items: TLPItemEx[] };
 type TLPPlanEx = Omit<TruckLoadPlan, "items"> & { items: TLPItemEx[]; loads: TLPLoadEx[] };
 
@@ -76,7 +78,7 @@ type TLPPlanEx = Omit<TruckLoadPlan, "items"> & { items: TLPItemEx[]; loads: TLP
 // TLP items.quantity is also kg. Display values directly — no sheets conversion.
 
 function itemWeight(item: TruckLoadPlanItem): number {
-  return item.weightKg ?? item.quantity ?? 0;
+  return lineWeightKg({ weightKg: item.weightKg, quantity: item.quantity });
 }
 
 function planTotals(plan: TLPPlanEx) {
@@ -104,7 +106,7 @@ function TrackerDetailModal({ tracker, onClose }: { tracker: MillOrderTracker; o
           </div>
           <div>
             <h2 className="text-base font-bold text-gray-900 font-mono">{tracker.poNumber}</h2>
-            <p className="text-xs text-gray-500">{tracker.mill} · PO Date: {tracker.poDate}</p>
+            <p className="text-xs text-gray-500">{tracker.mill} · PO Date: {fmtDateIN(tracker.poDate)}</p>
           </div>
           <span className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
             TRACKER_STATUS_BADGE[tracker.productionStatus] ?? "bg-gray-100 text-gray-600")}>
@@ -134,7 +136,7 @@ function TrackerDetailModal({ tracker, onClose }: { tracker: MillOrderTracker; o
           </div>
           <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500">Ready / Ordered</p>
-            <p className="text-sm font-black text-emerald-800 mt-0.5">{tracker.readyQty.toLocaleString()} / {tracker.orderedQty.toLocaleString()}</p>
+            <p className="text-sm font-black text-emerald-800 mt-0.5">{tracker.readyQty.toLocaleString("en-IN")} / {tracker.orderedQty.toLocaleString("en-IN")}</p>
           </div>
         </div>
 
@@ -167,8 +169,8 @@ function TrackerDetailModal({ tracker, onClose }: { tracker: MillOrderTracker; o
           ].map(({ label, val, wt, color }) => (
             <div key={label} className="rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-center">
               <p className="text-[10px] text-gray-400 uppercase">{label}</p>
-              <p className={cn("font-bold text-sm mt-0.5 tabular-nums", color)}>{val.toLocaleString()}</p>
-              {wt > 0 && <p className="text-[10px] text-gray-400 tabular-nums">{wt.toLocaleString()} kg</p>}
+              <p className={cn("font-bold text-sm mt-0.5 tabular-nums", color)}>{val.toLocaleString("en-IN")}</p>
+              {wt > 0 && <p className="text-[10px] text-gray-400 tabular-nums">{wt.toLocaleString("en-IN")} kg</p>}
             </div>
           ))}
         </div>
@@ -205,7 +207,7 @@ function TrackerDetailModal({ tracker, onClose }: { tracker: MillOrderTracker; o
       <div className="grid grid-cols-2 gap-2">
         <div className="rounded-xl border border-gray-100 bg-white px-3 py-2.5">
           <p className="text-[10px] text-gray-400 uppercase mb-1">Expected Delivery</p>
-          <p className="font-semibold text-xs text-gray-800">{tracker.expectedDelivery || "—"}</p>
+          <p className="font-semibold text-xs text-gray-800">{fmtDateIN(tracker.expectedDelivery) || "—"}</p>
         </div>
         <div className="rounded-xl border border-gray-100 bg-white px-3 py-2.5">
           <p className="text-[10px] text-gray-400 uppercase mb-1">Last Updated</p>
@@ -327,25 +329,25 @@ function PendingPOsSection({
       case "readyWt": {
         return (
           <td key={col} className="px-3 py-3 text-right text-xs font-medium text-gray-700 tabular-nums whitespace-nowrap">
-            {t.readyQty > 0 ? `${t.readyQty.toLocaleString()} kg` : "—"}
+            {t.readyQty > 0 ? `${t.readyQty.toLocaleString("en-IN")} kg` : "—"}
           </td>
         );
       }
       case "planWt": {
         return (
           <td key={col} className="px-3 py-3 text-right text-xs font-medium text-purple-600 tabular-nums whitespace-nowrap">
-            {t.dispatchedQty > 0 ? `${t.dispatchedQty.toLocaleString()} kg` : "—"}
+            {t.dispatchedQty > 0 ? `${t.dispatchedQty.toLocaleString("en-IN")} kg` : "—"}
           </td>
         );
       }
       case "balanceWt":
         return (
           <td key={col} className="px-3 py-3 text-right text-sm font-bold text-blue-700 tabular-nums whitespace-nowrap">
-            {balanceWt > 0 ? `${balanceWt.toLocaleString()} kg` : "—"}
+            {balanceWt > 0 ? `${balanceWt.toLocaleString("en-IN")} kg` : "—"}
           </td>
         );
       case "eta":
-        return <td key={col} className="px-3 py-3 text-xs text-gray-500 whitespace-nowrap">{t.expectedDelivery || "—"}</td>;
+        return <td key={col} className="px-3 py-3 text-xs text-gray-500 whitespace-nowrap">{fmtDateIN(t.expectedDelivery) || "—"}</td>;
     }
   };
 
@@ -384,7 +386,7 @@ function PendingPOsSection({
             className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-bold text-white hover:bg-blue-700 active:scale-95 transition-all shadow-sm">
             <Truck className="h-3.5 w-3.5" />
             Plan {selectedIds.size} Selected
-            {selectedWeight > 0 && <span className="ml-1 opacity-80 font-normal">· {selectedWeight.toLocaleString()} kg</span>}
+            {selectedWeight > 0 && <span className="ml-1 opacity-80 font-normal">· {selectedWeight.toLocaleString("en-IN")} kg</span>}
           </button>
         )}
       </div>
@@ -837,7 +839,7 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
                               setForm((p) => ({ ...p, items: p.items.map((it2) => it2.rowKey !== it.rowKey ? it2 : { ...it2, quantity: kg, quantityStr: String(kg) }) }));
                             }}
                             className="w-20 rounded border border-gray-200 px-2 py-1 text-right text-xs font-semibold focus:border-blue-400 focus:outline-none"/>
-                          <span className="text-[11px] text-gray-400 whitespace-nowrap">/{it.maxQty.toLocaleString()} kg</span>
+                          <span className="text-[11px] text-gray-400 whitespace-nowrap">/{it.maxQty.toLocaleString("en-IN")} kg</span>
                         </div>
                       </td>
                       <td className="px-2 py-2 text-center w-14">
@@ -869,7 +871,7 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
                   return (
                     <div key={lt} className="flex items-center justify-between rounded-lg bg-white border border-blue-100 px-3 py-2">
                       <span className="text-xs font-semibold text-blue-700">{lt}</span>
-                      <span className="text-xs text-gray-500 tabular-nums">{ltWt.toLocaleString()} kg</span>
+                      <span className="text-xs text-gray-500 tabular-nums">{ltWt.toLocaleString("en-IN")} kg</span>
                     </div>
                   );
                 })}
@@ -923,8 +925,8 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
                 <Weight className="h-3.5 w-3.5"/> Truck Load
               </span>
               <span className={cn("text-xs font-bold tabular-nums", over ? "text-red-600" : "text-gray-700")}>
-                {totalWeight.toLocaleString()} / {cap.toLocaleString()} kg
-                {over && <span className="ml-1.5 text-red-600">▲ {(totalWeight - cap).toLocaleString()} kg over!</span>}
+                {totalWeight.toLocaleString("en-IN")} / {cap.toLocaleString("en-IN")} kg
+                {over && <span className="ml-1.5 text-red-600">▲ {(totalWeight - cap).toLocaleString("en-IN")} kg over!</span>}
               </span>
             </div>
             <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
@@ -933,7 +935,7 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
             {over && (
               <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-600 font-medium">
                 <AlertCircle className="h-3.5 w-3.5 flex-shrink-0"/>
-                Truck capacity exceeded by {(totalWeight - cap).toLocaleString()} kg — remove items or reduce quantities.
+                Truck capacity exceeded by {(totalWeight - cap).toLocaleString("en-IN")} kg — remove items or reduce quantities.
               </p>
             )}
           </div>
@@ -958,7 +960,7 @@ function PlanCreationModal({ trackers, transporters, onSubmit, onCancel }: {
                 <datalist id="vehicles-list">
                   {availVehicles.map((v, i) => (
                     <option key={i} value={v.vehicleType}>
-                      {v.capacity ? `${v.capacity.toLocaleString()} kg` : ""}{v.freightRate ? ` · ₹${v.freightRate.toLocaleString()}` : ""}
+                      {v.capacity ? `${v.capacity.toLocaleString("en-IN")} kg` : ""}{v.freightRate ? ` · ₹${v.freightRate.toLocaleString("en-IN")}` : ""}
                     </option>
                   ))}
                 </datalist>
@@ -1050,12 +1052,12 @@ function PlanDrillDown({ plan, onClose }: { plan: TLPPlanEx; onClose: () => void
                 {plan.status}
               </span>
             </div>
-            <p className="text-xs text-gray-500">{plan.planDate}</p>
+            <p className="text-xs text-gray-500">{fmtDateIN(plan.planDate)}</p>
           </div>
           <div className="text-right">
             <p className="text-xs text-gray-400">Total Weight</p>
-            <p className="font-bold text-gray-800 tabular-nums">{totalWeight.toLocaleString()} kg</p>
-            {cap > 0 && <p className="text-[11px] text-gray-400">of {cap.toLocaleString()} kg cap.</p>}
+            <p className="font-bold text-gray-800 tabular-nums">{totalWeight.toLocaleString("en-IN")} kg</p>
+            {cap > 0 && <p className="text-[11px] text-gray-400">of {cap.toLocaleString("en-IN")} kg cap.</p>}
           </div>
         </div>
 
@@ -1072,11 +1074,11 @@ function PlanDrillDown({ plan, onClose }: { plan: TLPPlanEx; onClose: () => void
             ["Transporter",    plan.transporterName || "—"],
             ["Driver",         plan.driverName     || "—"],
             ["Phone",          plan.driverPhone    || "—"],
-            ["Freight",        plan.freightAmount ? `₹ ${plan.freightAmount.toLocaleString()}` : "—"],
+            ["Freight",        plan.freightAmount ? `₹ ${plan.freightAmount.toLocaleString("en-IN")}` : "—"],
             ["Origin",         plan.origin],
             ["Mode",           plan.deliveryMode],
-            ["Load Date",      plan.plannedLoadDate],
-            ["Delivery Date",  plan.plannedDeliveryDate],
+            ["Load Date",      fmtDateIN(plan.plannedLoadDate)],
+            ["Delivery Date",  fmtDateIN(plan.plannedDeliveryDate)],
           ].map(([label, val]) => (
             <div key={label}>
               <span className="text-gray-400">{label}: </span>
@@ -1088,7 +1090,7 @@ function PlanDrillDown({ plan, onClose }: { plan: TLPPlanEx; onClose: () => void
         <div className="mt-3 flex gap-4 pt-2.5 border-t border-gray-200 text-xs">
           <span><span className="text-gray-400">POs: </span><span className="font-bold text-gray-800">{uniquePOs}</span></span>
           <span><span className="text-gray-400">Items: </span><span className="font-bold text-gray-800">{plan.items.length}</span></span>
-          <span><span className="text-gray-400">Total Weight: </span><span className="font-bold text-gray-800">{totalWeight.toLocaleString()} kg</span></span>
+          <span><span className="text-gray-400">Total Weight: </span><span className="font-bold text-gray-800">{totalWeight.toLocaleString("en-IN")} kg</span></span>
         </div>
       </div>
 
@@ -1106,7 +1108,7 @@ function PlanDrillDown({ plan, onClose }: { plan: TLPPlanEx; onClose: () => void
                       <span className="inline-flex items-center rounded-md bg-blue-600 px-2 py-0.5 text-[11px] font-semibold text-white">{load.loadType}</span>
                       <span className="text-[11px] text-gray-500">{load.items.length} item{load.items.length !== 1 ? "s" : ""}</span>
                     </div>
-                    <span className="text-[11px] text-gray-600 tabular-nums font-medium">{ltWt.toLocaleString()} kg</span>
+                    <span className="text-[11px] text-gray-600 tabular-nums font-medium">{ltWt.toLocaleString("en-IN")} kg</span>
                   </div>
                   <p className="mt-1.5 text-xs text-gray-700">
                     <span className="text-gray-400">Delivery Address: </span>
@@ -1121,7 +1123,7 @@ function PlanDrillDown({ plan, onClose }: { plan: TLPPlanEx; onClose: () => void
                         <span className="text-gray-700 truncate">{item.paper} · {item.gsm} GSM · {item.size}</span>
                         {item.customerName && <span className="text-blue-600 truncate">· {item.customerName}</span>}
                       </div>
-                      <span className="font-semibold tabular-nums text-gray-800 shrink-0 ml-3">{itemWeight(item).toLocaleString()} kg</span>
+                      <span className="font-semibold tabular-nums text-gray-800 shrink-0 ml-3">{itemWeight(item).toLocaleString("en-IN")} kg</span>
                     </div>
                   ))}
                 </div>
@@ -1159,7 +1161,7 @@ function StatusUpdateModal({ plan, onClose, onSave }: {
           <span className={cn("inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold", STATUS_COLOR[plan.status])}>{plan.status}</span>
         </div>
         <p className="text-xs text-gray-500 mt-1">
-          {uniquePOs} PO{uniquePOs !== 1 ? "s" : ""} · {plan.items.length} item{plan.items.length !== 1 ? "s" : ""} · {totalWeight.toLocaleString()} kg
+          {uniquePOs} PO{uniquePOs !== 1 ? "s" : ""} · {plan.items.length} item{plan.items.length !== 1 ? "s" : ""} · {totalWeight.toLocaleString("en-IN")} kg
           {plan.truckNumber ? ` · ${plan.truckNumber}` : ""}
           {plan.truckType ? ` (${plan.truckType})` : ""}
         </p>
@@ -1268,6 +1270,7 @@ function mapApiItem(item: TruckLoadPlanItemApiDto): TLPItemEx {
     loadType:         item.loadType,
     millInvoiceNo:    item.millInvoiceNo    ?? undefined,
     deliveryBillNo:   item.deliveryBillNo   ?? undefined,
+    shipmentMode:     item.shipmentMode     ?? "Normal",
   };
 }
 
@@ -1312,6 +1315,8 @@ function PlanActionsMenu({ plan, onView, onUpdateStatus, onDelete, onPrint }: {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState({ top: 0, right: 0 });
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareAnchor, setShareAnchor] = useState<{ top: number; right: number } | null>(null);
 
   const toggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1322,6 +1327,23 @@ function PlanActionsMenu({ plan, onView, onUpdateStatus, onDelete, onPrint }: {
     setOpen((v) => !v);
   };
   const act = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); setOpen(false); };
+
+  const { totalWeight } = planTotals(plan);
+  const shareData: ShareData = {
+    title: plan.planNumber,
+    subject: `Truck Load Plan ${plan.planNumber} — ${plan.status}`,
+    text: `Plan: ${plan.planNumber}\nDate: ${fmtDateIN(plan.planDate)}\nTruck: ${plan.truckNumber ?? "—"} (${plan.transporterName ?? "—"})\nLoad Date: ${fmtDateIN(plan.plannedLoadDate)}\nDelivery Date: ${fmtDateIN(plan.plannedDeliveryDate)}\nTotal Weight: ${fmtNumIN(totalWeight)} kg\nStatus: ${plan.status}`,
+  };
+
+  const handleShare = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen(false);
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setShareAnchor({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    }
+    setShareOpen(true);
+  };
 
   return (
     <>
@@ -1344,11 +1366,17 @@ function PlanActionsMenu({ plan, onView, onUpdateStatus, onDelete, onPrint }: {
           <button onClick={act(onPrint)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50">
             <Printer className="h-3.5 w-3.5 text-gray-400" /> Print
           </button>
+          <button onClick={handleShare} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors">
+            <Share2 className="h-3.5 w-3.5 text-blue-500" /> Share
+          </button>
           <div className="my-1 border-t border-gray-100" />
           <button onClick={act(onDelete)} className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-red-600 hover:bg-red-50">
             <Trash2 className="h-3.5 w-3.5" /> Delete
           </button>
         </div>
+      )}
+      {shareOpen && shareAnchor && (
+        <SharePanel data={shareData} anchor={shareAnchor} onClose={() => setShareOpen(false)} />
       )}
     </>
   );
@@ -1519,6 +1547,8 @@ function TruckLoadPlanPage() {
   const handlePrint = (plan: TLPPlanEx) => {
     const { totalWeight, uniquePOs } = planTotals(plan);
     const sortedItems = [...plan.items].sort((a, b) => a.loadOrder - b.loadOrder);
+    const isNormal = (it: TLPItemEx) => it.shipmentMode !== "Blind" && it.shipmentMode !== "InvoiceOverride";
+    const hasCustomer = plan.items.some(it => isNormal(it) && !!it.customerName);
 
     const esc = (s: string | undefined | null) =>
       (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1535,10 +1565,9 @@ function TruckLoadPlanPage() {
           <span class="sub">${it.gsm} GSM &middot; ${esc(it.size)}</span>
         </td>
         <td class="mono">${esc(it.poNumber)}</td>
-        <td>${esc(it.customerName)}</td>
+        ${hasCustomer ? (isNormal(it) ? `<td>${esc(it.customerName)}</td>` : `<td></td>`) : ""}
         <td>${esc(it.deliveryAddress || it.deliveryLocation)}</td>
         <td class="right">${itemWeight(it).toLocaleString("en-IN")}</td>
-        <td>${esc(it.millInvoiceNo)}</td>
       </tr>`).join("");
 
     // ── Truck top-view visualization — PO columns, item sub-cells ───────────
@@ -1708,7 +1737,7 @@ function TruckLoadPlanPage() {
     </div>
     <div style="text-align:right">
       <div class="doc-title">TRUCK LOAD PLAN</div>
-      <div class="plan-no">${esc(plan.planNumber)} &nbsp;&bull;&nbsp; ${esc(plan.planDate)}</div>
+      <div class="plan-no">${esc(plan.planNumber)} &nbsp;&bull;&nbsp; ${esc(fmtDateIN(plan.planDate))}</div>
       <div class="status-badge">${esc(plan.status)}</div>
     </div>
   </div>
@@ -1722,13 +1751,9 @@ function TruckLoadPlanPage() {
       ${field("Transporter", plan.transporterName)}
       ${field("Driver", plan.driverName)}
       ${field("Driver Phone", plan.driverPhone)}
-      ${field("Freight Amount", plan.freightAmount ? "Rs. " + plan.freightAmount.toLocaleString("en-IN") : null)}
       ${field("Origin", plan.origin)}
-      ${field("Delivery Mode", plan.deliveryMode)}
-      ${field("Planned Load Date", plan.plannedLoadDate)}
-      ${field("Planned Delivery Date", plan.plannedDeliveryDate)}
-      ${plan.actualLoadDate     ? field("Actual Load Date",     plan.actualLoadDate)     : ""}
-      ${plan.actualDeliveryDate ? field("Actual Delivery Date", plan.actualDeliveryDate) : ""}
+      ${plan.actualLoadDate     ? field("Actual Load Date",     fmtDateIN(plan.actualLoadDate))     : ""}
+      ${plan.actualDeliveryDate ? field("Actual Delivery Date", fmtDateIN(plan.actualDeliveryDate)) : ""}
     </div>
   </div>
 
@@ -1799,18 +1824,16 @@ function TruckLoadPlanPage() {
           <th class="center" style="width:40px">Load #</th>
           <th style="min-width:120px">Material</th>
           <th style="width:100px">PO Number</th>
-          <th style="width:100px">Customer</th>
+          ${hasCustomer ? '<th style="width:100px">Customer</th>' : ""}
           <th>Delivery Address</th>
           <th class="right" style="width:80px">Weight (kg)</th>
-          <th style="width:90px">Mill Invoice</th>
         </tr>
       </thead>
       <tbody>
         ${itemRows}
         <tr class="totals-row">
-          <td colspan="6" class="right" style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;">Total</td>
+          <td colspan="${hasCustomer ? 6 : 5}" class="right" style="font-size:9px;text-transform:uppercase;letter-spacing:.5px;">Total</td>
           <td class="right">${totalWeight.toLocaleString("en-IN")}</td>
-          <td></td>
         </tr>
       </tbody>
     </table>
@@ -1899,6 +1922,24 @@ function TruckLoadPlanPage() {
     {
       id: "items", accessorKey: "items", header: "POs / Items",
       filterType: "none", enableSorting: false, size: 90,
+      exportColumns: [
+        {
+          header: "PO Numbers",
+          value: (r) => [...new Set((r as any).items?.map((i: any) => i.poNumber) ?? [])].join(", ") || "—",
+        },
+        {
+          header: "Item Codes",
+          value: (r) => (r as any).items?.map((i: any, idx: number) => `${idx + 1}. ${i.paper}`).join("\n") || "—",
+        },
+        {
+          header: "Qty per Item (kg)",
+          value: (r) => (r as any).items?.map((i: any, idx: number) => `${idx + 1}. ${fmtNumIN(itemWeight(i))}`).join("\n") || "—",
+        },
+        {
+          header: "Total Wt (kg)",
+          value: (r) => fmtNumIN(((r as any).items ?? []).reduce((s: number, i: any) => s + itemWeight(i), 0)),
+        },
+      ],
       cell: (info) => {
         const items = info.getValue() as TruckLoadPlanItem[];
         const pos = new Set(items.map((i) => i.poNumber)).size;
@@ -1927,7 +1968,7 @@ function TruckLoadPlanPage() {
       },
     },
     {
-      id: "actions", accessorKey: "id", header: "Actions",
+      id: "_actions", accessorKey: "id", header: "Actions",
       filterType: "none", enableSorting: false, enableHiding: false, size: 60,
       cell: (info) => {
         const plan = info.row.original as TLPPlanEx;

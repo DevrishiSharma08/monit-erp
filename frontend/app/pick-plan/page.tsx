@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo } from "react";
+import { PermGuard } from "@/components/PermGuard";
 import { PickPlan } from "@/data/mockData";
 import { useStock } from "@/context/StockContext";
 import { ClipboardList, CheckSquare, Square, PackageSearch } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 
-export default function PickPlanPage() {
+function PickPlanPage() {
   const { pickPlans } = useStock();
 
   const kpis = useMemo(() => {
@@ -278,4 +279,8 @@ export default function PickPlanPage() {
       />
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="logistics.read"><PickPlanPage /></PermGuard>;
 }

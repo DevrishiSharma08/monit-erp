@@ -599,7 +599,19 @@ export const salesOrderApi = {
   sendEmail:   (id: number, dto: SendMailRequest) =>
                  apiFetch<SendMailResponse>(`${SO_BASE}/${id}/send-email`, { method: "POST", body: JSON.stringify(dto) }),
   downloadPdf: (id: number) => apiDownload(`${SO_BASE}/${id}/pdf`),
+  getLinkedPOs: (id: number) => apiFetch<SoLinkedPo[]>(`${SO_BASE}/${id}/purchase-orders`),
 };
+
+export interface SoLinkedPo {
+  id: number;
+  poNumber: string;
+  orderDate: string;
+  millName: string;
+  status: string;
+  totalValue: number;
+  expectedDeliveryDate?: string;
+  itemCount: number;
+}
 
 // ── Purchase Orders ────────────────────────────────────────────────────────────
 
@@ -740,6 +752,7 @@ export interface TruckLoadPlanItemApiDto {
   loadOrder: number; loadType?: TlpLoadType;
   deliveryLocation?: string; deliveryAddress?: string;
   millInvoiceNo?: string; deliveryBillNo?: string;
+  shipmentMode?: string;
 }
 
 export interface TruckLoadPlanApiDto {

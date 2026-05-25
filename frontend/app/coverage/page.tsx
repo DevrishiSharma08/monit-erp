@@ -1,6 +1,7 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useCallback } from "react";
+import { PermGuard } from "@/components/PermGuard";
 import { SalesOrder, SOLine as SalesOrderLine } from "@/context/SalesOrderContext";
 import { Shield, AlertTriangle, CheckCircle2, Package, Truck, TrendingUp } from "lucide-react";
 import { useStock } from "@/context/StockContext";
@@ -32,7 +33,7 @@ interface CoverageLine {
   lineStatus: SalesOrderLine["status"];
 }
 
-export default function CoveragePage() {
+function CoveragePage() {
   const { stockLots, allocateLot } = useStock();
   const { salesOrders, updateSalesOrder } = useSalesOrder();
   const { success, error } = useToast();
@@ -321,7 +322,7 @@ export default function CoveragePage() {
       },
     },
     {
-      id: "actions",
+      id: "_actions",
       accessorKey: "id",
       header: "Actions",
       filterType: "none",
@@ -450,4 +451,8 @@ export default function CoveragePage() {
       />
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="logistics.read"><CoveragePage /></PermGuard>;
 }

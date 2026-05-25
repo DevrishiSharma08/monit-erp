@@ -96,6 +96,13 @@ public class UserRepository(DbConnectionFactory db) : IUserRepository
         await conn.ExecuteAsync(sql, u);
     }
 
+    public async Task<string?> GetPasswordAsync(int userId)
+    {
+        const string sql = "SELECT Password FROM auth.Users WHERE Id = @UserId AND IsDeleted = 0";
+        using var conn = db.Create();
+        return await conn.ExecuteScalarAsync<string?>(sql, new { UserId = userId });
+    }
+
     public async Task UpdatePasswordAsync(int id, string password, string updatedBy)
     {
         const string sql = "UPDATE auth.Users SET Password=@Password, UpdatedAt=GETUTCDATE(), UpdatedBy=@UpdatedBy WHERE Id=@Id AND IsDeleted=0";

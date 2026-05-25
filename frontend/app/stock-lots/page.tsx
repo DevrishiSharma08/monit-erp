@@ -1,5 +1,7 @@
-
+﻿
 "use client";
+
+import { PermGuard } from "@/components/PermGuard";
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
@@ -803,7 +805,7 @@ function RowActions({ onView, onEdit, onAssignBin, onPrint, onDelete, shareData 
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function StockLotsPage() {
+function StockLotsPage() {
   const [lots, setLots] = useState<StockLotRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -1020,7 +1022,7 @@ export default function StockLotsPage() {
       cell: (info) => <span className="text-gray-400 text-xs">#{info.getValue() as number}</span>,
     },
     {
-      id: "actions", accessorKey: "id", header: "",
+      id: "_actions", accessorKey: "id", header: "",
       filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48,
       cell: (info) => {
         const lot = info.row.original;
@@ -1155,6 +1157,7 @@ export default function StockLotsPage() {
             data={lots}
             columns={columns}
             tableName="stock-lots"
+            exportFilename="Stock_Lots"
             enableFilters={true}
             enablePagination={true}
             enableColumnReordering={true}
@@ -1209,4 +1212,8 @@ export default function StockLotsPage() {
       )}
     </div>
   );
+}
+
+export default function Page() {
+  return <PermGuard perm="stock.read"><StockLotsPage /></PermGuard>;
 }

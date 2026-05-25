@@ -66,6 +66,11 @@ public class SalesOrdersController(ISalesOrderService svc) : ControllerBase
         return Ok(ApiResponse.Ok("Sales order deleted successfully."));
     }
 
+    // GET api/v1/sales-orders/{id}/purchase-orders
+    [HttpGet("{id:int}/purchase-orders")]
+    public async Task<IActionResult> GetLinkedPOs(int id)
+        => Ok(ApiResponse<List<SoLinkedPoDto>>.Ok(await svc.GetLinkedPOsAsync(id)));
+
     [HttpPost("{id:int}/send-email")]
     public async Task<IActionResult> SendEmail(int id, [FromBody] SendMailRequestDto dto)
         => Ok(ApiResponse<SendMailResponseDto>.Ok(

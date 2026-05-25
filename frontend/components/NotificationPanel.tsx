@@ -12,6 +12,7 @@ import {
   CheckCheck,
   Trash2,
   Bell,
+  Boxes,
 } from "lucide-react";
 import { useNotifications, type NotifType, type AppNotification } from "@/context/NotificationContext";
 
@@ -51,6 +52,12 @@ const TYPE_CONFIG: Record<
     accent: "border-l-emerald-500",
     badge: "bg-emerald-500/15 text-emerald-400",
   },
+  STOCK: {
+    label: "Stock",
+    Icon: Boxes,
+    accent: "border-l-orange-500",
+    badge: "bg-orange-500/15 text-orange-400",
+  },
 };
 
 const TABS: { key: "ALL" | NotifType | "UNREAD"; label: string }[] = [
@@ -61,6 +68,7 @@ const TABS: { key: "ALL" | NotifType | "UNREAD"; label: string }[] = [
   { key: "TLP", label: "TLP" },
   { key: "GRN", label: "GRN" },
   { key: "MILL", label: "Mill" },
+  { key: "STOCK", label: "Stock" },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
