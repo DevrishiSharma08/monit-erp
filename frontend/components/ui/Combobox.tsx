@@ -191,12 +191,16 @@ export function Combobox({
         </div>
       </div>
 
-      {/* Dropdown */}
+      {/* Dropdown — expands wider than the input when content needs it, so
+          long option labels (e.g. "Maplitho 70 GSM (MAP)" + mill sub-text)
+          don't get truncated inside narrow modal columns. Capped at 480px so
+          it doesn't overflow viewport. */}
       {open && (
         <ul
           ref={listRef}
           className={cn(
-            "absolute left-0 right-0 z-50 mt-1 max-h-56 overflow-y-auto",
+            "absolute left-0 z-50 mt-1 max-h-56 overflow-y-auto",
+            "min-w-full w-max max-w-[480px]",
             "rounded-xl border border-gray-100 bg-white py-1 shadow-lg shadow-gray-200/60",
             "[&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
           )}
@@ -221,11 +225,11 @@ export function Combobox({
                   isActive ? "bg-blue-50" : "hover:bg-gray-50"
                 )}
               >
-                <span className="flex-1 truncate text-gray-900">
+                <span className="flex-1 whitespace-nowrap text-gray-900">
                   {opt.label}
                 </span>
                 {opt.sub && (
-                  <span className="text-xs text-gray-400 truncate max-w-[120px]">
+                  <span className="text-xs text-gray-400 whitespace-nowrap max-w-[160px] truncate">
                     {opt.sub}
                   </span>
                 )}

@@ -12,7 +12,8 @@ public class TruckLoadPlanService(
 ) : ITruckLoadPlanService
 {
     // ── Valid status progression ──────────────────────────────────────────────
-    private static readonly string[] StatusSeq = ["Planned", "Loading", "In Transit", "Delivered"];
+    // Note: migration 28 renamed 'In Transit' → 'Dispatched' and 'Delivered' → 'Received'
+    private static readonly string[] StatusSeq = ["Planned", "Loading", "Dispatched", "Received"];
 
     // ── Queries ───────────────────────────────────────────────────────────────
 
@@ -38,9 +39,7 @@ public class TruckLoadPlanService(
         if (string.IsNullOrWhiteSpace(dto.PlannedLoadDate))
             throw new ValidationException("Planned load date is required.");
 
-        var planNumber = await GeneratePlanNumberAsync();
-
-        var planId = await planRepo.CreateAsync(dto, planNumber, createdBy);
+        var planId = await planRepo.CreateAsync(dto, createdBy);
         return await GetByIdAsync(planId);
     }
 
@@ -65,10 +64,10 @@ public class TruckLoadPlanService(
         // ── Persist plan status ───────────────────────────────────────────────
         await planRepo.UpdateStatusAsync(id, dto, updatedBy);
 
-        // ── When truck moves to "In Transit" → sync mill trackers ─────────────
+        // ── When truck moves to "Dispatched" → sync mill trackers ─────────────
         // This is the key business rule: mill dispatch dispatched qty advances
         // and status becomes Dispatched / Partial Dispatched accordingly.
-        if (dto.Status == "In Transit")
+        if (dto.Status == "Dispatched")
             await SyncTrackerDispatchAsync(plan, updatedBy);
 
         return await GetByIdAsync(id);
@@ -82,16 +81,7 @@ public class TruckLoadPlanService(
         await planRepo.SoftDeleteAsync(id, deletedBy);
     }
 
-    // ── Private: plan number generation ──────────────────────────────────────
-
-    private async Task<string> GeneratePlanNumberAsync()
-    {
-        var count = await planRepo.CountAsync();
-        var year  = DateTime.UtcNow.Year;
-        return $"TLP-{year}-{(count + 1):D3}";
-    }
-
-    // ── Private: update mill tracker DispatchedQty when truck goes In Transit ─
+    // ── Private: update mill tracker DispatchedQty when truck goes Dispatched ─
 
     private async Task SyncTrackerDispatchAsync(TruckLoadPlanDto plan, string updatedBy)
     {

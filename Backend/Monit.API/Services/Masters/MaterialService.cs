@@ -121,14 +121,17 @@ public class MaterialService(
     }
 
     // e.g.  ITC/COTE/80/72x100  or  ITC/COTE/CK/80/72x100  (with brand)
+    // Stored material codes are brand-less by client decision (codes were
+    // getting too long). The brand can still be re-inserted into the SO
+    // display ad-hoc via SalesOrders.ShowBrandInItemCode — that's a runtime
+    // re-composition; the stored Code itself never carries the brand.
+    // brandName parameter kept in signature for backward-compat with callers.
     private static string ComposeCode(string millCode, string qualityName, string? brandName, int gsm, decimal sizeLength, decimal? sizeWidth)
     {
-        var len      = Dim(sizeLength);
-        var size     = sizeWidth.HasValue ? $"{len}x{Dim(sizeWidth.Value)}" : len;
-        var qualPart = string.IsNullOrWhiteSpace(brandName)
-            ? qualityName.ToUpper()
-            : $"{qualityName.ToUpper()}/{brandName.ToUpper()}";
-        return $"{millCode.ToUpper()}/{qualPart}/{gsm}/{size}";
+        _ = brandName;          // intentionally unused — see comment above
+        var len  = Dim(sizeLength);
+        var size = sizeWidth.HasValue ? $"{len}x{Dim(sizeWidth.Value)}" : len;
+        return $"{millCode.ToUpper()}/{qualityName.ToUpper()}/{gsm}/{size}";
     }
 
     private static string Dim(decimal d) => d % 1 == 0 ? ((int)d).ToString() : d.ToString("0.##");

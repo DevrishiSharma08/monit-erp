@@ -8,7 +8,7 @@ namespace Monit.API.Repositories.Config;
 public class CompanyConfigRepository(DbConnectionFactory db) : ICompanyConfigRepository
 {
     private const string SelectCols = @"
-        SELECT Id, CompanyName, Address, GstNumber,
+        SELECT Id, CompanyName, Address, GstNumber, PanNumber,
                InsurancePolicyNo, InsurancePolicyFy, InsuranceIssuer,
                SmtpSenderEmail, SmtpSenderName, SmtpAppPassword, UpdatedAt, UpdatedBy
         FROM   system.CompanyConfig";
@@ -36,6 +36,7 @@ public class CompanyConfigRepository(DbConnectionFactory db) : ICompanyConfigRep
                 CompanyName       = CASE WHEN @CompanyName       IS NULL THEN CompanyName       ELSE NULLIF(@CompanyName,       '') END,
                 Address           = CASE WHEN @Address           IS NULL THEN Address           ELSE NULLIF(@Address,           '') END,
                 GstNumber         = CASE WHEN @GstNumber         IS NULL THEN GstNumber         ELSE NULLIF(@GstNumber,         '') END,
+                PanNumber         = CASE WHEN @PanNumber         IS NULL THEN PanNumber         ELSE NULLIF(@PanNumber,         '') END,
                 InsurancePolicyNo = CASE WHEN @InsurancePolicyNo IS NULL THEN InsurancePolicyNo ELSE NULLIF(@InsurancePolicyNo, '') END,
                 InsurancePolicyFy = CASE WHEN @InsurancePolicyFy IS NULL THEN InsurancePolicyFy ELSE NULLIF(@InsurancePolicyFy, '') END,
                 InsuranceIssuer   = CASE WHEN @InsuranceIssuer   IS NULL THEN InsuranceIssuer   ELSE NULLIF(@InsuranceIssuer,   '') END,
@@ -45,11 +46,11 @@ public class CompanyConfigRepository(DbConnectionFactory db) : ICompanyConfigRep
                 UpdatedAt         = @UpdatedAt,
                 UpdatedBy         = @UpdatedBy
             WHEN NOT MATCHED THEN INSERT
-                (Id, CompanyName, Address, GstNumber,
+                (Id, CompanyName, Address, GstNumber, PanNumber,
                  InsurancePolicyNo, InsurancePolicyFy, InsuranceIssuer,
                  SmtpSenderEmail, SmtpSenderName, SmtpAppPassword, UpdatedAt, UpdatedBy)
             VALUES
-                (@Id, NULLIF(@CompanyName, ''), NULLIF(@Address, ''), NULLIF(@GstNumber, ''),
+                (@Id, NULLIF(@CompanyName, ''), NULLIF(@Address, ''), NULLIF(@GstNumber, ''), NULLIF(@PanNumber, ''),
                  @InsurancePolicyNo, @InsurancePolicyFy, @InsuranceIssuer,
                  @SmtpSenderEmail, @SmtpSenderName, NULLIF(@SmtpAppPassword, ''), @UpdatedAt, @UpdatedBy);";
         using var conn = db.Create();

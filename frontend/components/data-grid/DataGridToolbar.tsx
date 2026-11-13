@@ -19,6 +19,17 @@ interface DataGridToolbarProps<TData> {
   onClearFilters?: () => void;
   rowDensity?: RowDensity;
   onRowDensityChange?: (d: RowDensity) => void;
+  // Override for the "Export → PDF" action. The page receives the source rows
+  // (selected if any are ticked, otherwise the full filtered set) and is
+  // expected to call the relevant rich-PDF endpoint.
+  onPdfExport?:    (rows: TData[]) => Promise<void> | void;
+  // Optional "Export → PDF (Separate ZIP)" — when provided the menu shows a
+  // second PDF entry that ships one PDF per row inside a ZIP archive.
+  onPdfZipExport?: (rows: TData[]) => Promise<void> | void;
+  // Optional "Export → JPG" — when provided the menu shows a JPG entry that
+  // downloads one image file per row directly (no ZIP), so the user can
+  // forward each file immediately.
+  onImageExport?: (rows: TData[]) => Promise<void> | void;
 }
 
 const DENSITY_ORDER: RowDensity[] = ["compact", "normal", "comfortable"];
@@ -39,6 +50,9 @@ export function DataGridToolbar<TData>({
   onClearFilters,
   rowDensity = "normal",
   onRowDensityChange,
+  onPdfExport,
+  onPdfZipExport,
+  onImageExport,
 }: DataGridToolbarProps<TData>) {
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
@@ -68,7 +82,10 @@ export function DataGridToolbar<TData>({
 
   const globalFilter = (table.getState().globalFilter as string) ?? "";
 
-  // Build export data from current filtered + visible rows
+  // Build export data from current filtered + visible rows.
+  // When the user has ticked any row checkboxes (row selection enabled), we
+  // export ONLY those rows. Otherwise we fall back to the full filtered set —
+  // preserves the original behavior for pages that don't opt into selection.
   const getExportData = () => {
     const visibleCols = table
       .getAllLeafColumns()
@@ -77,7 +94,11 @@ export function DataGridToolbar<TData>({
       typeof col.columnDef.header === "string" ? col.columnDef.header : col.id
     );
     const configMap = new Map(columnConfigs.map((c) => [c.id, c]));
-    const rows = table.getFilteredRowModel().rows.map((row: any) =>
+    const selectedRows = table.getSelectedRowModel().rows;
+    const sourceRows = selectedRows.length > 0
+      ? selectedRows
+      : table.getFilteredRowModel().rows;
+    const rows = sourceRows.map((row: any) =>
       visibleCols.map((col: any) => {
         const config = configMap.get(col.id);
         if (config?.exportValue) {
@@ -93,6 +114,10 @@ export function DataGridToolbar<TData>({
     );
     return { headers, rows };
   };
+
+  // Selection counters for the toolbar badge
+  const selectedCount = table.getSelectedRowModel().rows.length;
+  const filteredCount = table.getFilteredRowModel().rows.length;
 
   const handleFilterChange = (columnId: string, value: string) => {
     table.getColumn(columnId)?.setFilterValue(value || undefined);
@@ -141,8 +166,10 @@ export function DataGridToolbar<TData>({
         </div>
       </div>
 
-      {/* ── Mobile: buttons row (below search) | Desktop: single row with search inline ── */}
-      <div className="flex items-center gap-2 px-3 py-2.5 sm:border-t-0 border-t border-gray-100">
+      {/* ── Mobile: buttons row (below search) | Desktop: single row with
+          search inline. flex-wrap on the row so dense toolbars don't
+          overflow on narrow phones. ── */}
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 sm:border-t-0 border-t border-gray-100">
         {/* Desktop-only inline search */}
         <div className="relative flex-1 hidden sm:block">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 pointer-events-none" />
@@ -299,9 +326,40 @@ export function DataGridToolbar<TData>({
           </div>
         )}
 
-        {/* Export dropdown */}
+        {/* Export dropdown — when rows are ticked, show a small chip so the
+            user knows the export will only include selected rows. */}
         {enableExport && (
-          <ExportMenu getData={getExportData} filename={exportFilename} />
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {selectedCount > 0 && (
+              <span
+                className="hidden sm:inline-flex items-center rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                title={`Export will include ${selectedCount} selected row${selectedCount === 1 ? "" : "s"} (of ${filteredCount} filtered).`}
+              >
+                {selectedCount} selected
+              </span>
+            )}
+            <ExportMenu
+              getData={getExportData}
+              filename={exportFilename}
+              customPdfExport={onPdfExport ? async () => {
+                // Hand the page either the selected rows OR the filtered set —
+                // same logic the CSV / Excel / Word exports use.
+                const sel = table.getSelectedRowModel().rows;
+                const src = sel.length > 0 ? sel : table.getFilteredRowModel().rows;
+                await onPdfExport(src.map((r: any) => r.original as TData));
+              } : undefined}
+              customPdfZipExport={onPdfZipExport ? async () => {
+                const sel = table.getSelectedRowModel().rows;
+                const src = sel.length > 0 ? sel : table.getFilteredRowModel().rows;
+                await onPdfZipExport(src.map((r: any) => r.original as TData));
+              } : undefined}
+              customImageExport={onImageExport ? async () => {
+                const sel = table.getSelectedRowModel().rows;
+                const src = sel.length > 0 ? sel : table.getFilteredRowModel().rows;
+                await onImageExport(src.map((r: any) => r.original as TData));
+              } : undefined}
+            />
+          </div>
         )}
 
         {/* Toolbar actions (e.g. Add button) */}

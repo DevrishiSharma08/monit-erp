@@ -108,11 +108,17 @@ public class AuthService(
 
     private void SetRefreshCookie(HttpResponse response, string token, DateTime expiry)
     {
+        // SameSite=Strict broke production: Vercel frontend and the API server
+        // live on different origins, and Strict tells the browser to NOT send
+        // the cookie on cross-site requests — refresh always failed → user got
+        // logged out on every page reload. In Production we need SameSite=None
+        // (paired with Secure=true so browsers accept it). Dev is same-origin
+        // (localhost↔localhost) so Strict + non-Secure keeps working there.
         response.Cookies.Append(RefreshCookieName, token, new CookieOptions
         {
             HttpOnly = true,
             Secure   = !env.IsDevelopment(),
-            SameSite = SameSiteMode.Strict,
+            SameSite = env.IsDevelopment() ? SameSiteMode.Strict : SameSiteMode.None,
             Expires  = expiry,
             Path     = "/api/v1/auth"
         });
@@ -124,7 +130,7 @@ public class AuthService(
         {
             HttpOnly = true,
             Secure   = !env.IsDevelopment(),
-            SameSite = SameSiteMode.Strict,
+            SameSite = env.IsDevelopment() ? SameSiteMode.Strict : SameSiteMode.None,
             Expires  = expiry,
             Path     = "/api/v1/auth"
         });
@@ -132,11 +138,13 @@ public class AuthService(
 
     private void DeleteRefreshCookie(HttpResponse response)
     {
+        // SameSite must match what we set during Append, otherwise the browser
+        // treats it as a different cookie and the delete is a no-op.
         response.Cookies.Delete(RefreshCookieName, new CookieOptions
         {
             HttpOnly = true,
             Secure   = !env.IsDevelopment(),
-            SameSite = SameSiteMode.Strict,
+            SameSite = env.IsDevelopment() ? SameSiteMode.Strict : SameSiteMode.None,
             Path     = "/api/v1/auth"
         });
     }
@@ -147,7 +155,7 @@ public class AuthService(
         {
             HttpOnly = true,
             Secure   = !env.IsDevelopment(),
-            SameSite = SameSiteMode.Strict,
+            SameSite = env.IsDevelopment() ? SameSiteMode.Strict : SameSiteMode.None,
             Path     = "/api/v1/auth"
         });
     }

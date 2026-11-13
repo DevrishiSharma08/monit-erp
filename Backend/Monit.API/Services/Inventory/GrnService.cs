@@ -5,7 +5,9 @@ using Monit.API.Services.Interfaces;
 
 namespace Monit.API.Services.Inventory;
 
-public class GrnService(IGrnRepository repo) : IGrnService
+public class GrnService(
+    IGrnRepository              repo,
+    IDeliveryChallanService     dcService) : IGrnService
 {
     // ── Allowed status transitions ────────────────────────────────────────────
     private static readonly Dictionary<string, string[]> ValidTransitions = new(StringComparer.OrdinalIgnoreCase)
@@ -45,8 +47,8 @@ public class GrnService(IGrnRepository repo) : IGrnService
         if (dto.ReceivedQty <= 0)
             throw new ArgumentException("ReceivedQty must be greater than zero.");
         if (prevQty + dto.ReceivedQty > ctx.OrderedQty)
-            throw new InvalidOperationException(
-                $"Cannot receive {dto.ReceivedQty:N3} MT — only {ctx.OrderedQty - prevQty:N3} MT remaining against this tracker.");
+            throw new Common.Middleware.ConflictException(
+                $"Cannot receive {dto.ReceivedQty:N3} kg — only {ctx.OrderedQty - prevQty:N3} kg remaining against this tracker (ordered {ctx.OrderedQty:N3} kg, already received {prevQty:N3} kg).");
 
         // 3. Compute delivery routing split
         var (deliveryMode, stockQty, directQty, directClientId) =
@@ -87,6 +89,13 @@ public class GrnService(IGrnRepository repo) : IGrnService
             await repo.CreateStockLotAsync(grn.Id, ctx, cv.LotNumber, stockQty, ctx.Rate, fifoSeq, createdBy);
         }
 
+        // Auto-DC creation intentionally removed (Option 2 — single-flow design):
+        // Every Delivery Challan is now created MANUALLY from the
+        // "Pending SO Closure" KPI on the Delivery Challan page. The picker
+        // there reads the GRN's leftover DirectQty as an available source and
+        // auto-fills transport details (vehicle / LR / transporter / driver)
+        // back into the DC form so the user doesn't have to retype them.
+
         return grn;
     }
 
@@ -112,7 +121,7 @@ public class GrnService(IGrnRepository repo) : IGrnService
         if (ValidTransitions.TryGetValue(existing.Status, out var allowed)
             && !allowed.Contains(dto.Status, StringComparer.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException(
+            throw new Common.Middleware.ConflictException(
                 $"Cannot transition GRN from '{existing.Status}' to '{dto.Status}'.");
         }
 
@@ -143,7 +152,7 @@ public class GrnService(IGrnRepository repo) : IGrnService
             ?? throw new KeyNotFoundException($"GRN {id} not found.");
 
         if (existing.Status.Equals("Stock Updated", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException(
+            throw new Common.Middleware.ConflictException(
                 "Cannot delete a GRN with status 'Stock Updated'. Stock has already been updated.");
 
         await repo.SoftDeleteAsync(id, deletedBy);
@@ -173,7 +182,7 @@ public class GrnService(IGrnRepository repo) : IGrnService
     private static (string, decimal, decimal, int?) ComputeSplit(CreateGrnDto dto, decimal goodQty, int? clientId)
     {
         if (dto.DirectQty <= 0 || dto.DirectQty >= goodQty)
-            throw new InvalidOperationException(
+            throw new Common.Middleware.ValidationException(
                 "Split delivery requires DirectQty > 0 and less than (ReceivedQty − DamagedQty).");
 
         return ("Split", goodQty - dto.DirectQty, dto.DirectQty, clientId);

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Monit.API.Common.Middleware;
 using Monit.API.Common.Response;
 using Monit.API.Models.DTOs.Masters;
 using Monit.API.Services.Interfaces;
@@ -15,7 +16,7 @@ public class MillsController(IMillService millService) : ControllerBase
                                ?? User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value
                                ?? "system";
 
-    // ─── GET api/v1/masters/mills
+    // â”€â”€â”€ GET api/v1/masters/mills
     // Query: search, state, paymentTerms, freightType, isActive,
     //        sortBy, sortOrder, page, pageSize
     [HttpGet]
@@ -25,12 +26,19 @@ public class MillsController(IMillService millService) : ControllerBase
         return Ok(ApiResponse<PagedResult<MillListDto>>.Ok(result));
     }
 
-    // ─── GET api/v1/masters/mills/dropdown
+    // â”€â”€â”€ GET api/v1/masters/mills/dropdown
     [HttpGet("dropdown")]
     public async Task<IActionResult> Dropdown()
         => Ok(ApiResponse<List<MillDropdownDto>>.Ok(await millService.GetDropdownAsync()));
 
-    // ─── GET api/v1/masters/mills/{id}
+    // Flat unit-level picker â€” one row per mill UNIT, used by PO Form and any
+    // other page where the user should pick "ITC Paperboards â€” Bhadrachalam"
+    // directly instead of picking mill then unit in two steps.
+    [HttpGet("unit-picker")]
+    public async Task<IActionResult> UnitPicker()
+        => Ok(ApiResponse<List<MillUnitPickerDto>>.Ok(await millService.GetUnitPickerAsync()));
+
+    // â”€â”€â”€ GET api/v1/masters/mills/{id}
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
     {
@@ -38,9 +46,9 @@ public class MillsController(IMillService millService) : ControllerBase
         return Ok(ApiResponse<MillDetailDto>.Ok(result));
     }
 
-    // ─── POST api/v1/masters/mills
+    // â”€â”€â”€ POST api/v1/masters/mills
     [HttpPost]
-    [Authorize(Roles = "Admin,Manager")]
+    [RequirePerm("masters.write")]
     public async Task<IActionResult> Create([FromBody] CreateMillDto dto)
     {
         var result = await millService.CreateAsync(dto, CurrentUser);
@@ -48,26 +56,26 @@ public class MillsController(IMillService millService) : ControllerBase
             ApiResponse<MillDetailDto>.Ok(result, "Mill created successfully."));
     }
 
-    // ─── PUT api/v1/masters/mills/{id}
+    // â”€â”€â”€ PUT api/v1/masters/mills/{id}
     [HttpPut("{id:int}")]
-    [Authorize(Roles = "Admin,Manager")]
+    [RequirePerm("masters.write")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateMillDto dto)
     {
         var result = await millService.UpdateAsync(id, dto, CurrentUser);
         return Ok(ApiResponse<MillDetailDto>.Ok(result, "Mill updated successfully."));
     }
 
-    // ─── DELETE api/v1/masters/mills/{id}
+    // â”€â”€â”€ DELETE api/v1/masters/mills/{id}
     [HttpDelete("{id:int}")]
-    [Authorize(Roles = "Admin")]
+    [RequirePerm("masters.delete")]
     public async Task<IActionResult> Delete(int id)
     {
         await millService.DeleteAsync(id, CurrentUser);
         return Ok(ApiResponse.Ok("Mill deleted successfully."));
     }
 
-    // ─── GET api/v1/masters/mills/export?format=excel|pdf|word
-    // All active filters are applied — exports full filtered result (no pagination).
+    // â”€â”€â”€ GET api/v1/masters/mills/export?format=excel|pdf|word
+    // All active filters are applied â€” exports full filtered result (no pagination).
     [HttpGet("export")]
     public async Task<IActionResult> Export([FromQuery] MillFilterRequest filter,
                                             [FromQuery] string format = "excel")

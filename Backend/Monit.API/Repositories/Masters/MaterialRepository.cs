@@ -17,8 +17,8 @@ public class MaterialRepository(DbConnectionFactory db) : IMaterialRepository
                m.GSM,
                m.SizeLength, m.SizeWidth,
                CASE WHEN m.SizeWidth IS NULL
-                    THEN CAST(CAST(m.SizeLength AS INT) AS NVARCHAR(20))
-                    ELSE CAST(CAST(m.SizeLength AS INT) AS NVARCHAR(20)) + 'x' + CAST(CAST(m.SizeWidth AS INT) AS NVARCHAR(20))
+                    THEN FORMAT(m.SizeLength, '0.##')
+                    ELSE FORMAT(m.SizeLength, '0.##') + 'x' + FORMAT(m.SizeWidth, '0.##')
                END AS SizeLabel,
                m.PackingType, m.SheetsPerPacket, m.PacketsPerBundle, m.BundlesPerBox,
                sg.Alias AS BrandName,
@@ -26,8 +26,8 @@ public class MaterialRepository(DbConnectionFactory db) : IMaterialRepository
                m.Description, m.IsActive, m.CreatedAt
         FROM   masters.Materials       m
         JOIN   masters.Mills           ml ON ml.Id = m.MillId
-        JOIN   masters.StockSubGroups  sg ON sg.Id = m.QualityId
-        JOIN   masters.ItemTypes       it ON it.Id = m.ItemTypeId
+        LEFT JOIN masters.StockSubGroups  sg ON sg.Id = m.QualityId
+        LEFT JOIN masters.ItemTypes       it ON it.Id = m.ItemTypeId
         LEFT JOIN masters.HsnCodes     h  ON h.Id  = m.HsnCodeId AND h.IsDeleted = 0";
 
     public async Task<PagedResult<MaterialListDto>> GetAllAsync(MaterialFilterRequest f)
@@ -60,8 +60,8 @@ public class MaterialRepository(DbConnectionFactory db) : IMaterialRepository
                    m.GSM,
                    m.SizeLength, m.SizeWidth,
                    CASE WHEN m.SizeWidth IS NULL
-                        THEN CAST(CAST(m.SizeLength AS INT) AS NVARCHAR(20))
-                        ELSE CAST(CAST(m.SizeLength AS INT) AS NVARCHAR(20)) + 'x' + CAST(CAST(m.SizeWidth AS INT) AS NVARCHAR(20))
+                        THEN FORMAT(m.SizeLength, '0.##')
+                        ELSE FORMAT(m.SizeLength, '0.##') + 'x' + FORMAT(m.SizeWidth, '0.##')
                    END AS SizeLabel,
                    m.PackingType, m.SheetsPerPacket, m.PacketsPerBundle, m.BundlesPerBox,
                    sg.Alias AS BrandName,
@@ -69,8 +69,8 @@ public class MaterialRepository(DbConnectionFactory db) : IMaterialRepository
                    m.Description, m.IsActive, m.CreatedAt, m.UpdatedAt, m.UpdatedBy
             FROM   masters.Materials       m
             JOIN   masters.Mills           ml ON ml.Id = m.MillId
-            JOIN   masters.StockSubGroups  sg ON sg.Id = m.QualityId
-            JOIN   masters.ItemTypes       it ON it.Id = m.ItemTypeId
+            LEFT JOIN masters.StockSubGroups  sg ON sg.Id = m.QualityId
+            LEFT JOIN masters.ItemTypes       it ON it.Id = m.ItemTypeId
             LEFT JOIN masters.HsnCodes     h  ON h.Id  = m.HsnCodeId AND h.IsDeleted = 0
             WHERE  m.Id = @Id AND m.IsDeleted = 0";
         using var conn = db.Create();
@@ -88,16 +88,16 @@ public class MaterialRepository(DbConnectionFactory db) : IMaterialRepository
                    m.MillId, ml.Name AS MillName, m.QualityId, sg.Name AS QualityName, it.Name AS ItemTypeName,
                    m.GSM, m.SizeLength, m.SizeWidth,
                    CASE WHEN m.SizeWidth IS NULL
-                        THEN CAST(CAST(m.SizeLength AS INT) AS NVARCHAR(20))
-                        ELSE CAST(CAST(m.SizeLength AS INT) AS NVARCHAR(20)) + 'x' + CAST(CAST(m.SizeWidth AS INT) AS NVARCHAR(20))
+                        THEN FORMAT(m.SizeLength, '0.##')
+                        ELSE FORMAT(m.SizeLength, '0.##') + 'x' + FORMAT(m.SizeWidth, '0.##')
                    END AS SizeLabel,
                    m.PackingType, m.SheetsPerPacket, m.PacketsPerBundle, m.BundlesPerBox,
                    sg.Alias AS BrandName,
                    m.HsnCodeId, h.Code AS HsnCode, h.GstPercent, m.Grain
             FROM   masters.Materials       m
             JOIN   masters.Mills           ml ON ml.Id = m.MillId
-            JOIN   masters.StockSubGroups  sg ON sg.Id = m.QualityId
-            JOIN   masters.ItemTypes       it ON it.Id = m.ItemTypeId
+            LEFT JOIN masters.StockSubGroups  sg ON sg.Id = m.QualityId
+            LEFT JOIN masters.ItemTypes       it ON it.Id = m.ItemTypeId
             LEFT JOIN masters.HsnCodes     h  ON h.Id  = m.HsnCodeId AND h.IsDeleted = 0
             WHERE  {where}
             ORDER BY m.Code";

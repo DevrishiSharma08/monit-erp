@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using Microsoft.AspNetCore.Http;
 using Monit.API.Common.Helpers;
 using Monit.API.Common.Middleware;
 using Monit.API.Common.Response;
@@ -14,6 +16,7 @@ public class PurchaseOrderService(
     IEmailService              emailSvc,
     IPurchaseOrderPdfService   pdfSvc,
     ICompanyConfigService      companyCfgSvc,
+    IHttpContextAccessor       http,
     AppConfig                  cfg) : IPurchaseOrderService
 {
     public Task<PagedResult<PurchaseOrderListDto>> GetAllAsync(PurchaseOrderFilterRequest filter)
@@ -42,6 +45,8 @@ public class PurchaseOrderService(
         if (dto.MillId <= 0)           throw new ValidationException("Mill is required.");
         if (dto.Items.Count == 0)      throw new ValidationException("At least one item is required.");
 
+        await GuardMaterialSpecChangeAsync(oldPo, dto.Items);
+
         var po = MapToListDto(dto);
         if (!string.IsNullOrEmpty(dto.Status)) po.Status = dto.Status;
         await repo.UpdateAsync(id, po, dto.Items, updatedBy);
@@ -65,6 +70,16 @@ public class PurchaseOrderService(
     {
         await GetByIdAsync(id);
         await repo.SoftDeleteAsync(id, deletedBy);
+    }
+
+    public async Task<PurchaseOrderListDto> CancelAsync(int id, CancelPurchaseOrderDto dto, string cancelledBy)
+    {
+        await GetByIdAsync(id);   // ensures it exists
+        var reason = dto.Reason?.Trim() ?? "";
+        if (reason.Length == 0)
+            throw new ValidationException("A cancellation reason is required.");
+        await repo.CancelAsync(id, reason, cancelledBy);
+        return await GetByIdAsync(id);
     }
 
     public async Task<SendMailResponseDto> SendEmailAsync(int id, SendMailRequestDto dto)
@@ -92,9 +107,63 @@ public class PurchaseOrderService(
         return await BuildPdfAsync(po);
     }
 
+    public async Task<byte[]> GetImageAsync(int id)
+    {
+        var po = await GetByIdAsync(id);
+        var c  = await companyCfgSvc.GetAsync(http.GetCompanyId());
+        return pdfSvc.GenerateImage(
+            po,
+            c.CompanyName ?? cfg.CompanyName,
+            c.Address     ?? cfg.CompanyAddress,
+            c.GstNumber   ?? "");
+    }
+
+    public async Task<byte[]> GetBulkPdfAsync(int[] ids)
+    {
+        var pos = new List<PurchaseOrderListDto>();
+        foreach (var id in ids)
+        {
+            try { pos.Add(await GetByIdAsync(id)); }
+            catch { /* skip missing ids */ }
+        }
+        var c = await companyCfgSvc.GetAsync(http.GetCompanyId());
+        return pdfSvc.GenerateBulk(
+            pos,
+            c.CompanyName ?? cfg.CompanyName,
+            c.Address     ?? cfg.CompanyAddress,
+            c.GstNumber   ?? "");
+    }
+
+    public async Task<byte[]> GetBulkPdfZipAsync(int[] ids)
+    {
+        // ZIP — one PDF per PO, file names match the single-PDF endpoint.
+        var c              = await companyCfgSvc.GetAsync(http.GetCompanyId());
+        var companyName    = c.CompanyName ?? cfg.CompanyName;
+        var companyAddress = c.Address     ?? cfg.CompanyAddress;
+        var companyGst     = c.GstNumber   ?? "";
+        var today          = DateTime.Today.ToString("yyyyMMdd");
+
+        using var ms = new MemoryStream();
+        using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var id in ids)
+            {
+                PurchaseOrderListDto po;
+                try { po = await GetByIdAsync(id); }
+                catch { continue; }
+                var pdfBytes   = pdfSvc.Generate(po, companyName, companyAddress, companyGst);
+                var safeNumber = po.PONumber.Replace("/", "-").Replace("\\", "-");
+                var entry      = zip.CreateEntry($"PO_{safeNumber}_{today}.pdf", CompressionLevel.Fastest);
+                using var es   = entry.Open();
+                es.Write(pdfBytes, 0, pdfBytes.Length);
+            }
+        }
+        return ms.ToArray();
+    }
+
     private async Task<byte[]> BuildPdfAsync(PurchaseOrderListDto po)
     {
-        var c = await companyCfgSvc.GetAsync(1);
+        var c = await companyCfgSvc.GetAsync(http.GetCompanyId());
         return pdfSvc.Generate(
             po,
             c.CompanyName ?? cfg.CompanyName,
@@ -102,15 +171,52 @@ public class PurchaseOrderService(
             c.GstNumber   ?? "");
     }
 
+    // Material/GSM/Size/Quantity may only be edited while the item's mill
+    // tracker (if any) is still sitting at "Order Placed" — once the mill
+    // has reported any Ready/Dispatched/etc. progress against the ORIGINAL
+    // spec, changing what was ordered (including the quantity itself) would
+    // silently disagree with what's already being produced. Matches items
+    // by LineNumber since UpsertPurchaseOrderItemDto (the incoming shape)
+    // carries no item Id — only the DB-side items do.
+    private async Task GuardMaterialSpecChangeAsync(PurchaseOrderListDto oldPo, List<UpsertPurchaseOrderItemDto> newItems)
+    {
+        var oldByLine = oldPo.Items.ToDictionary(i => i.LineNumber);
+        var changedItemIds = new List<int>();
+        foreach (var newItem in newItems)
+        {
+            if (!oldByLine.TryGetValue(newItem.LineNumber, out var oldItem)) continue; // brand-new line — nothing to guard
+            var changed = oldItem.MaterialId != newItem.MaterialId
+                       || oldItem.GSM != newItem.GSM
+                       || !string.Equals(oldItem.Size, newItem.Size, StringComparison.Ordinal)
+                       || oldItem.Quantity != newItem.Quantity
+                       || oldItem.WeightKg != newItem.WeightKg;
+            if (changed) changedItemIds.Add(oldItem.Id);
+        }
+        if (changedItemIds.Count == 0) return;
+
+        var blocking = await millTrackerRepo.GetBlockingStatusesForPoItemsAsync(changedItemIds);
+        if (blocking.Count == 0) return;
+
+        var lines = oldPo.Items
+            .Where(i => blocking.ContainsKey(i.Id))
+            .Select(i => $"Line {i.LineNumber} (status: {blocking[i.Id]})");
+        throw new ValidationException(
+            $"Cannot change Material/GSM/Size/Quantity — mill production has already started: {string.Join(", ", lines)}. " +
+            "These fields are only editable while the item's status is \"Order Placed\".");
+    }
+
     private static PurchaseOrderListDto MapToListDto(CreatePurchaseOrderDto dto) => new()
     {
         MillId                = dto.MillId,
+        MillUnitId            = dto.MillUnitId,
         OrderDate             = dto.OrderDate,
         POType                = dto.POType,
         LinkedSOId            = dto.LinkedSOId,
         DeliveryMode          = dto.DeliveryMode,
         ShipmentMode          = dto.ShipmentMode ?? "Normal",
         BlindShipment         = dto.BlindShipment,
+        ShowDeliveryParty     = dto.ShowDeliveryParty,
+        ShowCustomerName      = dto.ShowCustomerName,
         InvoiceParty          = dto.InvoiceParty,
         InvoicePartyId        = dto.InvoicePartyId,
         DirectCustomerId      = dto.DirectCustomerId,
@@ -118,11 +224,14 @@ public class PurchaseOrderService(
         ExpectedDeliveryDate  = dto.ExpectedDeliveryDate,
         MillSONumber          = dto.MillSONumber,
         PaymentTerms          = dto.PaymentTerms,
+        InsurancePolicyNo     = dto.InsurancePolicyNo,
         TotalQuantity         = dto.TotalQuantity,
         TotalValue            = dto.TotalValue,
         Status                = "Approval Pending",
         GSTPercentage         = dto.GSTPercentage,
         Remarks               = dto.Remarks,
         SpecialInstructions   = dto.SpecialInstructions,
+        IsBackfilled          = dto.IsBackfilled,
+        PONumber              = dto.PONumber,
     };
 }

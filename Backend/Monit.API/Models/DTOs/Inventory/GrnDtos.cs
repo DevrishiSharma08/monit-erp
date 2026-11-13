@@ -21,6 +21,10 @@ public class GrnListDto
     // Mill / Material
     public int      MillId                { get; set; }
     public string   MillName              { get; set; } = string.Empty;
+    // Picked unit on the source PO (when present) — surfaced so the GRN
+    // grid can display Mill column unit-aware like MOT / PO grids:
+    // unit name primary, mill name as fallback.
+    public string?  MillUnitName          { get; set; }
     public int      MaterialId            { get; set; }
     public string   Paper                 { get; set; } = string.Empty;
     public int?     Gsm                   { get; set; }
@@ -124,8 +128,52 @@ public class GrnDetailDto : GrnListDto
     public string?  TlpTruckNumber       { get; set; }
     public string?  TlpTransporter       { get; set; }
 
+    // Dispatch link (new — first-stage receipt before warehouse takes over)
+    public int?     DispatchReceiptId    { get; set; }
+    public string?  DispatchNumber       { get; set; }
+
+    // Multi-row packings (replaces the flat PackingType/SheetsPerPacket fields
+    // for new GRNs. Legacy fields on GrnListDto remain for back-compat.)
+    public List<GrnPackingDto> Packings  { get; set; } = [];
+
     // Status log
     public List<GrnStatusLogDto> StatusLog { get; set; } = [];
+}
+
+// ─── GRN packing row (child of GRN — supports multiple per GRN) ─────────────
+// PackingFormat: 'Sheet'  — sheets/packets/bundles populated, BatchNo NULL
+//                'Reel'   — BatchNo + WeightKg, sheet fields NULL
+
+public class GrnPackingDto
+{
+    public int      Id               { get; set; }
+    public int      GrnId            { get; set; }
+    public string   PackingFormat    { get; set; } = "Sheet";   // 'Sheet' | 'Reel'
+
+    // Sheet packing
+    public int?     SheetsPerPacket  { get; set; }
+    public int?     NoOfPackets      { get; set; }
+    public int?     PacketsPerBundle { get; set; }
+    public int?     NoOfBundles      { get; set; }
+
+    // Reel packing
+    public string?  BatchNo          { get; set; }
+
+    // Common
+    public decimal  WeightKg         { get; set; }
+    public string?  Remarks          { get; set; }
+}
+
+public class CreateGrnPackingDto
+{
+    public string   PackingFormat    { get; set; } = "Sheet";
+    public int?     SheetsPerPacket  { get; set; }
+    public int?     NoOfPackets      { get; set; }
+    public int?     PacketsPerBundle { get; set; }
+    public int?     NoOfBundles      { get; set; }
+    public string?  BatchNo          { get; set; }
+    public decimal  WeightKg         { get; set; }
+    public string?  Remarks          { get; set; }
 }
 
 // ─── Status log entry ─────────────────────────────────────────────────────────
@@ -147,6 +195,7 @@ public class CreateGrnDto
 {
     public int      MillTrackerId         { get; set; }   // resolves PO/Material/Mill
     public int?     SourceLoadPlanId      { get; set; }   // the TLP that delivered
+    public int?     DispatchReceiptId     { get; set; }   // first-stage receipt this GRN consumes
     public string   GrnDate               { get; set; } = string.Empty;
 
     // Invoice / challan refs
@@ -189,12 +238,18 @@ public class CreateGrnDto
     public decimal  UnloadingCharges      { get; set; }
     public bool     InvoiceEligible       { get; set; } = true;
 
-    // Packing format
+    // Packing format — legacy flat fields (kept for back-compat with old GRN
+    // entries). For new GRNs prefer the Packings list below which supports
+    // multiple rows and reel batch-wise tracking.
     public string   PackingType           { get; set; } = "Sheets";
     public int?     SheetsPerPacket       { get; set; }
     public int?     PacketsPerBundle      { get; set; }
     public int?     NoOfPackets           { get; set; }
     public int?     NoOfBundles           { get; set; }
+
+    // Multi-row packings (new). Sheet → fill SheetsPerPacket/NoOfPackets etc.
+    // Reel  → fill BatchNo + WeightKg per batch.
+    public List<CreateGrnPackingDto> Packings { get; set; } = [];
 
     // Misc
     public string?  ReceivedBy            { get; set; }

@@ -20,6 +20,12 @@ public class RateService(
     public Task<List<SORateDto>> GetForCustomerAsync(int customerId)
         => repo.GetForCustomerAsync(customerId);
 
+    public Task<List<LastRateDto>> GetLastSoRatesForCustomerAsync(int customerId)
+        => repo.GetLastSoRatesForCustomerAsync(customerId);
+
+    public Task<List<LastRateDto>> GetLastPoRatesForMillAsync(int millId)
+        => repo.GetLastPoRatesForMillAsync(millId);
+
     public Task<List<RateHistoryDto>> GetHistoryAsync(int rateId)
         => repo.GetHistoryAsync(rateId);
 
@@ -76,54 +82,83 @@ public class RateService(
         if (dto.GsmMax <= 0 || dto.GsmMax < dto.GsmMin) errors.Add("GSM Max must be >= GSM Min.");
         if (string.IsNullOrWhiteSpace(dto.Type) || (dto.Type != "Reel" && dto.Type != "Sheet"))
             errors.Add("Type must be 'Reel' or 'Sheet'.");
-        if (dto.Amount <= 0)                             errors.Add("Rate must be greater than zero.");
         if (dto.EffectiveFrom == default)                errors.Add("Effective From date is required.");
         if (string.IsNullOrWhiteSpace(dto.RateCategory)) errors.Add("Rate Category is required.");
         else if (dto.RateCategory != "Self" && dto.RateCategory != "Customer")
                                                           errors.Add("Rate Category must be 'Self' or 'Customer'.");
         if (dto.RateCategory == "Customer" && (dto.CustomerIds == null || dto.CustomerIds.Count == 0))
                                                           errors.Add("At least one customer is required for Customer category.");
+
+        // Build the list of (MillUnitId, Amount, Discount) entries to insert.
+        // When UnitRates is provided + non-empty, each entry becomes its own
+        // Rate row. Else fall back to the legacy Amount field as a single
+        // mill-wide entry (MillUnitId = NULL).
+        var unitEntries = (dto.UnitRates ?? new())
+            .Where(u => u.Amount > 0)
+            .ToList();
+        if (unitEntries.Count == 0)
+        {
+            if (dto.Amount <= 0) errors.Add("Rate must be greater than zero.");
+            unitEntries.Add(new PurchaseUnitRateEntry { MillUnitId = null, Amount = dto.Amount, Discount = dto.Discount });
+        }
+        else
+        {
+            // Each entry's Amount must be > 0; fail fast on bad rows
+            for (var i = 0; i < unitEntries.Count; i++)
+            {
+                if (unitEntries[i].Amount <= 0)
+                    errors.Add($"Unit rate row {i + 1}: Rate must be greater than zero.");
+            }
+        }
         if (errors.Count > 0) throw new ValidationException(errors);
 
-        var mqgId      = await FindOrCreateMQGAsync(dto.MillId, dto.QualityId, dto.GsmMin, dto.GsmMax, dto.Type, createdBy);
-        var now        = DateTime.UtcNow;
+        var mqgId       = await FindOrCreateMQGAsync(dto.MillId, dto.QualityId, dto.GsmMin, dto.GsmMax, dto.Type, createdBy);
+        var now         = DateTime.UtcNow;
         var insertedIds = new List<int>();
 
         if (dto.RateCategory == "Self")
         {
-            var id = await repo.CreateAsync(new Rate
-            {
-                MQGId         = mqgId,
-                RateType      = "Purchase",
-                RateCategory  = "Self",
-                CustomerId    = null,
-                Amount        = dto.Amount,
-                Discount      = dto.Discount,
-                EffectiveFrom = dto.EffectiveFrom,
-                IsActive      = true,
-                CreatedAt     = now,
-                CreatedBy     = createdBy
-            });
-            insertedIds.Add(id);
-        }
-        else
-        {
-            foreach (var customerId in dto.CustomerIds!.Where(id => id > 0).Distinct())
+            foreach (var ur in unitEntries)
             {
                 var id = await repo.CreateAsync(new Rate
                 {
                     MQGId         = mqgId,
+                    MillUnitId    = ur.MillUnitId,
                     RateType      = "Purchase",
-                    RateCategory  = "Customer",
-                    CustomerId    = customerId,
-                    Amount        = dto.Amount,
-                    Discount      = dto.Discount,
+                    RateCategory  = "Self",
+                    CustomerId    = null,
+                    Amount        = ur.Amount,
+                    Discount      = ur.Discount,
                     EffectiveFrom = dto.EffectiveFrom,
                     IsActive      = true,
                     CreatedAt     = now,
                     CreatedBy     = createdBy
                 });
                 insertedIds.Add(id);
+            }
+        }
+        else
+        {
+            foreach (var customerId in dto.CustomerIds!.Where(id => id > 0).Distinct())
+            {
+                foreach (var ur in unitEntries)
+                {
+                    var id = await repo.CreateAsync(new Rate
+                    {
+                        MQGId         = mqgId,
+                        MillUnitId    = ur.MillUnitId,
+                        RateType      = "Purchase",
+                        RateCategory  = "Customer",
+                        CustomerId    = customerId,
+                        Amount        = ur.Amount,
+                        Discount      = ur.Discount,
+                        EffectiveFrom = dto.EffectiveFrom,
+                        IsActive      = true,
+                        CreatedAt     = now,
+                        CreatedBy     = createdBy
+                    });
+                    insertedIds.Add(id);
+                }
             }
         }
 

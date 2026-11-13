@@ -10,6 +10,7 @@ import {
   Package, PackageCheck, PackageMinus, AlertTriangle,
   MoreVertical, Eye, Pencil, Trash2, Printer, CheckCircle2,
   MapPin, Loader2, RefreshCw, Plus, Minus, Warehouse, Share2,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
@@ -57,7 +58,7 @@ function printStockLot(lot: StockLotDetailRow) {
     @media print{body{padding:16px}}
   </style></head><body>
   <div class="hdr">
-    <div><div class="co">MONIT PAPER AGENCY</div>
+    <div><div class="co">MONIT PAPER SALES AGENCY</div>
     <div class="co-sub">Paper Trading · Indore, Madhya Pradesh</div>
     <div class="co-sub">GST: 23XXXXX0000X1Z5 · Ph: +91-XXXXXXXXXX</div></div>
     <div class="gt"><h2>STOCK LOCATION RECORD</h2><div class="num">${lot.lotNumber}</div>
@@ -811,7 +812,7 @@ export default function StockLotsPage() {
   const [viewId, setViewId] = useState<number | null>(null);
   const [editLot, setEditLot] = useState<StockLotRow | null>(null);
   const [binAssignLot, setBinAssignLot] = useState<StockLotRow | null>(null);
-  const [showPendingBin, setShowPendingBin] = useState(false);
+  const [showPendingBin, setShowPendingBin] = useState(true);
 
   // ── Load data ──────────────────────────────────────────────────────────────
 
@@ -837,6 +838,11 @@ export default function StockLotsPage() {
   // ── Pending bin (lots without bin assignment) ──────────────────────────────
 
   const pendingBin = useMemo(() => lots.filter((l) => !l.binLocation), [lots]);
+  const [pendingBinPage, setPendingBinPage] = useState(0);
+  const pendingBinPageSize = 15;
+  const pendingBinPageCount = Math.max(1, Math.ceil(pendingBin.length / pendingBinPageSize));
+  const pendingBinSafePage = Math.min(pendingBinPage, pendingBinPageCount - 1);
+  const pagedPendingBin = pendingBin.slice(pendingBinSafePage * pendingBinPageSize, pendingBinSafePage * pendingBinPageSize + pendingBinPageSize);
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
 
@@ -890,6 +896,27 @@ export default function StockLotsPage() {
   // ── Columns ────────────────────────────────────────────────────────────────
 
   const columns: ColumnConfig<StockLotRow>[] = useMemo(() => [
+    {
+      id: "actions", accessorKey: "id", header: "",
+      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48, sticky: "left",
+      cell: (info) => {
+        const lot = info.row.original;
+        return (
+          <RowActions
+            onView={() => setViewId(lot.id)}
+            onAssignBin={() => setBinAssignLot(lot)}
+            onEdit={() => setEditLot(lot)}
+            onPrint={() => handlePrintRow(lot.id)}
+            onDelete={async () => { if (confirm(`Delete lot ${lot.lotNumber}?`)) await handleDelete(lot.id); }}
+            shareData={{
+              title: lot.lotNumber,
+              subject: `Stock Lot ${lot.lotNumber} — ${lot.paper}`,
+              text: `Stock Lot: ${lot.lotNumber}\nGRN: ${lot.grnNumber}\nMill: ${lot.millName}\nMaterial: ${lot.paper}${lot.gsm ? ` ${lot.gsm}GSM` : ""}${lot.size ? ` ${lot.size}` : ""}\nAvailable Qty: ${lot.availableQty}\nWarehouse: ${lot.warehouseName ?? "—"}${lot.binLocation ? ` (${lot.binLocation})` : ""}`,
+            }}
+          />
+        );
+      },
+    },
     {
       id: "lotNumber", accessorKey: "lotNumber", header: "Lot Number",
       filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 150,
@@ -1005,39 +1032,18 @@ export default function StockLotsPage() {
       filterType: "none", enableSorting: true, defaultVisible: false, size: 70,
       cell: (info) => <span className="text-gray-400 text-xs">#{info.getValue() as number}</span>,
     },
-    {
-      id: "actions", accessorKey: "id", header: "",
-      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48,
-      cell: (info) => {
-        const lot = info.row.original;
-        return (
-          <RowActions
-            onView={() => setViewId(lot.id)}
-            onAssignBin={() => setBinAssignLot(lot)}
-            onEdit={() => setEditLot(lot)}
-            onPrint={() => handlePrintRow(lot.id)}
-            onDelete={async () => { if (confirm(`Delete lot ${lot.lotNumber}?`)) await handleDelete(lot.id); }}
-            shareData={{
-              title: lot.lotNumber,
-              subject: `Stock Lot ${lot.lotNumber} — ${lot.paper}`,
-              text: `Stock Lot: ${lot.lotNumber}\nGRN: ${lot.grnNumber}\nMill: ${lot.millName}\nMaterial: ${lot.paper}${lot.gsm ? ` ${lot.gsm}GSM` : ""}${lot.size ? ` ${lot.size}` : ""}\nAvailable Qty: ${lot.availableQty}\nWarehouse: ${lot.warehouseName ?? "—"}${lot.binLocation ? ` (${lot.binLocation})` : ""}`,
-            }}
-          />
-        );
-      },
-    },
   ], [qualityOptions, statusOptions]);
 
   return (
-    <div className="space-y-6 pb-24">
+    <div className="flex h-[calc(100vh-112px)] flex-col gap-4 overflow-hidden">
 
       {/* KPI Cards */}
-      <div className="kpi-grid grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="kpi-grid grid grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-6 flex-shrink-0">
 
         {/* Pending Bin — special interactive card */}
         <button
           onClick={() => setShowPendingBin((v) => !v)}
-          className={`group relative overflow-hidden rounded-2xl p-3 sm:p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:scale-[0.98] ${
+          className={`group relative overflow-hidden rounded-2xl p-2.5 sm:p-3.5 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:scale-[0.98] ${
             showPendingBin
               ? "bg-amber-500 shadow-amber-200"
               : pendingBin.length > 0
@@ -1051,13 +1057,13 @@ export default function StockLotsPage() {
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
             </span>
           )}
-          <p className={`text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate ${showPendingBin ? "text-white/80" : "text-amber-500"}`}>Pending Bin</p>
-          <p className={`mt-1.5 text-2xl sm:text-4xl font-black leading-none tabular-nums animate-kpi-value ${showPendingBin ? "text-white" : pendingBin.length > 0 ? "text-amber-700" : "text-gray-500"}`}>{pendingBin.length}</p>
-          <p className={`mt-1 text-[10px] sm:text-xs truncate ${showPendingBin ? "text-white/70" : "text-gray-500"}`}>
+          <p className={`text-[9px] sm:text-[10px] font-semibold uppercase tracking-wider truncate ${showPendingBin ? "text-white/80" : "text-amber-500"}`}>Pending Bin</p>
+          <p className={`mt-1 text-xl sm:text-3xl font-black leading-none tabular-nums animate-kpi-value ${showPendingBin ? "text-white" : pendingBin.length > 0 ? "text-amber-700" : "text-gray-500"}`}>{pendingBin.length}</p>
+          <p className={`mt-0.5 text-[9px] sm:text-[11px] truncate ${showPendingBin ? "text-white/70" : "text-gray-500"}`}>
             {showPendingBin ? "Click to hide" : pendingBin.length > 0 ? "Needs bin" : "All assigned"}
           </p>
           <div className={`pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] ${showPendingBin ? "text-white" : "text-amber-500"}`}>
-            <MapPin className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
+            <MapPin className="h-14 w-14 sm:h-16 sm:w-16" strokeWidth={1} />
           </div>
         </button>
 
@@ -1068,21 +1074,22 @@ export default function StockLotsPage() {
           { label: "Exhausted",     value: kpis.exhausted, sub: "Empty lots",    icon: PackageMinus, iconBg: "bg-gray-100",  iconColor: "text-gray-500"   },
           { label: "Total Stock",   value: `${(kpis.totalQty/1000).toFixed(1)}K`, sub: `Avail: ${(kpis.availQty/1000).toFixed(1)}K kg`, icon: Package, iconBg: "bg-emerald-50", iconColor: "text-emerald-500" },
         ].map(({ label, value, sub, icon: Icon, iconBg, iconColor }) => (
-          <div key={label} className={`group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${iconBg}`}>
-            <p className={`text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate ${iconColor}`}>{label}</p>
-            <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{value}</p>
-            <p className="mt-1 text-[10px] sm:text-xs text-gray-500 truncate">{sub}</p>
+          <div key={label} className={`group relative overflow-hidden rounded-2xl border border-white/80 p-2.5 sm:p-3.5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${iconBg}`}>
+            <p className={`text-[9px] sm:text-[10px] font-semibold uppercase tracking-wider truncate ${iconColor}`}>{label}</p>
+            <p className="mt-1 text-xl sm:text-3xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{value}</p>
+            <p className="mt-0.5 text-[9px] sm:text-[11px] text-gray-500 truncate">{sub}</p>
             <div className={`pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18] ${iconColor}`}>
-              <Icon className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
+              <Icon className="h-14 w-14 sm:h-16 sm:w-16" strokeWidth={1} />
             </div>
           </div>
         ))}
       </div>
 
+      <div className="flex flex-1 min-h-0 flex-col overflow-y-auto">
       {/* Pending Bin Panel */}
       {showPendingBin && (
-        <div className="rounded-xl border border-indigo-200 bg-white shadow-sm overflow-hidden">
-          <div className="flex items-center gap-2 px-5 py-3.5 border-b border-indigo-100 bg-indigo-50">
+        <div className="flex flex-1 min-h-0 flex-col rounded-xl border border-indigo-200 bg-white shadow-sm overflow-hidden">
+          <div className="flex-shrink-0 flex items-center gap-2 px-5 py-3.5 border-b border-indigo-100 bg-indigo-50">
             <MapPin className="h-4 w-4 text-indigo-600" />
             <h2 className="text-sm font-bold text-indigo-900">Lots Without Bin Assignment</h2>
             <span className="rounded-full bg-indigo-500 px-2 py-0.5 text-[10px] font-bold text-white">{pendingBin.length}</span>
@@ -1091,17 +1098,17 @@ export default function StockLotsPage() {
           {pendingBin.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-gray-400">All lots have bin locations assigned.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="flex-1 min-h-0 overflow-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100">
+                  <tr className="sticky top-0 z-20 bg-gray-50 border-b border-gray-100">
                     {["Lot #", "GRN #", "Material", "Current Qty", "Warehouse", "Status", ""].map((h) => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap bg-gray-50">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {pendingBin.map((lot) => (
+                  {pagedPendingBin.map((lot) => (
                     <tr key={lot.id} className="hover:bg-indigo-50/20 transition-colors">
                       <td className="px-4 py-3 font-mono font-medium text-gray-900 text-xs">{lot.lotNumber}</td>
                       <td className="px-4 py-3 font-mono font-medium text-blue-600 text-xs">{lot.grnNumber}</td>
@@ -1126,17 +1133,44 @@ export default function StockLotsPage() {
               </table>
             </div>
           )}
+          {pendingBin.length > 0 && (
+            <div className="flex-shrink-0 flex items-center justify-between border-t px-4 py-2">
+              <p className="text-xs text-gray-600">
+                Showing {pendingBinSafePage * pendingBinPageSize + 1} to {Math.min((pendingBinSafePage + 1) * pendingBinPageSize, pendingBin.length)} of {pendingBin.length} items
+              </p>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setPendingBinPage((p) => Math.max(0, p - 1))}
+                  disabled={pendingBinSafePage === 0}
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${pendingBinSafePage === 0 ? "border-gray-200 text-gray-400 cursor-not-allowed" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <span className="px-1 text-xs text-gray-500">{pendingBinSafePage + 1} / {pendingBinPageCount}</span>
+                <button
+                  onClick={() => setPendingBinPage((p) => Math.min(pendingBinPageCount - 1, p + 1))}
+                  disabled={pendingBinSafePage >= pendingBinPageCount - 1}
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${pendingBinSafePage >= pendingBinPageCount - 1 ? "border-gray-200 text-gray-400 cursor-not-allowed" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Grid */}
       {!showPendingBin && (
-        <div className="relative">
+        <div className="relative flex flex-1 min-h-0 flex-col">
           {loading && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 rounded-xl">
               <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
             </div>
           )}
+          <div className="flex flex-1 min-h-0 flex-col">
           <DataGrid
             data={lots}
             columns={columns}
@@ -1145,11 +1179,13 @@ export default function StockLotsPage() {
             enablePagination={true}
             enableColumnReordering={true}
             enableColumnVisibility={true}
+            scrollMaxHeight="100%"
             initialPageSize={pageSize}
             onRowClick={(lot) => setViewId(lot.id)}
             emptyMessage="No stock locations found. Stock entries are created automatically when a GRN is processed."
           />
-          <div className="flex items-center justify-between px-1 pt-2 text-xs text-gray-400">
+          </div>
+          <div className="flex items-center justify-between px-1 pt-2 text-xs text-gray-400 flex-shrink-0">
             <span>{total.toLocaleString()} total entries</span>
             <button onClick={() => load(page)} className="flex items-center gap-1 hover:text-gray-600">
               <RefreshCw className="h-3 w-3" /> Refresh
@@ -1157,6 +1193,7 @@ export default function StockLotsPage() {
           </div>
         </div>
       )}
+      </div>
 
       {/* View Modal */}
       {viewId !== null && (

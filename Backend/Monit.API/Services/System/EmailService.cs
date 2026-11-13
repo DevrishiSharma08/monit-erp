@@ -17,10 +17,10 @@ public class EmailService(ICompanyConfigRepository configRepo) : IEmailService
 
         if (string.IsNullOrWhiteSpace(cfg.SmtpSenderEmail) ||
             string.IsNullOrWhiteSpace(cfg.SmtpAppPassword))
-            throw new InvalidOperationException(
+            throw new Common.Middleware.ValidationException(
                 "SMTP credentials not configured. Go to Company Settings → Email & SMTP.");
 
-        var senderName  = cfg.SmtpSenderName?.Trim() ?? "Monit Paper Agency";
+        var senderName  = cfg.SmtpSenderName?.Trim() ?? "Monit Paper Sales Agency";
         var senderEmail = cfg.SmtpSenderEmail.Trim();
         var appPassword = cfg.SmtpAppPassword.Trim();
 

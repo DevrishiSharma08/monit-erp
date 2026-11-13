@@ -19,6 +19,7 @@ public class PurchaseOrder : BaseEntity
     public DateOnly? ExpectedDeliveryDate  { get; set; }
     public string?  MillSONumber           { get; set; }
     public string?  PaymentTerms           { get; set; }
+    public string?  InsurancePolicyNo      { get; set; }
     public decimal  TotalQuantity          { get; set; } = 0;
     public decimal  TotalValue             { get; set; } = 0;
     public string   Status                 { get; set; } = "Approval Pending";

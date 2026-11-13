@@ -14,7 +14,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Monit Paper Agency - ERP System",
+  title: "Monit Paper Sales Agency - ERP System",
   description: "Complete paper trading automation solution",
   manifest: "/manifest.json",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "Monit Paper" },

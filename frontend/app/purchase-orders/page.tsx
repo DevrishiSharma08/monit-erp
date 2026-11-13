@@ -7,7 +7,7 @@ import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
 import {
   Factory, Clock, CheckCircle2, Truck, Plus, IndianRupee,
   ShoppingCart, ChevronUp, ChevronDown,
-  MoreVertical, Eye, Pencil, Trash2, Printer, Mail, Share2,
+  MoreVertical, Eye, Pencil, Trash2, Printer, Mail, Share2, Ban, ImageIcon,
 } from "lucide-react";
 import { EmailModal, EmailFormData, EmailContact } from "@/components/EmailModal";
 import { DataGrid } from "@/components/data-grid/DataGrid";
@@ -17,12 +17,14 @@ import { Modal } from "@/components/Modal";
 import { KpiCard } from "@/components/ui/KpiCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useSalesOrder, SalesOrder } from "@/context/SalesOrderContext";
+import { useCompanySettings } from "@/context/CompanySettingsContext";
 import { useToast } from "@/context/ToastContext";
 import { poApi, PORow, POItemRow, CreatePODto, millApi } from "@/lib/api-services";
 import { SharePanel, ShareData } from "@/components/ShareMenu";
 import { emailSentCache } from "@/lib/emailSentCache";
 import { cn } from "@/lib/utils";
 import { lineWeightKg, lineSheetCount } from "@/lib/weight";
+import { printPdfBlob } from "@/lib/printPdf";
 
 // ─── SO status colours (for inline SO view modal) ─────────────────────────────
 
@@ -52,6 +54,7 @@ const STATUS_COLOR: Record<string, string> = {
   "Dispatched":       "bg-orange-50 text-orange-600",
   "Part Received":    "bg-teal-50 text-teal-600",
   "Completed":        "bg-emerald-50 text-emerald-600",
+  "Cancelled":        "bg-rose-50 text-rose-600",
 };
 
 const STATUS_OPTIONS = Object.keys(STATUS_COLOR).map((v) => ({ label: v, value: v }));
@@ -67,6 +70,7 @@ const PO_TYPE_COLORS: Record<string, string> = {
 function PurchaseOrdersPage() {
   const { pendingPoSOs, linkPO } = useSalesOrder();
   const { success, error: showError } = useToast();
+  const { config: companyConfig } = useCompanySettings();
 
   const [pos, setPos]                       = useState<PORow[]>([]);
   const [loadingPos, setLoadingPos]         = useState(true);
@@ -77,6 +81,9 @@ function PurchaseOrdersPage() {
   const [viewOrder, setViewOrder]           = useState<PORow | null>(null);
   const [viewSO, setViewSO]                 = useState<SalesOrder | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  const [cancelTarget, setCancelTarget]     = useState<PORow | null>(null);
+  const [cancelReasonInput, setCancelReasonInput] = useState("");
+  const [cancelBusy, setCancelBusy]         = useState(false);
   const [emailOrder, setEmailOrder]         = useState<PORow | null>(null);
   const [emailContacts, setEmailContacts]   = useState<EmailContact[]>([]);
   const [emailSentIds, setEmailSentIds]     = useState<Set<number>>(() => emailSentCache.getPoIds());
@@ -112,13 +119,64 @@ function PurchaseOrdersPage() {
   // ── PO table columns ───────────────────────────────────────────────────────
   const columns: ColumnConfig<PORow>[] = useMemo(() => [
     {
+      id: "actions", accessorKey: "id", header: "",
+      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48, sticky: "left",
+      cell: (info) => {
+        const po = info.row.original;
+        return (
+          <PORowActions
+            po={po}
+            onView={() => setViewOrder(po)}
+            onEdit={() => { setSourceSO(null); setEditingOrder(po); setShowForm(true); }}
+            onDelete={() => setDeleteConfirmId(po.id)}
+            onCancel={() => { setCancelTarget(po); setCancelReasonInput(""); }}
+            onPrint={async () => {
+              try {
+                const { blob } = await poApi.downloadPdf(po.id);
+                printPdfBlob(blob);
+              } catch (e) {
+                showError(e instanceof Error ? e.message : "Print failed.");
+              }
+            }}
+            onExportImage={async () => {
+              try {
+                const { blob, filename } = await poApi.downloadImage(po.id);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename || `PO_${po.poNumber.replace(/\//g, "-")}.jpg`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              } catch (e) {
+                showError(e instanceof Error ? e.message : "Image export failed.");
+              }
+            }}
+            onSendMail={() => openEmailModal(po)}
+            mailSent={emailSentIds.has(po.id)}
+          />
+        );
+      },
+    },
+    {
       id: "poNumber", accessorKey: "poNumber", header: "PO Number",
       filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 200, align: "left" as const, noTruncate: true,
       cell: (info) => {
         const po = info.row.original;
         return (
           <div className="flex flex-col gap-0.5">
-            <span className="font-semibold text-purple-700">{info.getValue() as string}</span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="font-semibold text-purple-700">{info.getValue() as string}</span>
+              {po.isBackfilled && (
+                <span
+                  title="Backfilled / historical PO entered from the manual register"
+                  className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 uppercase border border-amber-200"
+                >
+                  Backfill
+                </span>
+              )}
+            </span>
             {(po.shipmentMode === "Blind" || po.blindShipment) && (
               <span className="inline-flex w-fit rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">Blind</span>
             )}
@@ -148,17 +206,40 @@ function PurchaseOrdersPage() {
       },
     },
     {
-      id: "millName", accessorKey: "millName", header: "Mill",
-      filterType: "text", enableSorting: true, defaultVisible: true, size: 160, align: "left" as const,
-    },
-    {
-      id: "millUnitName", accessorKey: "millUnitName", header: "Mill Unit",
-      filterType: "text", enableSorting: false, defaultVisible: true, size: 130, align: "left" as const,
+      // Single "Mill" column per client UAT — when a Mill Unit was picked on
+      // the PO, that unit's name is what shows here (since items are
+      // unit-wise). POs whose mill has no units fall back to the mill name.
+      // Filter + sort both work on the same composite value so the user can
+      // type the unit name and find rows directly.
+      id: "millName",
+      accessorKey: "millName",
+      header: "Mill",
+      filterType: "text",
+      enableSorting: true,
+      defaultVisible: true,
+      size: 200,
+      align: "left" as const,
       cell: (info) => {
-        const v = info.getValue() as string | undefined;
-        return v
-          ? <span className="text-xs font-medium text-blue-700">{v}</span>
-          : <span className="text-xs text-gray-300">—</span>;
+        const po = info.row.original;
+        const unit = po.millUnitName?.trim();
+        return unit
+          ? (
+            <div className="leading-tight">
+              <div className="text-xs font-semibold text-blue-700">{unit}</div>
+              <div className="text-[10px] text-gray-400">{po.millName}</div>
+            </div>
+          )
+          : <span className="text-sm text-gray-800">{po.millName || "—"}</span>;
+      },
+      // Used by global search + the per-column text filter so typing unit
+      // name OR mill name matches the row.
+      accessorFn: (po: PORow) => {
+        const unit = po.millUnitName?.trim();
+        return unit ? `${unit} (${po.millName})` : (po.millName ?? "");
+      },
+      exportValue: (po: PORow) => {
+        const unit = po.millUnitName?.trim();
+        return unit ? `${po.millName} — ${unit}` : (po.millName ?? "");
       },
     },
     {
@@ -253,29 +334,25 @@ function PurchaseOrdersPage() {
         return <span className={cn("inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium", STATUS_COLOR[s] ?? "bg-gray-50 text-gray-600")}>{s}</span>;
       },
     },
-    {
-      id: "actions", accessorKey: "id", header: "",
-      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48,
-      cell: (info) => {
-        const po = info.row.original;
-        return (
-          <PORowActions
-            po={po}
-            onView={() => setViewOrder(po)}
-            onEdit={() => { setSourceSO(null); setEditingOrder(po); setShowForm(true); }}
-            onDelete={() => setDeleteConfirmId(po.id)}
-            onPrint={() => {}}
-            onSendMail={() => openEmailModal(po)}
-            mailSent={emailSentIds.has(po.id)}
-          />
-        );
-      },
-    },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [emailSentIds]);
 
   // ── Pending SO table columns ──────────────────────────────────────────────
   const pendingSOColumns: ColumnConfig<SalesOrder>[] = useMemo(() => [
+    {
+      id: "actions", accessorKey: "id", header: "",
+      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48, sticky: "left",
+      cell: (info) => {
+        const so = info.row.original as SalesOrder;
+        return (
+          <PendingSORowActions
+            so={so}
+            onRaisePO={() => handleCreateFromSO(so)}
+            onViewSO={() => setViewSO(so)}
+          />
+        );
+      },
+    },
     {
       id: "soNumber", accessorKey: "soNumber", header: "SO Number",
       filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 130,
@@ -311,7 +388,7 @@ function PurchaseOrdersPage() {
       filterType: "none", enableSorting: false, defaultVisible: true, size: 110,
       cell: (info) => {
         const so = info.row.original as SalesOrder;
-        const totalWt  = so.lines.reduce((s, l) => s + (l.weightKg ?? l.orderedQty ?? 0), 0);
+        const totalWt  = so.lines.reduce((s, l) => s + lineWeightKg(l), 0);
         const totalQty = so.lines.reduce((s, l) => s + (l.qty ?? 0), 0);
         return (
           <div className="text-xs text-gray-700">
@@ -335,20 +412,6 @@ function PurchaseOrdersPage() {
     {
       id: "salesman", accessorKey: "salesman", header: "Salesman",
       filterType: "text", enableSorting: false, defaultVisible: true, size: 120,
-    },
-    {
-      id: "actions", accessorKey: "id", header: "",
-      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48,
-      cell: (info) => {
-        const so = info.row.original as SalesOrder;
-        return (
-          <PendingSORowActions
-            so={so}
-            onRaisePO={() => handleCreateFromSO(so)}
-            onViewSO={() => setViewSO(so)}
-          />
-        );
-      },
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
@@ -379,6 +442,13 @@ function PurchaseOrdersPage() {
       const updated = await poApi.update(editId, { ...dto, status: editingOrder?.status });
       setPos((prev) => prev.map((p) => p.id === editId ? updated : p));
       success("Purchase order updated.");
+      // Editing never auto-resends the PDF/email to the mill — reopen the
+      // View modal right after saving so the "resend to mill?" reminder
+      // (computed from updatedAt vs emailSentAt) is immediately visible
+      // instead of the user just landing back on the grid unaware.
+      if (updated.status !== "Approval Pending" && updated.status !== "Cancelled") {
+        setViewOrder(updated);
+      }
     } else {
       const created = await poApi.create(dto);
       setPos((prev) => [created, ...prev]);
@@ -392,10 +462,36 @@ function PurchaseOrdersPage() {
 
   const handleDelete = async () => {
     if (!deleteConfirmId) return;
-    await poApi.remove(deleteConfirmId);
-    setPos((prev) => prev.filter((p) => p.id !== deleteConfirmId));
-    success("Purchase order deleted.");
-    setDeleteConfirmId(null);
+    try {
+      await poApi.remove(deleteConfirmId);
+      setPos((prev) => prev.filter((p) => p.id !== deleteConfirmId));
+      success("Purchase order deleted.");
+      setDeleteConfirmId(null);
+    } catch (e) {
+      // Show the backend's error message via toast (permission denied,
+      // FK conflict, etc.) instead of letting Next.js dev overlay
+      // surface it as an uncaught runtime ApiError.
+      const msg = e instanceof Error && e.message ? e.message : "Failed to delete purchase order.";
+      showError(msg);
+      setDeleteConfirmId(null);
+    }
+  };
+
+  const handleCancelPO = async () => {
+    if (!cancelTarget) return;
+    if (!cancelReasonInput.trim()) { showError("Please enter a cancellation reason."); return; }
+    setCancelBusy(true);
+    try {
+      const updated = await poApi.cancel(cancelTarget.id, cancelReasonInput.trim());
+      setPos((prev) => prev.map((p) => p.id === updated.id ? updated : p));
+      success(`PO ${cancelTarget.poNumber} cancelled.`);
+      setCancelTarget(null);
+    } catch (e) {
+      const msg = e instanceof Error && e.message ? e.message : "Failed to cancel purchase order.";
+      showError(msg);
+    } finally {
+      setCancelBusy(false);
+    }
   };
 
   const openEmailModal = async (po: PORow) => {
@@ -415,20 +511,43 @@ function PurchaseOrdersPage() {
   const buildPOEmailData = (po: PORow): EmailFormData => {
     const shipMode = po.shipmentMode ?? (po.blindShipment ? "Blind" : "Normal");
     // For blind/override POs, the mill must NOT see the actual SO customer name
+    // Strictly from Company Settings — no hardcoded "Monit Paper Agency"
+    // fallback so the second tenant (Monit Paper Associates, different DB)
+    // never sees the wrong brand string in its outgoing emails.
+    const monitName = companyConfig.companyName?.trim() ?? "";
+    const monitAddr = companyConfig.address?.trim() ?? "";
     const billTo =
-      shipMode === "Blind"           ? "Monit Paper Agency" :
+      shipMode === "Blind"           ? monitName :
       shipMode === "InvoiceOverride" ? (po.invoiceParty || "—") :
       po.directCustomer || "";
+    // Ship-To address: Blind → Monit's own address (mill thinks goods come to
+    // the agency); Override / Normal → actual delivery address.
+    const shipToAddr =
+      shipMode === "Blind" ? monitAddr : (po.directDeliveryAddress || "");
     const totalWeightKg = po.items.reduce((s, item) => s + (item.weightKg ?? 0), 0);
     const itemLines = po.items.map((item, i) => {
-      const baseRate = item.discount && item.discount > 0
-        ? (item.rate / (1 - item.discount / 100))
-        : item.rate;
+      // PO stores `rate` as POST-discount (finalPrice) and `discount`
+      // as flat ₹/KG. Email "Rate" line shows the LIST/master rate the
+      // user configured — reconstruct as rate + discount.
+      const baseRate = +(item.rate + (item.discount ?? 0)).toFixed(2);
       const qty = `${lineWeightKg({ weightKg: item.weightKg, quantity: item.quantity, gsm: item.gsm, size: item.size }).toLocaleString("en-IN")} KG`;
-      return `  ${i + 1}. ${item.description || "—"} — ${qty} — ₹${baseRate.toFixed(2)}/- — Amt: ₹${item.amount.toLocaleString("en-IN")}`;
+      // Per UAT — Item Code removed from PO email. Material is identified by
+      // Brand + GSM + Size as separate fields. Brand falls back to the first
+      // segment of the legacy item code so older items still read sensibly.
+      const brand = item.brandName?.trim() || (item.description || "").split("/")[1]?.trim() || (item.description || "—");
+      const gsm   = item.gsm ? `${item.gsm} GSM` : "—";
+      const size  = item.size?.trim() || "—";
+      return `  ${i + 1}. ${brand} | ${gsm} | ${size} | ${qty} | ₹${baseRate.toFixed(2)}/- | Amt: ₹${item.amount.toLocaleString("en-IN")}`;
     }).join("\n");
+    // Greet with the picked unit when present so the mill's unit clerk
+    // sees their own name (e.g. "Dear ITC Paperboards — Bhadrachalam,").
+    // Address shown right below for routing context.
+    const millGreeting = po.millUnitName?.trim()
+      ? `${po.millName} — ${po.millUnitName.trim()}`
+      : po.millName;
     const body = [
-      `Dear ${po.millName},`,
+      `Dear ${millGreeting},`,
+      ...(po.millUnitAddress ? [po.millUnitAddress] : []),
       ``,
       `Kindly find below our Purchase Order details:`,
       ``,
@@ -437,8 +556,23 @@ function PurchaseOrdersPage() {
       `Payment  : ${po.paymentTerms || "—"}`,
       `Delivery : ${po.expectedDeliveryDate || "—"}`,
       ...(po.linkedSONumber   ? [`SO Ref   : ${po.linkedSONumber}`]         : []),
+      // Mill GST (from the picked unit, else mill-level) — printed on every
+      // PO email so the mill can match the order to its own GST records.
+      ...(po.millGstNo        ? [`Mill GST : ${po.millGstNo}`]               : []),
       ...(billTo              ? [`Bill To  : ${billTo}`]                     : []),
-      ...(po.directDeliveryAddress ? [`Ship To  : ${po.directDeliveryAddress}`] : []),
+      // Cust GST line — Normal mode shows the direct customer's GST,
+      // InvoiceOverride mode shows the override entity's GST (pulled from
+      // its customer master). Blind mode stays generic — no end-customer GST.
+      ...(shipMode === "Normal" && po.directCustomerGstNo
+            ? [`Cust GST : ${po.directCustomerGstNo}`]
+            : []),
+      ...(shipMode === "InvoiceOverride" && po.invoicePartyGstNo
+            ? [`Cust GST : ${po.invoicePartyGstNo}`]
+            : []),
+      // Blind mode: Ship-To carries Monit's own address (mill believes the
+      // goods are coming to the agency). Override / Normal use the actual
+      // delivery address.
+      ...(shipToAddr ? [`Ship To  : ${shipToAddr}`] : []),
       ``,
       `Items:`,
       itemLines,
@@ -450,7 +584,9 @@ function PurchaseOrdersPage() {
       `Please acknowledge receipt of this PO.`,
       ``,
       `Regards,`,
-      `Monit Paper Agency`,
+      // Sign-off matches the active company config — works for both
+      // Monit Paper Agency and Monit Paper Associates tenants.
+      monitName,
     ].join("\n");
     return { to: [], cc: [], subject: `Purchase Order: ${po.poNumber}`, body };
   };
@@ -469,10 +605,10 @@ function PurchaseOrdersPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6 pb-10">
+    <div className="flex h-[calc(100vh-112px)] flex-col gap-4 overflow-hidden">
 
       {/* ── KPI Cards ────────────────────────────────────────────────────── */}
-      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-3">
+      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-3 flex-shrink-0">
         <KpiCard title="Total POs"     value={kpis.total}        subtitle="All time"              icon={Factory}     iconBg="bg-blue-50"    iconColor="text-blue-500"   />
         <KpiCard title="Pending"       value={kpis.pending}      subtitle="Draft / Sent"          icon={Clock}       iconBg="bg-yellow-50"  iconColor="text-yellow-500" subtitleColor="amber" />
         <KpiCard title="In Production" value={kpis.inProduction} subtitle="Being manufactured"    icon={Factory}     iconBg="bg-purple-50"  iconColor="text-purple-500" subtitleColor="blue"  />
@@ -526,8 +662,8 @@ function PurchaseOrdersPage() {
 
       {/* ── Pending SO Table ──────────────────────────────────────────────── */}
       {showPendingPanel && (
-        <div className="rounded-2xl border border-blue-200 bg-white overflow-hidden shadow-sm">
-          <div className="flex items-center border-b border-blue-100 bg-blue-50 px-5 py-3 gap-2.5">
+        <div className="flex flex-1 min-h-0 flex-col rounded-2xl border border-blue-200 bg-white overflow-hidden shadow-sm">
+          <div className="flex items-center border-b border-blue-100 bg-blue-50 px-5 py-3 gap-2.5 flex-shrink-0">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500">
               <ShoppingCart className="h-3.5 w-3.5 text-white" />
             </div>
@@ -538,6 +674,7 @@ function PurchaseOrdersPage() {
               </p>
             </div>
           </div>
+          <div className="flex flex-1 min-h-0 flex-col">
           <DataGrid
             data={pendingPoSOs}
             columns={pendingSOColumns}
@@ -546,6 +683,7 @@ function PurchaseOrdersPage() {
             enablePagination={true}
             enableColumnReordering={true}
             enableColumnVisibility={true}
+            scrollMaxHeight="100%"
             initialPageSize={5}
             onRowClick={handleCreateFromSO}
             emptyState={
@@ -556,11 +694,13 @@ function PurchaseOrdersPage() {
               />
             }
           />
+          </div>
         </div>
       )}
 
       {/* ── Purchase Orders Table ─────────────────────────────────────────── */}
       {!showPendingPanel && (
+        <div className="flex flex-1 min-h-0 flex-col">
         <DataGrid
           data={pos}
           columns={columns}
@@ -569,8 +709,63 @@ function PurchaseOrdersPage() {
           enablePagination={true}
           enableColumnReordering={true}
           enableColumnVisibility={true}
+          scrollMaxHeight="100%"
           initialPageSize={10}
           onRowClick={(po) => setViewOrder(po)}
+          dimRow={(po) => po.status === "Cancelled"}
+          // Custom "Export → PDF" — hits the bulk-PDF endpoint so the file
+          // matches the single-PO document layout used by Preview / Print.
+          onPdfExport={async (rows) => {
+            const ids = rows.map((p) => p.id).filter((n): n is number => Number.isFinite(n));
+            if (ids.length === 0) return;
+            const { blob, filename } = await poApi.downloadBulkPdf(ids);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename || `PurchaseOrders_${new Date().toISOString().slice(0, 10)}_${ids.length}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }}
+          // ZIP variant — one PDF per PO inside a single archive.
+          onPdfZipExport={async (rows) => {
+            const ids = rows.map((p) => p.id).filter((n): n is number => Number.isFinite(n));
+            if (ids.length === 0) return;
+            const { blob, filename } = await poApi.downloadBulkPdfZip(ids);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename || `PurchaseOrders_${new Date().toISOString().slice(0, 10)}_${ids.length}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }}
+          // JPG variant — downloads one image file per selected PO directly
+          // (no ZIP), same as the row-level "Export as Image" action, so the
+          // user can forward each file immediately (e.g. on WhatsApp)
+          // without extracting an archive first. Staggered slightly so the
+          // browser doesn't treat the burst as a single blocked pop-up.
+          onImageExport={async (rows) => {
+            const targets = rows.filter((p) => Number.isFinite(p.id));
+            for (const po of targets) {
+              try {
+                const { blob, filename } = await poApi.downloadImage(po.id);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename || `PO_${po.poNumber.replace(/\//g, "-")}.jpg`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              } catch {
+                // skip a failed row so one bad PO doesn't stop the rest downloading
+              }
+              await new Promise((r) => setTimeout(r, 300));
+            }
+          }}
           emptyMessage={loadingPos ? "Loading purchase orders…" : "No purchase orders yet. Raise a PO from a confirmed Sales Order."}
           toolbarActions={
             <button
@@ -583,6 +778,7 @@ function PurchaseOrdersPage() {
             </button>
           }
         />
+        </div>
       )}
 
       {/* ── PO Form Modal ────────────────────────────────────────────────── */}
@@ -601,6 +797,7 @@ function PurchaseOrdersPage() {
         <PurchaseOrderForm
           initialData={editingOrder}
           sourceSO={sourceSO ?? undefined}
+          existingPos={pos}
           onSubmit={handleSubmit}
           onCancel={handleCancel}
         />
@@ -637,6 +834,40 @@ function PurchaseOrdersPage() {
         />
       )}
 
+      {/* ── Cancel Confirm ───────────────────────────────────────────────── */}
+      {cancelTarget && (
+        <Modal isOpen onClose={() => { if (!cancelBusy) setCancelTarget(null); }} title={`Cancel PO ${cancelTarget.poNumber}?`} size="sm">
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              The PO number, its history, and all its data stay intact for tracking — the row will just show as
+              <span className="mx-1 inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-600">Cancelled</span>
+              and greyed out in the grid. This is different from Delete, which removes it entirely.
+            </p>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-500">Cancellation reason (required)</label>
+              <textarea
+                value={cancelReasonInput}
+                onChange={(e) => setCancelReasonInput(e.target.value)}
+                rows={3}
+                autoFocus
+                placeholder="e.g. Mill unable to supply, order raised by mistake…"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => setCancelTarget(null)} disabled={cancelBusy}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                Back
+              </button>
+              <button onClick={handleCancelPO} disabled={cancelBusy}
+                className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">
+                {cancelBusy ? "Cancelling…" : "Cancel Order"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* ── Delete Confirm ───────────────────────────────────────────────── */}
       {deleteConfirmId && (
         <Modal isOpen onClose={() => setDeleteConfirmId(null)} title="Delete Purchase Order?" size="sm">
@@ -662,18 +893,25 @@ function PurchaseOrdersPage() {
 
 // ─── Row Actions: PO grid ──────────────────────────────────────────────────────
 
-function PORowActions({ po, onView, onEdit, onDelete, onPrint, onSendMail, mailSent }: {
+function PORowActions({ po, onView, onEdit, onDelete, onCancel, onPrint, onExportImage, onSendMail, mailSent }: {
   po: PORow;
   onView: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onCancel: () => void;
   onPrint: () => void;
+  onExportImage: () => void;
   onSendMail: () => void;
   mailSent: boolean;
 }) {
   const [open, setOpen]           = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [pos, setPos]             = useState({ top: 0, right: 0 });
+  // Estimated menu height (View + Edit + Print + Export Image + Send Mail +
+  // Cancel + Delete + Share divider/button) — used to flip the menu upward
+  // when a row is near the bottom of the viewport, so the last row's menu
+  // never clips off-screen.
+  const MENU_H = 326;
+  const [pos, setPos]             = useState<{ top?: number; bottom?: number; right: number }>({ top: 0, right: 0 });
   const [shareAnchor, setShareAnchor] = useState<{ top: number; right: number } | null>(null);
   const btnRef  = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -692,7 +930,11 @@ function PORowActions({ po, onView, onEdit, onDelete, onPrint, onSendMail, mailS
     e.stopPropagation();
     if (!open && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+      const spaceBelow = window.innerHeight - r.bottom;
+      const openUp = spaceBelow < MENU_H && r.top > MENU_H;
+      setPos(openUp
+        ? { bottom: window.innerHeight - r.top + 4, right: window.innerWidth - r.right }
+        : { top: r.bottom + 4, right: window.innerWidth - r.right });
     }
     setOpen((v) => !v);
   };
@@ -711,14 +953,22 @@ function PORowActions({ po, onView, onEdit, onDelete, onPrint, onSendMail, mailS
     title: po.poNumber,
     subject: `Purchase Order ${po.poNumber} — ${po.millName}`,
     text: `Purchase Order: ${po.poNumber}\nMill: ${po.millName}\nDate: ${po.orderDate}\nAmount: ₹${po.totalValue?.toLocaleString("en-IN") ?? "—"}\nStatus: ${po.status}`,
+    // PDF attaches to the share when the platform supports Web Share API
+    // w/ files (mobile / macOS Safari). On desktop the PDF is downloaded
+    // so the user can attach it manually in WhatsApp Web / Outlook / etc.
+    getPdf: () => poApi.downloadPdf(po.id),
   };
 
   const menuItems = [
     { icon: Eye,     label: "View",   fn: onView,   cls: "" },
     { icon: Pencil,  label: "Edit",   fn: onEdit,   cls: "" },
     { icon: Printer, label: "Print",  fn: onPrint,  cls: "" },
+    { icon: ImageIcon, label: "Export as Image", fn: onExportImage, cls: "" },
     { icon: Mail,    label: mailSent ? "Mail Sent ✓" : "Send Mail to Mill", fn: onSendMail,
       cls: mailSent ? "text-green-600 hover:bg-green-50 cursor-default" : "text-blue-600 hover:bg-blue-50" },
+    ...(po.status !== "Cancelled"
+      ? [{ icon: Ban, label: "Cancel Order", fn: onCancel, cls: "text-amber-600 hover:bg-amber-50" }]
+      : []),
     { icon: Trash2,  label: "Delete", fn: onDelete, cls: "text-red-600 hover:bg-red-50" },
   ];
 
@@ -730,7 +980,10 @@ function PORowActions({ po, onView, onEdit, onDelete, onPrint, onSendMail, mailS
         <MoreVertical className="h-4 w-4" />
       </button>
       {open && createPortal(
-        <div ref={menuRef} style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 9999 }}
+        <div ref={menuRef}
+          style={pos.bottom != null
+            ? { position: "fixed", bottom: pos.bottom, right: pos.right, zIndex: 9999 }
+            : { position: "fixed", top: pos.top, right: pos.right, zIndex: 9999 }}
           className="min-w-[160px] rounded-xl border border-gray-100 bg-white py-1 shadow-xl">
           {menuItems.map(({ icon: Icon, label, fn, cls }) => (
             <button key={label}
@@ -856,7 +1109,6 @@ function SOViewModal({ so, onClose, onRaisePO }: {
                 { label: "Salesman",       value: so.salesman },
                 { label: "Payment Terms",  value: so.paymentTerms },
                 { label: "Delivery Mode",  value: so.deliveryMode || "—" },
-                { label: "Delivery Terms", value: so.deliveryTerms || "—" },
                 { label: "Delivery Party", value: so.deliveryParty || so.customer },
                 { label: "Delivery Address", value: so.lines[0]?.deliveryAddress || "—" },
               ].map(({ label, value, blue }) => (
@@ -961,11 +1213,72 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
   onSendMail: () => void;
   mailSent: boolean;
 }) {
+  const { error: showError } = useToast();
+  const handlePrint = async () => {
+    try {
+      const { blob } = await poApi.downloadPdf(po.id);
+      printPdfBlob(blob);
+    } catch (e) {
+      showError(e instanceof Error ? e.message : "Print failed.");
+    }
+  };
+
   const shipMode  = po.shipmentMode ?? (po.blindShipment ? "Blind" : "Normal");
   const isBlind    = shipMode === "Blind";
   const isOverride = shipMode === "InvoiceOverride";
 
   const statusCls = STATUS_COLOR[po.status] ?? "bg-gray-100 text-gray-600";
+
+  // Editing a PO never auto-resends anything to the mill — this flags when
+  // the PO was updated after its last (or first-ever) email, so the reminder
+  // survives a page reload instead of only flashing right after a save.
+  const needsResend = po.status !== "Approval Pending" && po.status !== "Cancelled"
+    && (!po.emailSentAt || (!!po.updatedAt && new Date(po.updatedAt) > new Date(po.emailSentAt)));
+
+  // Parties block mirrors the PO PDF (Order To / Billed To / Shipped To)
+  // including the same shipment-mode resolution so what the user sees on
+  // screen matches what the mill receives in the printed/emailed PDF.
+  const { config: viewCompanyConfig } = useCompanySettings();
+  const companyName = viewCompanyConfig?.companyName ?? "";
+  const companyAddr = viewCompanyConfig?.address ?? "";
+  const companyGst  = viewCompanyConfig?.gstNumber ?? "";
+
+  let shipName: string;
+  let shipAddr: string;
+  let shipGst:  string;
+  if (isBlind) {
+    shipName = companyName || "—";
+    shipAddr = companyAddr;
+    shipGst  = companyGst;
+  } else if (isOverride) {
+    shipName = po.invoiceParty || "—";
+    shipAddr = po.invoicePartyAddress || po.directDeliveryAddress || "";
+    shipGst  = po.invoicePartyGstNo  || "";
+  } else if (po.showDeliveryParty && po.linkedSODeliveryPartyName) {
+    // SO's own separate delivery party (client-requested: SO placed by
+    // one customer, goods ship to a different one) — only shown when the
+    // user explicitly opted in on this PO (showDeliveryParty). Default off
+    // = falls through to directCustomer below, same as before. Mirrors the
+    // PDF's fallback chain exactly.
+    shipName = po.linkedSODeliveryPartyName;
+    shipAddr = po.linkedSODeliveryPartyAddress || po.directDeliveryAddress || "";
+    shipGst  = po.linkedSODeliveryPartyGstNo   || "";
+  } else if (po.directCustomer) {
+    shipName = po.directCustomer;
+    shipAddr = po.directCustomerAddress || po.directDeliveryAddress || "";
+    shipGst  = po.directCustomerGstNo   || "";
+  } else if (po.linkedSOCustomerName) {
+    shipName = po.linkedSOCustomerName;
+    shipAddr = po.linkedSOCustomerAddress || po.directDeliveryAddress || "";
+    shipGst  = po.linkedSOCustomerGstNo   || "";
+  } else {
+    // No customer at all — a "For Stock" PO (not raised against any SO), so
+    // the goods ship to Monit's own godown, same as Blind mode. Previously
+    // fell through to a blank/dash Shipped To (client-reported).
+    shipName = companyName || "—";
+    shipAddr = companyAddr;
+    shipGst  = companyGst;
+  }
 
   return (
     <PortalModal onClose={onClose}>
@@ -980,7 +1293,8 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
             <h2 className="text-base font-black text-gray-900">{po.poNumber}</h2>
             <p className="text-xs text-gray-500">{po.millName} · {po.orderDate}</p>
           </div>
-          <span className={cn("ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold", statusCls)}>
+          {/* Status badge hidden from print — clutter on a printed PO. */}
+          <span className={cn("ml-1 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold print:hidden", statusCls)}>
             {po.status}
           </span>
         </div>
@@ -989,19 +1303,69 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
 
       <div className="max-h-[calc(100vh-160px)] overflow-y-auto p-5 space-y-4">
 
-        {/* Metric cards */}
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-xl bg-violet-50 border border-violet-100 px-3 py-2.5">
-            <p className="text-[9px] font-semibold uppercase tracking-wider text-violet-400">PO Number</p>
-            <p className="text-sm font-black text-violet-700 mt-0.5">{po.poNumber}</p>
+        {/* Cancelled banner */}
+        {po.status === "Cancelled" && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 print:hidden">
+            <p className="text-xs font-bold text-rose-700">
+              Cancelled{po.cancelledAt ? ` on ${po.cancelledAt}` : ""}{po.cancelledBy ? ` by ${po.cancelledBy}` : ""}
+            </p>
+            {po.cancelReason && <p className="mt-0.5 text-xs text-rose-600">Reason: {po.cancelReason}</p>}
           </div>
-          <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5">
-            <p className="text-[9px] font-semibold uppercase tracking-wider text-blue-400">Mill</p>
-            <p className="text-sm font-bold text-blue-700 mt-0.5 truncate">{po.millName || "—"}</p>
+        )}
+
+        {/* Resend reminder — edits to an already-approved PO don't auto-reach
+            the mill; nothing resends the email/PDF on its own. Client-asked
+            2026-09-11 so this doesn't get silently forgotten. */}
+        {needsResend && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 print:hidden">
+            <p className="text-xs font-semibold text-amber-800">
+              {po.emailSentAt
+                ? "This PO was edited after it was last sent to the mill — the mill still has the old version."
+                : "This PO hasn't been emailed to the mill yet."}
+            </p>
+            <button
+              onClick={onSendMail}
+              className="flex-shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 active:scale-95 transition-all"
+            >
+              Send to Mill
+            </button>
           </div>
-          <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2.5">
-            <p className="text-[9px] font-semibold uppercase tracking-wider text-emerald-400">Total Value</p>
-            <p className="text-sm font-black text-emerald-700 mt-0.5">₹{po.totalValue.toLocaleString("en-IN")}</p>
+        )}
+
+        {/* Top metric cards removed per client UAT — PO number lives in the
+            header, mill + total value are already in the Parties + PO Details
+            blocks below, so the duplicated tiles were just noise. */}
+
+        {/* Parties — mirrors the PO PDF (Order To / Billed To / Shipped To)
+            so what the user sees matches what's printed/emailed to the mill.
+            Shipped-To respects ShipmentMode (Blind / InvoiceOverride / Normal)
+            using the same resolution as PurchaseOrderPdfService. */}
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Parties</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="rounded-xl border border-blue-100 bg-blue-50/40 px-3 py-2.5">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-blue-500">Order To (Supplier)</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{po.millName || "—"}</p>
+              {po.millUnitName && <p className="text-[11px] font-medium text-blue-700 mt-0.5">{po.millUnitName}</p>}
+              {po.millUnitAddress && <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">{po.millUnitAddress}</p>}
+              <p className="text-[10px] text-gray-500 mt-1">GST: <span className="font-medium text-gray-700">{po.millGstNo || "—"}</span></p>
+            </div>
+            <div className="rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2.5">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-violet-500">Billed To</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{companyName || "—"}</p>
+              {companyAddr && <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">{companyAddr}</p>}
+              <p className="text-[10px] text-gray-500 mt-1">GST: <span className="font-medium text-gray-700">{companyGst || "—"}</span></p>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 px-3 py-2.5">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-500">
+                Shipped To
+                {isBlind && <span className="ml-1.5 inline-flex rounded px-1.5 py-0 text-[8px] font-bold text-orange-700 bg-orange-100">BLIND</span>}
+                {isOverride && <span className="ml-1.5 inline-flex rounded px-1.5 py-0 text-[8px] font-bold text-purple-700 bg-purple-100">OVERRIDE</span>}
+              </p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{shipName}</p>
+              {shipAddr && <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">{shipAddr}</p>}
+              <p className="text-[10px] text-gray-500 mt-1">GST: <span className="font-medium text-gray-700">{shipGst || "—"}</span></p>
+            </div>
           </div>
         </div>
 
@@ -1014,7 +1378,13 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
             { label: "Expected Delivery", value: po.expectedDeliveryDate || "—" },
             { label: "Payment Terms",     value: po.paymentTerms || "—" },
             { label: "Total Weight",      value: `${po.items.reduce((s, i) => s + lineWeightKg({ weightKg: i.weightKg, qty: i.quantity, gsm: i.gsm, size: i.size }), 0).toLocaleString("en-IN")} kg` },
-            ...(po.millSONumber ? [{ label: "Mill SO No.", value: po.millSONumber }] : []),
+            ...(po.millSONumber ? [{ label: "Order ID", value: po.millSONumber }] : []),
+            // Customer reference — a per-PO, user-controlled toggle (default
+            // off). Used to print unconditionally whenever the PO was linked
+            // to an SO, which leaked the customer's identity on Blind POs
+            // (client-reported 2026-09-11). Now gated the same way in every
+            // shipment mode — Billed To/Shipped To above are unaffected.
+            ...(po.showCustomerName && po.linkedSOCustomerName ? [{ label: "Customer", value: po.linkedSOCustomerName }] : []),
           ].map(({ label, value }) => (
             <div key={label} className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
               <p className="text-[10px] text-gray-400">{label}</p>
@@ -1024,59 +1394,14 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
           </div>
         </div>
 
-        {/* SO Reference + shipment mode info */}
+        {/* SO Reference — kept as its own compact row. Customer / address /
+            GST already live in the Parties block above, so we only show the
+            SO link here (clicking PO Details to drill into the SO is the
+            useful action from this modal). */}
         {po.linkedSONumber && (
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
-            <div className="grid grid-cols-3 gap-x-6 gap-y-2">
-
-              {/* Always: SO Number */}
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-indigo-400">SO Reference</p>
-                <p className="text-sm font-semibold text-indigo-700">{po.linkedSONumber}</p>
-              </div>
-
-              {/* Normal: actual customer from SO */}
-              {!isBlind && !isOverride && (
-                <>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-indigo-400">Customer</p>
-                    <p className="text-sm font-medium text-indigo-700">{po.directCustomer || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-indigo-400">Delivery Address</p>
-                    <p className="text-xs text-indigo-600 leading-snug">{po.directDeliveryAddress || "—"}</p>
-                  </div>
-                </>
-              )}
-
-              {/* Blind: Mill sees Monit as buyer */}
-              {isBlind && (
-                <>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-indigo-400">Bill To (Mill sees)</p>
-                    <p className="text-sm font-medium text-orange-700">Monit Paper Agency</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-indigo-400">Ship To</p>
-                    <p className="text-xs text-orange-600 leading-snug">{po.directDeliveryAddress || "—"}</p>
-                  </div>
-                </>
-              )}
-
-              {/* Invoice Override: Mill invoices override party */}
-              {isOverride && (
-                <>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-indigo-400">Invoice Party</p>
-                    <p className="text-sm font-medium text-purple-700">{po.invoiceParty || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-indigo-400">Delivery Address</p>
-                    <p className="text-xs text-purple-600 leading-snug">{po.directDeliveryAddress || "—"}</p>
-                  </div>
-                </>
-              )}
-            </div>
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wide text-indigo-400">SO Reference</p>
+            <p className="text-sm font-semibold text-indigo-700">{po.linkedSONumber}</p>
           </div>
         )}
 
@@ -1097,44 +1422,57 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
             <table className="w-full text-xs min-w-[620px]">
               <thead>
                 <tr className="bg-gray-50 text-gray-500">
+                  {/* Per UAT — Item Code column dropped from PO print/preview.
+                      Material is now Brand + GSM + Size + Qty (separately). */}
                   <th className="px-2 py-2 text-left font-medium w-7">#</th>
-                  <th className="px-2 py-2 text-left font-medium">Material</th>
-                  <th className="px-2 py-2 text-right font-medium">Weight (kg)</th>
+                  <th className="px-2 py-2 text-left font-medium">Brand</th>
+                  <th className="px-2 py-2 text-right font-medium">GSM</th>
+                  <th className="px-2 py-2 text-left  font-medium">Size</th>
+                  <th className="px-2 py-2 text-right font-medium">Qty (kg)</th>
                   <th className="px-2 py-2 text-right font-medium">Rate (₹)</th>
-                  <th className="px-2 py-2 text-right font-medium">Disc%</th>
+                  <th className="px-2 py-2 text-right font-medium">Disc (₹/KG)</th>
                   <th className="px-2 py-2 text-right font-medium">Final (₹)</th>
                   <th className="px-2 py-2 text-right font-medium">Amount (₹)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {po.items.map((item: POItemRow, idx: number) => {
-                  const rawRate   = item.discount && item.discount > 0 ? (item.rate / (1 - item.discount / 100)) : 0;
+                  // PO line stores rate = post-discount (finalPrice) and
+                  // discount = flat ₹/KG. View shows the master rate in
+                  // the Rate col (= rate + discount) and the actual mill
+                  // bill rate in the Final col (= stored rate).
+                  const disc      = item.discount ?? 0;
+                  const listRate  = +(item.rate + disc).toFixed(2);
                   const finalRate = item.rate;
                   const wt        = lineWeightKg({ weightKg: item.weightKg, quantity: item.quantity, gsm: item.gsm, size: item.size });
                   // If weightKg is set AND item.quantity is a different value, treat quantity as sheets (secondary info)
                   const sheetsHint = item.weightKg && item.weightKg > 0 && item.quantity > 0 && item.quantity !== item.weightKg
                     ? item.quantity : null;
+                  // Per UAT — Brand replaces the Item Code in PO print/preview.
+                  // Falls back to the 2nd "/" segment of the legacy description
+                  // (which is where the quality / brand used to live in the
+                  // composed Item Code) so old POs still read sensibly.
+                  const brand = item.brandName?.trim()
+                              || (item.description || "").split("/")[1]?.trim()
+                              || (item.description || "—");
                   return (
                     <tr key={item.id} className="hover:bg-gray-50/50">
                       <td className="px-2 py-2 text-gray-400">{idx + 1}</td>
                       <td className="px-2 py-2">
-                        <div className="font-medium text-gray-800">{item.description || "—"}</div>
-                        {(item.gsm || item.size) && (
-                          <div className="text-[10px] text-gray-400">
-                            {item.gsm ? `${item.gsm}g` : ""}{item.gsm && item.size ? " · " : ""}{item.size || ""}
-                          </div>
-                        )}
+                        <div className="font-medium text-gray-800">{brand}</div>
                         {item.remark && <div className="text-[10px] text-amber-600 italic mt-0.5">{item.remark}</div>}
                       </td>
+                      <td className="px-2 py-2 text-right text-gray-700">{item.gsm ?? "—"}</td>
+                      <td className="px-2 py-2 text-left  text-gray-700">{item.size?.trim() || "—"}</td>
                       <td className="px-2 py-2 text-right font-semibold text-gray-900">
                         {wt > 0 ? wt.toLocaleString("en-IN") : "—"}
                         {sheetsHint && <div className="text-[10px] font-normal text-gray-400">{sheetsHint.toLocaleString("en-IN")} sheets</div>}
                       </td>
                       <td className="px-2 py-2 text-right text-gray-600">
-                        {rawRate > 0 ? rawRate.toLocaleString("en-IN") : finalRate > 0 ? finalRate.toLocaleString("en-IN") : "—"}
+                        {listRate > 0 ? listRate.toLocaleString("en-IN") : "—"}
                       </td>
                       <td className="px-2 py-2 text-right text-gray-500">
-                        {item.discount && item.discount > 0 ? `${item.discount}%` : "—"}
+                        {item.discount && item.discount > 0 ? `₹${item.discount.toLocaleString("en-IN")}` : "—"}
                       </td>
                       <td className="px-2 py-2 text-right font-medium text-blue-700">
                         {finalRate > 0 ? finalRate.toFixed(2) : "—"}
@@ -1147,8 +1485,11 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
                 })}
               </tbody>
               <tfoot>
+                {/* 9-column footer: # | Brand | GSM | Size = "Total" (span 4)
+                                     Qty kg | Rate | Disc | Final = blank (span 3)
+                                     Amount = totalValue */}
                 <tr className="bg-blue-50 border-t border-blue-100">
-                  <td colSpan={2} className="px-2 py-2 text-xs font-semibold text-blue-700">Total</td>
+                  <td colSpan={4} className="px-2 py-2 text-xs font-semibold text-blue-700">Total</td>
                   <td className="px-2 py-2 text-right text-xs font-bold text-blue-800">
                     {po.items.reduce((s, i) => s + lineWeightKg({ weightKg: i.weightKg, quantity: i.quantity, gsm: i.gsm, size: i.size }), 0).toLocaleString("en-IN")} kg
                   </td>
@@ -1190,8 +1531,9 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
           </div>
         )}
 
-        {/* Footer */}
-        <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+        {/* Footer — fully hidden in print so the printed sheet shows only
+            the PO content, not the action toolbar. */}
+        <div className="flex items-center justify-between border-t border-gray-100 pt-3 print:hidden">
           <button onClick={onClose}
             className="rounded-lg px-4 py-2 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors"
           >
@@ -1199,7 +1541,7 @@ function POViewModal({ po, onClose, onEdit, onSendMail, mailSent }: {
           </button>
           <div className="flex gap-2">
             <button
-              onClick={() => window.print()}
+              onClick={handlePrint}
               className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <Printer className="h-3.5 w-3.5" /> Print

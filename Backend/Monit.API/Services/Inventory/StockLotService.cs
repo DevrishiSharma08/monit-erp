@@ -20,7 +20,7 @@ public class StockLotService(IStockLotRepository repo) : IStockLotService
             ?? throw new KeyNotFoundException($"Stock lot {id} not found.");
 
         if (dto.CurrentQty.HasValue && dto.CurrentQty < 0)
-            throw new InvalidOperationException("CurrentQty cannot be negative.");
+            throw new Common.Middleware.ValidationException("CurrentQty cannot be negative.");
 
         await repo.UpdateAsync(id, dto, updatedBy);
         return (await repo.GetByIdAsync(id))!;
@@ -32,7 +32,7 @@ public class StockLotService(IStockLotRepository repo) : IStockLotService
             ?? throw new KeyNotFoundException($"Stock lot {id} not found.");
 
         if (lot.AllocatedQty > 0)
-            throw new InvalidOperationException(
+            throw new Common.Middleware.ConflictException(
                 $"Cannot delete stock lot with allocated qty ({lot.AllocatedQty}). Deallocate first.");
 
         await repo.SoftDeleteAsync(id, deletedBy);

@@ -24,6 +24,9 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
             tlp.PlanNumber                                                      AS LoadPlanNumber,
             g.MillId,
             mil.Name                                                            AS MillName,
+            -- Unit name from the source PO so GRN grid Mill column matches
+            -- MOT / PO unit-aware display (unit name primary, mill fallback).
+            mu.UnitName                                                         AS MillUnitName,
             g.MaterialId,
             ISNULL(poi.Description, mat.Description)                           AS Paper,
             g.GSM                                                               AS Gsm,
@@ -77,6 +80,7 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
         LEFT JOIN procurement.MillTrackers      mt   ON mt.Id   = g.MillTrackerId
         LEFT JOIN procurement.PurchaseOrderItems poi ON poi.Id  = mt.POItemId
         LEFT JOIN procurement.PurchaseOrders    po   ON po.Id   = g.POId  AND po.IsDeleted = 0
+        LEFT JOIN masters.MillUnits             mu   ON mu.Id   = po.MillUnitId
         LEFT JOIN procurement.TruckLoadPlans    tlp  ON tlp.Id  = g.SourceLoadPlanId
         LEFT JOIN masters.Warehouses            wh   ON wh.Id   = g.WarehouseId
         LEFT JOIN masters.WarehouseBins         wb   ON wb.Id   = g.BinLocationId
@@ -128,6 +132,9 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
                 tlp.PlanNumber                                                      AS LoadPlanNumber,
                 g.MillId,
                 mil.Name                                                            AS MillName,
+                -- Unit name from the source PO so GRN detail / grid Mill column
+                -- matches MOT / PO unit-aware display.
+                mu.UnitName                                                         AS MillUnitName,
                 g.MaterialId,
                 ISNULL(poi.Description, mat.Description)                           AS Paper,
                 g.GSM                                                               AS Gsm,
@@ -194,6 +201,9 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
                 CONVERT(NVARCHAR(10), tlp.PlanDate, 23)                           AS TlpDate,
                 tlp.TruckNumber                                                     AS TlpTruckNumber,
                 tlp.TransporterName                                                 AS TlpTransporter,
+                -- Dispatch link (new — first-stage receipt)
+                g.DispatchReceiptId,
+                dr.DispatchNumber,
                 g.CreatedBy,
                 g.CreatedAt
             FROM  inventory.GRNs                    g
@@ -202,7 +212,9 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
             LEFT JOIN procurement.MillTrackers      mt   ON mt.Id   = g.MillTrackerId
             LEFT JOIN procurement.PurchaseOrderItems poi ON poi.Id  = mt.POItemId
             LEFT JOIN procurement.PurchaseOrders    po   ON po.Id   = g.POId AND po.IsDeleted = 0
+            LEFT JOIN masters.MillUnits             mu   ON mu.Id   = po.MillUnitId
             LEFT JOIN procurement.TruckLoadPlans    tlp  ON tlp.Id  = g.SourceLoadPlanId
+            LEFT JOIN inventory.DispatchReceipts    dr   ON dr.Id   = g.DispatchReceiptId AND dr.IsDeleted = 0
             LEFT JOIN masters.Warehouses            wh   ON wh.Id   = g.WarehouseId
             LEFT JOIN masters.WarehouseBins         wb   ON wb.Id   = g.BinLocationId
             LEFT JOIN sales.SalesOrders             so   ON so.Id   = g.LinkedSOId
@@ -217,11 +229,20 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
             WHERE GRNId = @Id
             ORDER BY ChangedAt";
 
+        const string packingsSql = @"
+            SELECT Id, GRNId AS GrnId, PackingFormat,
+                   SheetsPerPacket, NoOfPackets, PacketsPerBundle, NoOfBundles,
+                   BatchNo, WeightKg, Remarks
+            FROM   inventory.GRNPackings
+            WHERE  GRNId = @Id AND IsDeleted = 0
+            ORDER  BY Id";
+
         using var conn = db.Create();
         var grn = await conn.QueryFirstOrDefaultAsync<GrnDetailDto>(detailSql, new { Id = id });
         if (grn is null) return null;
 
         grn.StatusLog = (await conn.QueryAsync<GrnStatusLogDto>(logSql, new { Id = id })).ToList();
+        grn.Packings  = (await conn.QueryAsync<GrnPackingDto>(packingsSql, new { Id = id })).ToList();
         return grn;
     }
 
@@ -313,7 +334,7 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
             INSERT INTO inventory.GRNs (
                 GRNNumber, GRNDate, [Status],
                 POId, PONumber,
-                MillTrackerId, SourceLoadPlanId,
+                MillTrackerId, SourceLoadPlanId, DispatchReceiptId,
                 MillId, MaterialId, GSM, [Size],
                 OrderedQty, PreviouslyReceivedQty, ReceivedQty,
                 ShortQty, DamagedQty, BalanceQty,
@@ -333,7 +354,7 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
             VALUES (
                 @GrnNumber, @GrnDate, @Status,
                 @PoId, @PoNumber,
-                @MillTrackerId, @SourceLoadPlanId,
+                @MillTrackerId, @SourceLoadPlanId, @DispatchReceiptId,
                 @MillId, @MaterialId, @Gsm, @Size,
                 @OrderedQty, @PrevQty, @ReceivedQty,
                 @ShortQty, @DamagedQty, @Balance,
@@ -347,6 +368,18 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
                 @PackingType, @SheetsPerPacket, @PacketsPerBundle, @NoOfPackets, @NoOfBundles,
                 @LinkedSoId, @ReceivedBy, @Remarks,
                 @DeliveryMode, @StockQty, @DirectQty, @DirectClientId, @DirectClientName,
+                GETUTCDATE(), @CreatedBy
+            )";
+
+        const string insertPackingSql = @"
+            INSERT INTO inventory.GRNPackings (
+                GRNId, PackingFormat, SheetsPerPacket, NoOfPackets,
+                PacketsPerBundle, NoOfBundles, BatchNo, WeightKg, Remarks,
+                CreatedAt, CreatedBy
+            )
+            VALUES (
+                @GrnId, @PackingFormat, @SheetsPerPacket, @NoOfPackets,
+                @PacketsPerBundle, @NoOfBundles, @BatchNo, @WeightKg, @Remarks,
                 GETUTCDATE(), @CreatedBy
             )";
 
@@ -364,8 +397,8 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
         if (lockedPrevQty + dto.ReceivedQty > ctx.OrderedQty)
         {
             tx.Rollback();
-            throw new InvalidOperationException(
-                $"Cannot receive {dto.ReceivedQty:N3} MT — only {ctx.OrderedQty - lockedPrevQty:N3} MT remaining (concurrent check).");
+            throw new Common.Middleware.ConflictException(
+                $"Cannot receive {dto.ReceivedQty:N3} kg — only {ctx.OrderedQty - lockedPrevQty:N3} kg remaining (concurrent check).");
         }
 
         var balance = Math.Max(0, ctx.OrderedQty - lockedPrevQty - dto.ReceivedQty);
@@ -378,6 +411,7 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
         p.Add("PoNumber",              ctx.PoNumber);
         p.Add("MillTrackerId",         ctx.TrackerId);
         p.Add("SourceLoadPlanId",      dto.SourceLoadPlanId);
+        p.Add("DispatchReceiptId",     dto.DispatchReceiptId);
         p.Add("MillId",                ctx.MillId);
         p.Add("MaterialId",            ctx.MaterialId);
         p.Add("Gsm",                   ctx.Gsm);
@@ -422,6 +456,61 @@ public class GrnRepository(DbConnectionFactory db) : IGrnRepository
         p.Add("CreatedBy",             createdBy);
 
         var newId = await conn.ExecuteScalarAsync<int>(sql, p, tx);
+
+        // Insert multi-row packings (Sheet or Reel batches).
+        // If caller provided no Packings list (legacy single-row create), skip;
+        // the flat PackingType/SheetsPerPacket fields on the GRN row will be
+        // the single source of truth.
+        foreach (var pk in dto.Packings ?? [])
+        {
+            await conn.ExecuteAsync(insertPackingSql, new
+            {
+                GrnId            = newId,
+                pk.PackingFormat,
+                pk.SheetsPerPacket,
+                pk.NoOfPackets,
+                pk.PacketsPerBundle,
+                pk.NoOfBundles,
+                pk.BatchNo,
+                pk.WeightKg,
+                pk.Remarks,
+                CreatedBy        = createdBy,
+            }, tx);
+        }
+
+        // If a dispatch receipt was the source, mark it 'GRN Done' ONLY when
+        // there's at least one GRN row per dispatched item. Earlier this
+        // counted DISTINCT invoices, which closed the DR after the first
+        // GRN even when multiple materials shared one invoice. Switching
+        // to raw item counts survives even the current-data quirk where
+        // DispatchReceiptItem.MaterialId is stored NULL (invoice+material
+        // key collapses under NULLs). Each DispatchReceiptItem needs its
+        // own GRN before the DR is fully done.
+        if (dto.DispatchReceiptId.HasValue)
+        {
+            const string maybeCloseSql = @"
+                DECLARE @DispatchItemCount INT = (
+                    SELECT COUNT(*)
+                    FROM   inventory.DispatchReceiptItems
+                    WHERE  DispatchReceiptId = @Id AND IsDeleted = 0
+                );
+                DECLARE @GrnCount INT = (
+                    SELECT COUNT(*)
+                    FROM   inventory.GRNs
+                    WHERE  DispatchReceiptId = @Id AND IsDeleted = 0
+                );
+                IF @GrnCount >= @DispatchItemCount
+                BEGIN
+                    UPDATE inventory.DispatchReceipts
+                    SET    [Status]  = 'GRN Done',
+                           UpdatedAt = GETUTCDATE(),
+                           UpdatedBy = @By
+                    WHERE  Id = @Id AND IsDeleted = 0;
+                END";
+            await conn.ExecuteAsync(maybeCloseSql,
+                new { Id = dto.DispatchReceiptId.Value, By = createdBy }, tx);
+        }
+
         tx.Commit();
         return (await GetByIdAsync(newId))!;
     }

@@ -3,13 +3,19 @@
 import { useState, useMemo, useEffect } from "react";
 import { Plus, Trash2, Zap, ChevronDown, Eye, ArrowLeft, Check, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { lineWeightKg } from "@/lib/weight";
+import { Combobox } from "@/components/ui/Combobox";
 import { useCompanySettings } from "@/context/CompanySettingsContext";
 import {
   customerApi, materialApi, salesmanApi, rateApi,
-  CustomerSODropdown, MaterialDropdown, SORateDto, SalesmanForSODto,
+  CustomerSODropdown, MaterialDropdown, SORateDto, LastRateDto, SalesmanForSODto,
   salesOrderApi, CreateSODto, CreateSOLineDto, UpdateSODto,
+  soLineDisplayCode,
 } from "@/lib/api-services";
-import { SalesOrder } from "@/context/SalesOrderContext";
+import { SalesOrder, useSalesOrder } from "@/context/SalesOrderContext";
+import { useToast } from "@/context/ToastContext";
+import { Modal } from "@/components/Modal";
+import { AlertTriangle } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -19,6 +25,7 @@ type SOLineForm = {
   materialId: string;
   materialInput?: string;
   materialCode?: string;
+  brandName?: string;
   gsm?: number;
   size?: string;
   unit: string;
@@ -49,10 +56,14 @@ type FormState = {
   deliveryPartyId?: string;
   deliveryPartyAddress?: string;
   deliveryMode?: string;
-  deliveryTerms?: string;
   paymentTerms?: string;
   remarks?: string;
   insurancePolicyNo?: string;
+  showBrandInItemCode?: boolean;
+  // Backfill mode — user is entering a historical SO from their pre-system
+  // register. When true, soNumber + orderDate are USER-supplied and the auto
+  // SO-number sequence is NOT advanced.
+  isBackfilled?: boolean;
   status?: string;
   lines?: SOLineForm[];
 };
@@ -149,12 +160,6 @@ function SOPreview({
             <p className="text-[10px] text-gray-400">Delivery Address</p>
             <p className="text-xs font-semibold mt-0.5 text-gray-900">{effectiveAddr || "—"}</p>
           </div>
-          {formData.deliveryTerms && (
-            <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
-              <p className="text-[10px] text-gray-400">Delivery Terms</p>
-              <p className="text-xs font-semibold mt-0.5 text-gray-900">{formData.deliveryTerms}</p>
-            </div>
-          )}
           {formData.remarks && (
             <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
               <p className="text-[10px] text-gray-400">Remarks</p>
@@ -239,14 +244,40 @@ interface SalesOrderFormProps {
 export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderFormProps) {
   const today = new Date().toISOString().split("T")[0];
   const { config: companyConfig, allConfigs } = useCompanySettings();
+  const { error: showError } = useToast();
+  // Existing SOs from context — used by the pre-save duplicate check to
+  // warn the user when the same (customer, material) combination already
+  // has an active SO recorded.
+  const { salesOrders } = useSalesOrder();
   const [showPreview, setShowPreview] = useState(false);
   const [saving, setSaving]           = useState(false);
+  // Duplicate-warning modal state — rich info so the modal can render
+  // full SO details inline. User can Continue (proceed with save) or
+  // Cancel (stay on the form with all fields preserved — no data loss).
+  const [dupes, setDupes] = useState<Array<{
+    so: SalesOrder;
+    matchedMaterials: string[];
+  }> | null>(null);
 
   // ── API data ──────────────────────────────────────────────────────────────
   const [soCustomers, setSoCustomers]     = useState<CustomerSODropdown[]>([]);
   const [materials, setMaterials]         = useState<MaterialDropdown[]>([]);
   const [salesmenList, setSalesmenList]   = useState<SalesmanForSODto[]>([]);
   const [customerRates, setCustomerRates] = useState<SORateDto[]>([]);
+  // Fallback tier below Rate Master — this customer's most recent
+  // non-cancelled SO rate per item, used only when Rate Master has no entry
+  // for the picked item (client-requested: repeat orders shouldn't need the
+  // rate re-typed from scratch).
+  const [lastSoRates, setLastSoRates] = useState<LastRateDto[]>([]);
+  // Combobox is fully-controlled — its displayed value must come from the
+  // parent every render. While the user is actively typing (no confirmed
+  // option picked yet), show what they typed here instead of re-deriving
+  // from line.materialInput, which would collapse mid-type. One entry per
+  // line (keyed by line.id). Null = "show the confirmed value" (default).
+  // Replaces the old <input list>/<datalist> combo, which got stuck once
+  // its value exactly matched an option — the browser hid every other
+  // suggestion until the field was cleared out completely (client-reported).
+  const [itemCodeQuery, setItemCodeQuery] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
     Promise.all([
@@ -265,6 +296,9 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
     if (initialData?.customerId) {
       rateApi.forCustomer(Number(initialData.customerId))
         .then(setCustomerRates)
+        .catch(() => {});
+      rateApi.lastSoForCustomer(Number(initialData.customerId))
+        .then(setLastSoRates)
         .catch(() => {});
     }
   }, [initialData?.customerId]);
@@ -290,10 +324,11 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
         deliveryPartyId:      initialData.deliveryPartyId ?? initialData.customerId ?? "",
         deliveryPartyAddress: initialData.deliveryPartyAddress ?? firstLine?.deliveryAddress ?? "",
         deliveryMode:  initialData.deliveryMode,
-        deliveryTerms:     initialData.deliveryTerms,
         paymentTerms:      initialData.paymentTerms,
         remarks:           initialData.remarks,
         insurancePolicyNo: initialData.insurancePolicyNo ?? "",
+        showBrandInItemCode: initialData.showBrandInItemCode ?? false,
+        isBackfilled:      initialData.isBackfilled ?? false,
         status:            initialData.status,
         lines: initialData.lines?.map(l => ({
           id:           l.id,
@@ -301,11 +336,20 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
           materialId:   l.materialId,
           materialInput: l.materialCode ?? "",
           materialCode: l.materialCode,
+          brandName:    l.brandName,
           gsm:  l.gsm,
           size: l.size,
           unit: l.unit ?? "KG",
           qty:      l.qty,
-          weightKg: l.weightKg,
+          // Backend never sends a distinct WeightKg field for SO lines —
+          // weight-only-entered lines (no sheets) store the real kg value
+          // in orderedQty instead. Trusting l.weightKg directly left the
+          // Weight input blank/0.00 on edit for any such line even though
+          // View mode (which uses this same fallback chain) showed the
+          // correct figure — a live client-reported bug. lineWeightKg()
+          // is the same "never trust a bare weight field" helper used
+          // everywhere else (SO PDF, Delivery Challan).
+          weightKg: lineWeightKg(l),
           rate:      l.rate,
           discount:  l.discount ?? 0,
           finalPrice: l.finalPrice ?? l.rate - (l.discount ?? 0),
@@ -322,8 +366,9 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
       salesman: "", orderDate: today,
       requiredDeliveryDate: "", deliveryAddress: "",
       deliveryPartyId: "", deliveryPartyAddress: "",
-      deliveryMode: "From Stock", deliveryTerms: "", remarks: "",
+      deliveryMode: "From Stock", remarks: "",
       insurancePolicyNo: "",
+      showBrandInItemCode: false,
       status: "Approval Pending",
       lines: [],
     };
@@ -387,15 +432,20 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
         salesman: "", deliveryAddress: "",
       }));
       setCustomerRates([]);
+      setLastSoRates([]);
       return;
     }
 
     // Load rates and last salesman for new customer in parallel
-    const [rates, lastSOs] = await Promise.all([
+    const [ratesRaw, lastRatesRaw, lastSOs] = await Promise.all([
       rateApi.forCustomer(customer.id).catch(() => [] as SORateDto[]),
+      rateApi.lastSoForCustomer(customer.id).catch(() => [] as LastRateDto[]),
       salesOrderApi.list({ customerId: customer.id, pageSize: 1 }).catch(() => null),
     ]);
+    const rates: SORateDto[] = ratesRaw;
+    const lastRates: LastRateDto[] = lastRatesRaw;
     setCustomerRates(rates);
+    setLastSoRates(lastRates);
     const lastSalesman = lastSOs?.items?.[0]?.salesman ?? "";
 
     const contacts = customer.contacts && customer.contacts.length > 0
@@ -406,8 +456,10 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
     const defaultAddr = defaultDelivery ?? (customer.billingAddress ? { address: customer.billingAddress } : undefined);
 
     const updatedLines = (formData.lines ?? []).map(line => {
+      const lineMat = line.materialId ? materials.find(m => String(m.id) === line.materialId) : undefined;
       const rateEntry = line.materialId
         ? rates.find(r => String(r.materialId) === line.materialId)
+          ?? (lineMat ? lastRates.find(r => r.millId === lineMat.millId && r.qualityId === lineMat.qualityId && r.gsm === lineMat.gsm) : undefined)
         : undefined;
       const rate       = rateEntry?.rate ?? line.rate;
       const discount   = rateEntry?.discount ?? line.discount ?? 0;
@@ -423,7 +475,11 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
       customerPhone: first.phone ?? "",
       customerEmail: (first as any).email ?? "",
       salesman: lastSalesman,
-      paymentTerms: customer.paymentTerms ?? "",
+      // Payment terms = customer's CreditDays (Customer Master no longer
+       // exposes a separate paymentTerms field — single source of truth
+       // per client UAT). e.g. 30 → "30 Days". Falls back to empty when
+       // the customer has no credit days configured.
+       paymentTerms: customer.creditDays > 0 ? `${customer.creditDays} Days` : "",
       deliveryAddress: defaultAddr?.address ?? "",
       deliveryPartyId: customerId,
       deliveryPartyAddress: defaultAddr?.address ?? "",
@@ -460,6 +516,12 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
       deliveryPartyAddress: fallbackAddr,
     }));
   };
+
+  // Number inputs otherwise let an accidental scroll-wheel pass over the
+  // field increment/decrement it (client-reported: values silently changed
+  // while scrolling the page). Blurring on wheel hands the scroll straight
+  // back to the page instead of the input.
+  const blurOnWheel = (e: React.WheelEvent<HTMLInputElement>) => e.currentTarget.blur();
 
   // ── Generic field change ──────────────────────────────────────────────────
 
@@ -498,6 +560,7 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
       if (material) {
         const rateEntry = formData.customerId
           ? customerRates.find(r => r.materialId === material.id)
+            ?? lastSoRates.find(r => r.millId === material.millId && r.qualityId === material.qualityId && r.gsm === material.gsm)
           : undefined;
         const rate       = rateEntry?.rate ?? 0;
         const discount   = rateEntry?.discount ?? 0;
@@ -510,7 +573,23 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
           rate, discount, finalPrice, amount, isAutoFilled: !!rateEntry,
         };
       } else {
-        list[index] = { ...line, materialInput: text, materialId: "", materialCode: "" };
+        // Free-text custom item code. Mirror the typed text into materialCode
+        // (otherwise grid/PDF/email render "null") and parse size + GSM out of
+        // the last two segments so the line stays internally consistent — same
+        // logic the PO form uses.
+        const parts = text.split("/").map((p) => p.trim()).filter(Boolean);
+        const last  = parts[parts.length - 1] ?? "";
+        const prev  = parts[parts.length - 2] ?? "";
+        const sizeLike = /^\d+(\.\d+)?([xX×]\d+(\.\d+)?)?$/.test(last);
+        const gsmLike  = /^\d+$/.test(prev);
+        list[index] = {
+          ...line,
+          materialInput: text,
+          materialId:    "",
+          materialCode:  text,
+          size:          sizeLike ? last : line.size,
+          gsm:           gsmLike  ? Number(prev) : line.gsm,
+        };
       }
     } else if (field === "weightKg") {
       const wt = rawValue === "" ? undefined : Number(rawValue);
@@ -557,9 +636,19 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
 
   const buildDto = (): CreateSODto => {
     const effectiveAddr = formData.deliveryPartyAddress || formData.deliveryAddress || "";
-    const lines: CreateSOLineDto[] = (formData.lines ?? []).map(line => ({
+    const lines: CreateSOLineDto[] = (formData.lines ?? []).map(line => {
+      // materialId empty / 0 = free-text custom item (no matching master). Send
+      // null so backend stores NULL instead of hitting the FK constraint on Id=0.
+      const matId = Number(line.materialId);
+      // line.id is the real DB id (numeric string) for an existing line, or
+      // a synthetic "line_<timestamp>" for one just added in this session —
+      // only forward it when it's genuinely numeric so the backend can
+      // update that exact row in place instead of creating a new one.
+      const existingId = /^\d+$/.test(line.id) ? Number(line.id) : undefined;
+      return {
+      id:                   existingId,
       lineNumber:           line.lineNumber,
-      materialId:           Number(line.materialId),
+      materialId:           matId > 0 ? matId : null,
       materialCode:         line.materialCode,
       gsm:                  line.gsm,
       size:                 line.size,
@@ -573,7 +662,8 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
       deliveryAddress:      effectiveAddr,
       requiredDeliveryDate: formData.requiredDeliveryDate || undefined,
       remarks:              line.remarks || undefined,
-    }));
+      };
+    });
 
     return {
       customerId:           Number(formData.customerId),
@@ -585,10 +675,15 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
       orderDate:            formData.orderDate ?? new Date().toISOString().split("T")[0],
       requiredDeliveryDate: formData.requiredDeliveryDate || undefined,
       paymentTerms:         formData.paymentTerms || undefined,
-      deliveryTerms:        formData.deliveryTerms || undefined,
+      // deliveryTerms field removed per UAT — no longer sent.
       deliveryMode:         formData.deliveryMode || undefined,
       remarks:              formData.remarks || undefined,
       insurancePolicyNo:    formData.insurancePolicyNo || undefined,
+      showBrandInItemCode:  !!formData.showBrandInItemCode,
+      // Backfill mode: forward the flag + user-typed SO number so backend
+      // skips the auto-sequence and stores the historical record as-is.
+      isBackfilled:         !!formData.isBackfilled,
+      soNumber:             formData.isBackfilled ? (formData.soNumber || "").trim() : undefined,
       lines,
     };
   };
@@ -600,8 +695,45 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
 
   const handlePreview = () => { if (hasCustomer && hasLines) setShowPreview(true); };
 
+  // Pre-save duplicate detector — returns SO rows + the codes that overlap
+  // with the current form, so the warning modal can show full details
+  // inline. Ignores the SO being edited + terminal states.
+  const findDuplicateSos = () => {
+    const editingId = formData.id;
+    const customerId = String(formData.customerId ?? "");
+    if (!customerId) return [];
+    const formMatIds = new Set(
+      (formData.lines ?? [])
+        .map((l) => String(l.materialId ?? ""))
+        .filter((id) => id && id !== "0"),
+    );
+    if (formMatIds.size === 0) return [];
+
+    const matches: Array<{ so: SalesOrder; matchedMaterials: string[] }> = [];
+    for (const so of salesOrders) {
+      if (so.id === editingId) continue;
+      if (String(so.customerId) !== customerId) continue;
+      if (["Cancelled", "Closed"].includes(so.status)) continue;
+      const overlap = (so.lines ?? []).filter((l) => formMatIds.has(String(l.materialId)));
+      if (overlap.length === 0) continue;
+      matches.push({
+        so,
+        matchedMaterials: overlap
+          .map((l) => l.materialCode?.trim() || `Material #${l.materialId}`)
+          .filter((v, idx, arr) => arr.indexOf(v) === idx),
+      });
+    }
+    return matches;
+  };
+
   const handleSave = async () => {
     if (!hasCustomer || !hasLines) return;
+    const matches = findDuplicateSos();
+    if (matches.length > 0) { setDupes(matches); return; }
+    await doSave();
+  };
+
+  const doSave = async () => {
     setSaving(true);
     try {
       const dto = buildDto();
@@ -610,14 +742,23 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
         ? await salesOrderApi.update(Number(formData.id), { ...dto, status: formData.status } as UpdateSODto)
         : await salesOrderApi.create(dto);
       onSuccess(result.soNumber, isUpdate);
-    } catch {
-      // errors are handled globally via apiFetch interceptor
+    } catch (e) {
+      // Caught (and shown) here explicitly rather than left unhandled —
+      // an unhandled rejection also trips Next.js's dev-mode error overlay
+      // (looks like the app crashed), on top of whatever the global
+      // ToastContext listener shows. Catching it and calling the toast
+      // ourselves gives just the one clean, centered message.
+      showError(e instanceof Error ? e.message : "Save failed.");
     } finally {
       setSaving(false);
     }
   };
 
   const handleConfirmSave = async () => {
+    // Same duplicate guard as the direct-save path — the preview screen
+    // shouldn't bypass the check.
+    const matches = findDuplicateSos();
+    if (matches.length > 0) { setDupes(matches); return; }
     setSaving(true);
     try {
       const dto = buildDto();
@@ -625,11 +766,13 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
       const result = isUpdate
         ? await salesOrderApi.update(Number(formData.id), { ...dto, status: formData.status } as UpdateSODto)
         : await salesOrderApi.create(dto);
-      setShowPreview(false);
       onSuccess(result.soNumber, isUpdate);
-    } catch {
-      setShowPreview(false);
+    } catch (e) {
+      // See doSave() above for why this is caught explicitly.
+      showError(e instanceof Error ? e.message : "Save failed.");
     } finally {
+      // Preview closes either way so the user isn't left staring at a stale draft.
+      setShowPreview(false);
       setSaving(false);
     }
   };
@@ -652,8 +795,91 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
 
   // ─────────────────────────────────────────────────────────────────────────
 
+  // Backfill mode is only meaningful when CREATING a fresh SO. Editing an
+  // existing SO must not flip its IsBackfilled state — keep the strip hidden.
+  const isEditMode = !!initialData?.id;
+
   return (
     <form className="space-y-5">
+
+      {/* ── Linked-PO reminder — a PO raised against this SO is fully
+          independent afterward (editing the SO never updates it), so flag
+          it as a reminder to check the other side too. Client-asked
+          2026-09-11. ────────────────────────────────────────────────────── */}
+      {isEditMode && (initialData?.linkedPoCount ?? 0) > 0 && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+          <p className="text-xs font-semibold text-blue-800">
+            🔗 This SO has {initialData!.linkedPoCount} Purchase Order{initialData!.linkedPoCount === 1 ? "" : "s"} raised against it
+          </p>
+          <p className="mt-0.5 text-xs text-blue-700">
+            Changing quantities, rates, or delivery details here won't update the linked PO(s) — check whether they need the same change.
+          </p>
+        </div>
+      )}
+
+      {/* ── Backfill / backdated SO strip — only on create ──────────────────── */}
+      {!isEditMode && (
+        <div className={cn(
+          "rounded-xl border px-4 py-3 transition-colors",
+          formData.isBackfilled
+            ? "border-amber-300 bg-amber-50"
+            : "border-gray-200 bg-white"
+        )}>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!formData.isBackfilled}
+              onChange={(e) => setFormData(prev => ({
+                ...prev,
+                isBackfilled: e.target.checked,
+                // Clear typed SO number if toggling off
+                soNumber: e.target.checked ? prev.soNumber : undefined,
+              }))}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-gray-800">📋 Backfill old / historical SO</span>
+                {formData.isBackfilled && (
+                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-800 uppercase">Backfill mode</span>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-gray-500">
+                {formData.isBackfilled
+                  ? "Enter the SO number from your manual register and pick the original order date. Auto-numbering is paused for this entry."
+                  : "Tick this to record an old order from your manual register with its original SO number and date."}
+              </p>
+            </div>
+          </label>
+          {formData.isBackfilled && (
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Original SO Number <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={formData.soNumber ?? ""}
+                  onChange={(e) => setFormData(prev => ({ ...prev, soNumber: e.target.value }))}
+                  placeholder="e.g. SO/2024/05/038"
+                  className={inputCls}
+                  required
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Original Order Date <span className="text-red-500">*</span></label>
+                <input
+                  type="date"
+                  value={formData.orderDate || ""}
+                  onChange={(e) => setFormData(prev => ({ ...prev, orderDate: e.target.value }))}
+                  max={today}
+                  className={inputCls}
+                  required
+                />
+                <p className="mt-0.5 text-[10px] text-gray-400">Must be a past date.</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Section 1: Customer & Order Details ──────────────────────────────── */}
       <div className="rounded-xl border border-gray-200 bg-white">
@@ -736,8 +962,10 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
             </div>
           </div>
 
-          {/* Order Date · Required Delivery Date · Delivery Mode — single row */}
-          <div className="sm:col-span-4 grid grid-cols-3 gap-3">
+          {/* Order Date · Required Delivery Date · Delivery Mode — single
+              row on tablet+, stacks on mobile so each date picker stays
+              tap-friendly. */}
+          <div className="sm:col-span-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className={labelCls}>Order Date <span className="text-red-500">*</span></label>
               <input type="date" name="orderDate" value={formData.orderDate || today}
@@ -799,13 +1027,9 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
             )}
           </div>
 
-          {/* Delivery Terms · Remarks */}
-          <div className="sm:col-span-2">
-            <label className={labelCls}>Delivery Terms</label>
-            <input type="text" name="deliveryTerms" value={formData.deliveryTerms || ""}
-              onChange={handleChange} placeholder="Ex-Godown, Door Delivery, etc." className={inputCls} />
-          </div>
-          <div className="sm:col-span-2">
+          {/* Remarks — Delivery Terms field was removed per client request
+              (the SO PDF / email / print no longer carry it either). */}
+          <div className="sm:col-span-4">
             <label className={labelCls}>Remarks</label>
             <input type="text" name="remarks" value={formData.remarks || ""}
               onChange={handleChange} placeholder="Notes or special instructions" className={inputCls} />
@@ -858,17 +1082,36 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
               </span>
             )}
           </div>
-          <button type="button" onClick={addLine}
-            className="flex items-center gap-1 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-100 transition-colors">
-            <Plus className="h-3.5 w-3.5" /> Add Item
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Brand-in-code toggle — off by default; user flips it for the
+                rare special case when the customer asked to see the brand
+                inside each item code on this SO. */}
+            <label className="flex items-center gap-1.5 cursor-pointer select-none"
+              title="Insert brand name into each item code on this SO (for display + PDF/email). Default off — codes stay short.">
+              <input
+                type="checkbox"
+                checked={!!formData.showBrandInItemCode}
+                onChange={(e) => setFormData(prev => ({ ...prev, showBrandInItemCode: e.target.checked }))}
+                className="h-3.5 w-3.5 accent-blue-500 cursor-pointer"
+              />
+              <span className="text-xs text-gray-600">Show brand in code</span>
+            </label>
+            {/* Top-bar Add Item button removed per client UAT — the primary
+                add button now sits BELOW the items list so it stays in
+                reach as the user keeps adding rows (no scroll-up needed). */}
+          </div>
         </div>
 
         <div className="p-4">
           {(formData.lines ?? []).length === 0 ? (
-            <div className="rounded-lg border-2 border-dashed border-gray-200 py-8 text-center">
-              <p className="text-sm text-gray-400">No items yet. Click &ldquo;Add Item&rdquo; to add order lines.</p>
-            </div>
+            <button
+              type="button"
+              onClick={addLine}
+              className="w-full rounded-lg border-2 border-dashed border-blue-200 bg-blue-50/30 py-8 text-center transition-colors hover:border-blue-400 hover:bg-blue-50">
+              <Plus className="mx-auto h-5 w-5 text-blue-500" />
+              <p className="mt-1.5 text-sm font-medium text-blue-600">Add first item</p>
+              <p className="text-[11px] text-gray-400">Click to start adding order lines</p>
+            </button>
           ) : (
             <div className="space-y-3">
               {(formData.lines ?? []).map((line, index) => {
@@ -882,7 +1125,9 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
                           Item {line.lineNumber}
                         </span>
                         {line.materialCode && (
-                          <span className="text-sm font-medium text-gray-800 truncate">{line.materialCode}</span>
+                          <span className="text-sm font-medium text-gray-800 truncate">
+                            {soLineDisplayCode(line, formData.showBrandInItemCode)}
+                          </span>
                         )}
                         {line.gsm && (
                           <span className="text-xs text-gray-400 flex-shrink-0">{line.gsm}g · {line.size}</span>
@@ -901,22 +1146,23 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
                       {/* Item Code */}
                       <div>
                         <label className={labelCls}>Item Code <span className="text-red-500">*</span></label>
-                        <input
-                          type="text" list={`mats-${line.id}`}
-                          value={line.materialInput ?? ""}
-                          onChange={e => handleLineChange(index, "materialInput", e.target.value)}
+                        <Combobox
+                          options={materials.map(m => ({
+                            value: String(m.id),
+                            label: m.code,
+                            sub: m.gsm ? `${m.gsm}g` : undefined,
+                          }))}
+                          inputValue={itemCodeQuery[line.id] ?? line.materialInput ?? ""}
+                          onChange={(text, opt) => {
+                            setItemCodeQuery(prev => ({ ...prev, [line.id]: opt ? null : text }));
+                            handleLineChange(index, "materialInput", opt ? opt.label : text);
+                          }}
                           placeholder="Mill / Category / GSM / Size / Packing…"
-                          className={inputCls}
                         />
-                        <datalist id={`mats-${line.id}`}>
-                          {materials.map(m => (
-                            <option key={m.id} value={m.code} />
-                          ))}
-                        </datalist>
                       </div>
 
-                      {/* Qty + Weight */}
-                      <div className="grid grid-cols-4 gap-3">
+                      {/* Qty + Weight — 2 per row on mobile, 4 on tablet+ */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         <div>
                           <label className={labelCls}>
                             Qty <span className="text-[10px] font-normal text-gray-400">(sheets, optional)</span>
@@ -925,7 +1171,8 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
                             type="number" min={0}
                             value={line.qty ?? ""}
                             onChange={e => handleLineChange(index, "qty", e.target.value)}
-                            placeholder="—" className={inputCls}
+                            onWheel={blurOnWheel}
+                            placeholder="—" className={cn(inputCls, "no-spinner")}
                           />
                           {line.qty !== undefined && line.weightKg !== undefined && (
                             <p className="mt-0.5 text-[10px] text-green-600">↳ {line.weightKg} KG auto-calc</p>
@@ -937,13 +1184,15 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
                             type="number" min={0} step="0.01"
                             value={line.weightKg ?? ""}
                             onChange={e => handleLineChange(index, "weightKg", e.target.value)}
-                            placeholder="0.00" className={inputCls}
+                            onWheel={blurOnWheel}
+                            placeholder="0.00" className={cn(inputCls, "no-spinner")}
                           />
                         </div>
                       </div>
 
-                      {/* Rate · Discount · Final Price · Line Total */}
-                      <div className="grid grid-cols-4 gap-3">
+                      {/* Rate · Discount · Final Price · Line Total — stack
+                          to 2-per-row on mobile so amount fields stay tappable. */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         <div>
                           <div className="flex items-center justify-between mb-1">
                             <label className={cn(labelCls, "mb-0")}>Rate (₹/KG) <span className="text-red-500">*</span></label>
@@ -957,8 +1206,9 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
                             type="number" min={0} step="0.01"
                             value={line.rate || ""}
                             onChange={e => handleLineChange(index, "rate", e.target.value)}
+                            onWheel={blurOnWheel}
                             placeholder="0.00"
-                            className={cn(inputCls, line.isAutoFilled && "border-green-300 bg-green-50/40")}
+                            className={cn(inputCls, "no-spinner", line.isAutoFilled && "border-green-300 bg-green-50/40")}
                           />
                         </div>
                         <div>
@@ -974,8 +1224,9 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
                             type="number" min={0} step="0.01"
                             value={line.discount || ""}
                             onChange={e => handleLineChange(index, "discount", e.target.value)}
+                            onWheel={blurOnWheel}
                             placeholder="0.00"
-                            className={cn(inputCls, line.isAutoFilled && line.discount > 0 && "border-green-300 bg-green-50/40")}
+                            className={cn(inputCls, "no-spinner", line.isAutoFilled && line.discount > 0 && "border-green-300 bg-green-50/40")}
                           />
                         </div>
                         <div>
@@ -1008,6 +1259,16 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
                   </div>
                 );
               })}
+              {/* Bottom-of-list Add Item button — primary add control. As
+                  the user appends rows, this button keeps moving down with
+                  them so it never leaves the viewport when adding 8-10
+                  items (client UAT feedback). */}
+              <button
+                type="button"
+                onClick={addLine}
+                className="w-full flex items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-blue-200 bg-blue-50/40 py-3 text-sm font-semibold text-blue-600 transition-colors hover:border-blue-400 hover:bg-blue-50">
+                <Plus className="h-4 w-4" /> Add Item
+              </button>
             </div>
           )}
         </div>
@@ -1051,6 +1312,106 @@ export function SalesOrderForm({ initialData, onSuccess, onCancel }: SalesOrderF
           </button>
         </div>
       </div>
+
+      {/* Duplicate-SO warning — full details inline so user can decide
+          without leaving the form (which would lose entered data). Each
+          match card shows: SO number + status, customer, overlapping
+          materials, value + date. Continue → save; Cancel → back to the
+          form with all fields preserved. */}
+      <Modal
+        isOpen={dupes !== null}
+        onClose={() => setDupes(null)}
+        title="Duplicate SO detected"
+        subtitle="Same customer + material combination already exists on these sales orders."
+        size="lg"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setDupes(null)}
+              className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Cancel — go back to the form
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                setDupes(null);
+                if (showPreview) {
+                  setSaving(true);
+                  try {
+                    const dto = buildDto();
+                    const isUpdate = !!formData.id;
+                    const result = isUpdate
+                      ? await salesOrderApi.update(Number(formData.id), { ...dto, status: formData.status } as UpdateSODto)
+                      : await salesOrderApi.create(dto);
+                    onSuccess(result.soNumber, isUpdate);
+                  } catch (e) {
+                    // See doSave() above for why this is caught explicitly.
+                    showError(e instanceof Error ? e.message : "Save failed.");
+                  } finally {
+                    setShowPreview(false);
+                    setSaving(false);
+                  }
+                } else {
+                  await doSave();
+                }
+              }}
+              disabled={saving}
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 transition-colors"
+            >
+              {saving ? "Saving…" : "Continue & Save Anyway"}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 p-3">
+            <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700">
+              Form data is preserved — click <strong>Cancel</strong> to review
+              your entries, or <strong>Continue</strong> to save anyway.
+            </p>
+          </div>
+
+          {(dupes ?? []).map(({ so, matchedMaterials }) => (
+            <div key={so.id} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="font-mono text-sm font-bold text-blue-700">{so.soNumber}</span>
+                <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                  {so.status}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                <div>
+                  <span className="text-gray-400">Customer:</span>{" "}
+                  <span className="font-medium text-gray-800">{so.customer}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Salesman:</span>{" "}
+                  <span className="font-medium text-gray-800">{so.salesman || "—"}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Order Date:</span>{" "}
+                  <span className="font-medium text-gray-800">{so.orderDate}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Value:</span>{" "}
+                  <span className="font-semibold text-emerald-700">
+                    ₹{(so.totalValue ?? 0).toLocaleString("en-IN")}
+                  </span>
+                </div>
+                <div className="col-span-2 mt-1 pt-1.5 border-t border-gray-100">
+                  <span className="text-gray-400">Overlapping items:</span>{" "}
+                  <span className="font-medium text-orange-700">
+                    {matchedMaterials.join(", ")}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Modal>
 
     </form>
   );

@@ -2,9 +2,11 @@
 
 > Integrated Paper Trading Management System — Admin Panel
 
+**Note:** the routes/status tables below are a summary and can drift. The ground truth for which pages are actually active is `components/Sidebar.tsx`'s `NAV_ADMIN` array. See `../HANDOFF.md` for the fuller current-state picture (updated 2026-07-14).
+
 ## Overview
 
-Internal web-based admin panel for **Monit Paper Sales Agency & Monit Paper Associates**, Indore. Covers the full paper trading lifecycle — procurement tracking, inventory, sales orders, dispatch planning, invoicing, analytics, and user/role management.
+Internal web-based admin panel for **Monit Paper Sales Agency & Monit Paper Associates**, Indore (two tenants, separate databases, one codebase). Covers the full paper trading lifecycle — procurement tracking, inventory, sales orders, dispatch planning, invoicing, analytics, and permission management.
 
 ---
 
@@ -45,46 +47,29 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Pages & Routes
 
-### Dashboards
-| Route | Description |
-|-------|-------------|
-| `/` | Owner Dashboard — KPIs, sales trend, order pipeline, payment status |
-| `/dashboard/accounts` | Accounts Dashboard — invoice stats, monthly chart, payment pie, receivables aging |
-| `/dashboard/salesman` | Salesman Dashboard — performance comparison, skill radar, per-salesman cards |
-| `/dashboard/planner` | Planner Dashboard — truck load pipeline, mill order status, warehouse stock |
+### Active (Phase 1 — current client scope)
 
-### Sales Workflow
 | Route | Description |
 |-------|-------------|
-| `/inquiry` | Customer Inquiry management — capture, assign, track |
-| `/orders` | Sales Orders — create, track, allocate, dispatch |
-| `/coverage` | Coverage / customer territory map view |
+| `/` | Dashboard |
+| `/orders` | Sales Orders — create, track, allocate, cancel, dispatch |
+| `/approvals` | Approval workflow for SO/PO |
+| `/purchase-orders` | Purchase Orders to mills — create, track, cancel, status updates |
+| `/mill-tracker` | Mill Order Tracker — PO-line progress, production status, close-tracker (short delivery) |
+| `/truck-load-plan` | Truck Load Planner — group ready mill-tracker lines into truck loads |
+| `/dispatch` | Dispatch — enter dispatch/invoice details for a loaded truck (NOT `/dispatch-queue`, which is a different, hidden, older page) |
+| `/grn` | GRN (Goods Receipt Notes) — record material arriving at godown or going direct-to-client |
+| `/challan` | Delivery Challan — manually created from the SO page's "Pending SO Closure" KPI |
+| `/stock-lots` | Stock Location — FIFO stock lots by bin |
+| `/masters/*` | 11 master pages — see below |
+| `/settings/company`, `/settings/users`, `/settings/roles` | Company config, user management, permission management |
 
-### Procurement & Logistics
-| Route | Description |
-|-------|-------------|
-| `/purchase-orders` | Purchase Orders to mills — create, track, status updates |
-| `/mill-tracker` | Mill Order Tracker — PO-line progress with production status, partial delivery batches |
-| `/truck-load-plan` | Truck Load Planner — group orders into truck loads, manage loading sequence |
-| `/dispatch-queue` | Dispatch Queue — orders ready for dispatch |
-| `/in-transit` | In-Transit tracking — trucks on the road |
-| `/grn` | GRN (Goods Receipt Notes) — record material arriving at godown |
-| `/challan` | Challan & Loading — delivery challans |
-| `/pick-plan` | Pick Plan (FIFO + Bin) — warehouse picking instructions |
+### Hidden (Phase 2/3 — commented out of `Sidebar.tsx`, not in current client scope)
 
-### Reports
-| Route | Description |
-|-------|-------------|
-| `/reports/sales-performance/sales-summary` | Sales summary |
-| `/reports/sales-performance/customer-wise-volume` | Customer wise volume |
-| `/reports/sales-performance/product-wise-sales` | Product wise sales |
-| `/reports/sales-performance/salesman-performance` | Salesman performance |
-| `/reports/mill-supply/mill-performance` | Mill performance scorecard |
-| `/reports/logistics-transport/transporter-performance` | Transporter performance |
-| `/reports/finance-inventory/customer-aging` | Customer aging (receivables) |
-| `/reports/finance-inventory/inventory-report` | Inventory report |
+`/inquiry`, `/coverage`, `/dispatch-queue`, `/pick-plan`, `/in-transit`, `/purchase-invoices`, `/sales-invoices`, `/dashboard/accounts`, `/dashboard/salesman`, `/dashboard/planner`, all `/reports/*`. Some still read from `data/mockData.ts` and were never wired to the real API — that's expected, not a bug.
 
 ### Masters
+
 | Route | Description |
 |-------|-------------|
 | `/masters/materials` | Material Master — paper types, GSM, sizes |
@@ -94,13 +79,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 | `/masters/transporters` | Transporter Master |
 | `/masters/rates` | Rate Master — customer-wise price cards |
 | `/masters/customers` | Customer Master |
-
-### Settings
-| Route | Description |
-|-------|-------------|
-| `/settings/users` | User Management — add/edit/delete users, assign roles |
-| `/settings/roles` | Role Management — define roles with permission sets |
-| `/approvals` | Approval workflows |
+| `/masters/item-type`, `/masters/categories`, `/masters/hsn`, `/masters/localities`, `/masters/instructions` | Remaining master data pages |
 
 ---
 
@@ -149,37 +128,26 @@ frontend/
 
 ---
 
-## User Roles
+## Permissions
 
-| Role | Access |
-|------|--------|
-| Admin | Full access to all modules and settings |
-| Manager | All read + create/update; no hard-delete |
-| Salesman | Inquiry + own Sales Orders + read-only rest |
-| Planner | PO + TLP + PickPlan + Challan |
-| Accounts | Finance (Phase 2) + read-only rest |
-| Warehouse Manager | GRN + Stock + Bin Locations |
+Authorization is **permission-based, not fixed-role-based**: any user can be granted any combination of permissions (`so.read/write/delete/print`, `po.*`, `mill.*`, `logistics.*`, `grn.*`, `stock.*`, `masters.*`, `approvals.*`, `company.*`, `users.*`, `roles.*`, `dashboard.*`) regardless of a named "role" — managed at `/settings/roles`. The `Admin` role always bypasses every permission check. `Sidebar.tsx` nav items are filtered by the logged-in user's permission set; an action the user lacks permission for shows a friendly toast rather than a raw error. See `../CLAUDE.md` and `../HANDOFF.md` §6 for backend implementation details.
 
 ---
 
 ## Current Status
 
-**Phase 1 — Frontend Prototype: Complete**
-**Phase 1 — Backend API Integration: In Progress**
+**Phase 1 — Backend API Integration: Done, in active client UAT** (treat as a live system — see `../HANDOFF.md`).
 
 ### Integrated with real API
 - Authentication (login, refresh, logout, change password)
-- Sales Orders (full CRUD + lines)
-- Purchase Orders, Mill Tracker, Truck Load Plans
+- Sales Orders (full CRUD + lines, cancel, PDF/email/print)
+- Purchase Orders, Mill Tracker, Truck Load Plans, Dispatch, Delivery Challan
 - GRN (Goods Receipt Notes), Stock Lots
 - All Masters (Mills, Materials, Customers, Salesmen, Warehouses, Rates, etc.)
 - Company Settings / Config
+- Permission management (`/settings/roles`)
 
-### Still using mock data (pending backend integration)
-- Customer Inquiry
-- Coverage Engine
-- Pick Plan
-- Challan
-- In-Transit
+### Still using mock data (Phase 2/3, intentionally hidden — see "Hidden" routes above)
+- Customer Inquiry, Coverage Engine, Pick Plan, In-Transit, Purchase/Sales Invoices
 - All Report pages
-- Dashboards (partial — uses mock for chart data)
+- Dashboards other than the root `/` (partial mock use even there for chart data)

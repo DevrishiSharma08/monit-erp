@@ -88,17 +88,28 @@ public class TruckLoadPlanRepository(DbConnectionFactory db) : ITruckLoadPlanRep
         return plan;
     }
 
-    public async Task<int> CountAsync()
-    {
-        using var conn = db.Create();
-        return await conn.ExecuteScalarAsync<int>(
-            "SELECT COUNT(*) FROM procurement.TruckLoadPlans WHERE IsDeleted=0");
-    }
-
     // ── Mutations ────────────────────────────────────────────────────────────
 
-    public async Task<int> CreateAsync(CreateTruckLoadPlanDto dto, string planNumber, string createdBy)
+    public async Task<int> CreateAsync(CreateTruckLoadPlanDto dto, string createdBy)
     {
+        // Plan-number generation used to be a separate COUNT(*)+1 query in the
+        // service layer, on its own connection, well before this transaction
+        // even opened — two requests landing close together could both read
+        // the same count and both try to insert the same PlanNumber, and the
+        // second would fail with a raw SQL 2601 duplicate-key error surfaced
+        // to the user as "An unexpected error occurred." (caught live on
+        // production, 2026-09-11). Generating it here instead, inside this
+        // transaction, with an UPDLOCK+HOLDLOCK on the lookup, makes a second
+        // concurrent caller actually wait for the first to commit before it
+        // can compute its own number — closing the race instead of just
+        // narrowing it.
+        var year = DateTime.UtcNow.Year;
+        var prefix = $"TLP-{year}-";
+        const string numSql = @"
+            SELECT ISNULL(MAX(CAST(SUBSTRING(PlanNumber, LEN(@Prefix) + 1, 10) AS INT)), 0) + 1
+            FROM procurement.TruckLoadPlans WITH (UPDLOCK, HOLDLOCK)
+            WHERE PlanNumber LIKE @Prefix + '%' AND IsDeleted = 0";
+
         const string insertPlan = @"
             INSERT INTO procurement.TruckLoadPlans
                 (PlanNumber, PlanDate, TruckNumber, TruckType, TransporterName, DriverName, DriverPhone,
@@ -131,6 +142,9 @@ public class TruckLoadPlanRepository(DbConnectionFactory db) : ITruckLoadPlanRep
         using var tx   = conn.BeginTransaction();
         try
         {
+            var seq        = await conn.ExecuteScalarAsync<int>(numSql, new { Prefix = prefix }, tx);
+            var planNumber = $"{prefix}{seq:D3}";
+
             var planId = await conn.ExecuteScalarAsync<int>(insertPlan, new
             {
                 PlanNumber          = planNumber,

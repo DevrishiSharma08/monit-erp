@@ -12,6 +12,7 @@ import {
   ColumnFiltersState,
   VisibilityState,
   PaginationState,
+  RowSelectionState,
   Table,
   FilterFn,
   Updater,
@@ -55,6 +56,9 @@ interface UseDataGridOptions<TData> {
   setPagination?: (pagination: PaginationState) => void;
   globalFilter?: string;
   setGlobalFilter?: (filter: string) => void;
+  rowSelection?: RowSelectionState;
+  setRowSelection?: (selection: RowSelectionState) => void;
+  enableRowSelection?: boolean;
 }
 
 export function useDataGrid<TData>(
@@ -78,21 +82,39 @@ export function useDataGrid<TData>(
     setPagination,
     globalFilter = "",
     setGlobalFilter,
+    rowSelection = {},
+    setRowSelection,
+    enableRowSelection = false,
   } = options;
 
   const columns = useMemo<ColumnDef<TData>[]>(
     () =>
       columnConfigs.map((config) => {
-        const colDef: ColumnDef<TData> = {
-          id: config.id,
-          accessorKey: config.accessorKey as string,
-          header: config.header,
-          enableSorting: config.enableSorting ?? true,
-          enableHiding: config.enableHiding ?? true,
-          size: config.size,
-          minSize: config.minSize,
-          maxSize: config.maxSize,
-        };
+        // When a computed accessor is supplied, TanStack uses it for sort /
+        // search / filter — the displayed cell can still pull from the raw
+        // row via its own renderer. Falls back to `accessorKey` (current
+        // behavior for every existing column).
+        const colDef: ColumnDef<TData> = config.accessorFn
+          ? {
+              id: config.id,
+              accessorFn: config.accessorFn,
+              header: config.header,
+              enableSorting: config.enableSorting ?? true,
+              enableHiding: config.enableHiding ?? true,
+              size: config.size,
+              minSize: config.minSize,
+              maxSize: config.maxSize,
+            }
+          : {
+              id: config.id,
+              accessorKey: config.accessorKey as string,
+              header: config.header,
+              enableSorting: config.enableSorting ?? true,
+              enableHiding: config.enableHiding ?? true,
+              size: config.size,
+              minSize: config.minSize,
+              maxSize: config.maxSize,
+            };
         if (config.cell) {
           colDef.cell = config.cell;
         }
@@ -104,6 +126,23 @@ export function useDataGrid<TData>(
             if (from && val < from) return false;
             if (to && val > to) return false;
             return true;
+          };
+        }
+        // "text" filterType must always do a plain substring match. Without
+        // an explicit filterFn, TanStack's default ("auto") picks a filter
+        // function based on the CELL VALUE'S JS TYPE — for a numeric column
+        // (e.g. GSM) it silently switches to inNumberRange, which expects
+        // the filter value as a [min, max] tuple. Our filter inputs are
+        // plain text boxes that send a string, so inNumberRange destructures
+        // that string char-by-char (`"390"` → min:"3", max:"9"`) and almost
+        // nothing matches — client-reported (GSM filter returning zero rows
+        // even for values that visibly exist). Forcing includesString-style
+        // matching here fixes every "text" column, not just GSM.
+        if (config.filterType === "text") {
+          colDef.filterFn = (row, columnId, filterValue) => {
+            const val = row.getValue(columnId);
+            if (val === null || val === undefined) return false;
+            return String(val).toLowerCase().includes(String(filterValue).toLowerCase());
           };
         }
         return colDef;
@@ -121,6 +160,7 @@ export function useDataGrid<TData>(
       columnOrder: columnOrder.length > 0 ? columnOrder : undefined,
       pagination,
       globalFilter,
+      rowSelection,
     },
     onSortingChange: setSorting
       ? (u) => setSorting(resolveUpdater(u, sorting))
@@ -140,6 +180,10 @@ export function useDataGrid<TData>(
     onGlobalFilterChange: setGlobalFilter
       ? (u) => setGlobalFilter(resolveUpdater(u, globalFilter))
       : undefined,
+    onRowSelectionChange: setRowSelection
+      ? (u) => setRowSelection(resolveUpdater(u, rowSelection))
+      : undefined,
+    enableRowSelection,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: enableSorting ? getSortedRowModel() : undefined,
     getFilteredRowModel: enableFiltering ? getFilteredRowModel() : undefined,

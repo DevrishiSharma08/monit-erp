@@ -57,7 +57,13 @@ public class AppConfig
         JwtRefreshExpiryDays  = config.GetValue<int>("Jwt:RefreshTokenExpiryDays",  7);
         CorsOrigins           = config.GetSection("Cors:AllowedOrigins").Get<string[]>()
                                 ?? ["http://localhost:3000"];
+        // CompanyName keeps a dev fallback so master Excel/PDF/Word exports
+        // still show something during local dev when Settings isn't set up.
+        // CompanyAddress falls back to EMPTY (not "Indore") so an unset
+        // tenant Settings row doesn't leak a misleading partial address
+        // into PO/SO PDFs — the PO/SO docs read from system.CompanyConfig
+        // and now show blank when Settings hasn't filled the address.
         CompanyName           = config["Export:CompanyName"]    ?? "Monit Paper Agency";
-        CompanyAddress        = config["Export:CompanyAddress"] ?? "Indore";
+        CompanyAddress        = config["Export:CompanyAddress"] ?? "";
     }
 }

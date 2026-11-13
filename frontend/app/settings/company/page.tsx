@@ -30,6 +30,7 @@ function CompanySettingsPage() {
   const [companyName, setCompanyName] = useState("");
   const [address,     setAddress]     = useState("");
   const [gstNumber,   setGstNumber]   = useState("");
+  const [panNumber,   setPanNumber]   = useState("");
   const [detailSaving, setDetailSaving] = useState(false);
   const [detailSaved,  setDetailSaved]  = useState(false);
   const [detailError,  setDetailError]  = useState<string | null>(null);
@@ -59,6 +60,7 @@ function CompanySettingsPage() {
       setCompanyName(result.companyName ?? "");
       setAddress(result.address ?? "");
       setGstNumber(result.gstNumber ?? "");
+      setPanNumber(result.panNumber ?? "");
       setPolicyNo(result.insurancePolicyNo ?? "");
       setPolicyFy(result.insurancePolicyFy ?? FY_OPTIONS[1]);
       setIssuer(result.insuranceIssuer ?? "");
@@ -81,6 +83,7 @@ function CompanySettingsPage() {
         companyName: companyName.trim() || undefined,
         address:     address.trim()     || undefined,
         gstNumber:   gstNumber.trim()   || undefined,
+        panNumber:   panNumber.trim()   || undefined,
       });
       await fetch(); reloadCtx();
       setDetailSaved(true);
@@ -170,7 +173,7 @@ function CompanySettingsPage() {
           <div>
             <label className={labelCls}>Company Name</label>
             <input value={companyName} onChange={(e) => setCompanyName(e.target.value)}
-              placeholder="e.g. Monit Paper Agency" className={inputCls} />
+              placeholder="e.g. Monit Paper Sales Agency" className={inputCls} />
           </div>
           <div>
             <label className={labelCls}>Address</label>
@@ -183,6 +186,11 @@ function CompanySettingsPage() {
             <label className={labelCls}>GST Number</label>
             <input value={gstNumber} onChange={(e) => setGstNumber(e.target.value)}
               placeholder="e.g. 23AABCM1234K1Z5" className={inputCls} maxLength={15} />
+          </div>
+          <div>
+            <label className={labelCls}>PAN Number</label>
+            <input value={panNumber} onChange={(e) => setPanNumber(e.target.value)}
+              placeholder="e.g. AEKPJ5319K" className={inputCls} maxLength={10} />
           </div>
         </div>
 
@@ -304,7 +312,7 @@ function CompanySettingsPage() {
             <div>
               <label className={labelCls}>Sender Display Name</label>
               <input value={smtpName} onChange={(e) => setSmtpName(e.target.value)}
-                placeholder="e.g. Monit Paper Agency" className={inputCls} />
+                placeholder="e.g. Monit Paper Sales Agency" className={inputCls} />
             </div>
           </div>
 

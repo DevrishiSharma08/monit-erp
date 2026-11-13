@@ -7,6 +7,8 @@ public interface IRateService
 {
     Task<PagedResult<RateListDto>>  GetCurrentRatesAsync(RateFilterRequest filter);
     Task<List<SORateDto>>           GetForCustomerAsync(int customerId);
+    Task<List<LastRateDto>>         GetLastSoRatesForCustomerAsync(int customerId);
+    Task<List<LastRateDto>>         GetLastPoRatesForMillAsync(int millId);
     Task<List<RateHistoryDto>>      GetHistoryAsync(int rateId);
     Task<List<RateListDto>>         CreateSaleRatesAsync(CreateSaleRateDto dto, string createdBy);
     Task<List<RateListDto>>         CreatePurchaseRatesAsync(CreatePurchaseRateDto dto, string createdBy);

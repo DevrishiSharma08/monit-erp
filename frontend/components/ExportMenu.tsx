@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Download, ChevronDown, FileSpreadsheet, FileText, FileType2, Loader2 } from "lucide-react";
+import { Download, ChevronDown, FileSpreadsheet, FileText, FileType2, FileArchive, Image as ImageIcon, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type ExportData, exportCsv, exportExcel, exportDocx, exportPdf } from "@/lib/exportUtils";
 
@@ -9,9 +9,23 @@ interface ExportMenuProps {
   getData:  () => ExportData;
   filename: string;
   label?:   string;
+  // Optional override for the PDF format. When provided, picking "PDF" in the
+  // menu calls this instead of the generic table-PDF — used by SO / PO grids
+  // so the exported file matches the rich single-document Preview / Print
+  // layout (one record per page) rather than a flat row dump.
+  customPdfExport?:     () => Promise<void> | void;
+  // Optional second PDF action — when set, a "PDF (Separate, ZIP)" entry is
+  // shown so the user can download one PDF per row inside a ZIP archive
+  // (instead of the single combined multi-page document).
+  customPdfZipExport?:  () => Promise<void> | void;
+  // Optional "JPG" action — downloads one image file per row directly
+  // (no ZIP), same as the row-level "Export as Image" action, so the user
+  // can immediately forward each file (e.g. on WhatsApp) without having to
+  // extract an archive first. Only shown when the parent page wires it.
+  customImageExport?: () => Promise<void> | void;
 }
 
-export function ExportMenu({ getData, filename, label = "Export" }: ExportMenuProps) {
+export function ExportMenu({ getData, filename, label = "Export", customPdfExport, customPdfZipExport, customImageExport }: ExportMenuProps) {
   const [open,    setOpen]    = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -54,11 +68,38 @@ export function ExportMenu({ getData, filename, label = "Export" }: ExportMenuPr
     },
     {
       key:   "pdf",
-      label: "PDF (.pdf)",
+      // When a separate-ZIP option is also available, label this one
+      // "Combined" so the difference is clear in the menu.
+      label: customPdfZipExport ? "PDF — Combined" : "PDF (.pdf)",
       icon:  Download,
       color: "text-red-500",
-      fn:    (d: ExportData, f: string) => exportPdf(d, f),
+      // If the parent page provides a custom PDF exporter (SO / PO grids do,
+      // so the output matches the single-document layout), use it. Otherwise
+      // fall back to the generic table-style PDF.
+      fn:    customPdfExport
+              ? async () => { await customPdfExport(); }
+              : (d: ExportData, f: string) => exportPdf(d, f),
     },
+    // Optional "Separate PDFs in a ZIP" — only shown when the page wires it.
+    ...(customPdfZipExport
+      ? [{
+          key:   "pdf-zip",
+          label: "PDF — Separate (.zip)",
+          icon:  FileArchive,
+          color: "text-amber-600",
+          fn:    async () => { await customPdfZipExport!(); },
+        }]
+      : []),
+    // Optional per-row JPG downloads — only shown when the page wires it.
+    ...(customImageExport
+      ? [{
+          key:   "jpg",
+          label: "JPG (.jpg)",
+          icon:  ImageIcon,
+          color: "text-purple-600",
+          fn:    async () => { await customImageExport!(); },
+        }]
+      : []),
   ] as const;
 
   const busy = loading !== null;

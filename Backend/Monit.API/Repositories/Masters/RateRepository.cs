@@ -9,13 +9,17 @@ namespace Monit.API.Repositories.Masters;
 
 public class RateRepository(DbConnectionFactory db) : IRateRepository
 {
-    // CTE returns only the latest rate per (MQGId, RateType, RateCategory, CustomerId) combo
+    // CTE returns only the latest rate per (MQGId, MillUnitId, RateType,
+    // RateCategory, CustomerId) combo. Including MillUnitId in the partition
+    // means each unit of a mill keeps its own current rate; legacy mill-wide
+    // rates use MillUnitId = NULL and remain visible alongside unit rates.
     private const string CurrentRatesCte = @"
         WITH Ranked AS (
             SELECT r.Id, r.MQGId,
                    m.Code   AS MQGCode,
                    CONCAT(ml.Name, ' / ', sg.Name, ' / ', m.GsmMin, N'–', m.GsmMax, 'g') AS MQGLabel,
                    ml.Id    AS MillId,   ml.Code  AS MillCode,    ml.Name  AS MillName,
+                   r.MillUnitId,         mu.UnitName AS MillUnitName,
                    sg.Id    AS QualityId, sg.Name AS QualityName, sg.Alias AS BrandName,
                    m.GsmMin, m.GsmMax, m.[Type] AS [Type],
                    r.RateType, r.RateCategory,
@@ -24,13 +28,14 @@ public class RateRepository(DbConnectionFactory db) : IRateRepository
                    CONVERT(NVARCHAR(10), r.EffectiveFrom, 23) AS EffectiveFrom,
                    r.IsActive, r.CreatedAt,
                    ROW_NUMBER() OVER (
-                       PARTITION BY r.MQGId, r.RateType, r.RateCategory, r.CustomerId
+                       PARTITION BY r.MQGId, ISNULL(r.MillUnitId, 0), r.RateType, r.RateCategory, r.CustomerId
                        ORDER BY r.EffectiveFrom DESC, r.Id DESC
                    ) AS rn
             FROM   masters.Rates r
             JOIN   masters.MillQualityGsm  m  ON m.Id  = r.MQGId
             JOIN   masters.Mills           ml ON ml.Id = m.MillId
             JOIN   masters.StockSubGroups  sg ON sg.Id = m.QualityId
+            LEFT JOIN masters.MillUnits    mu ON mu.Id = r.MillUnitId
             LEFT JOIN masters.Customers    c  ON c.Id  = r.CustomerId
             WHERE  r.IsDeleted = 0
         )";
@@ -40,7 +45,7 @@ public class RateRepository(DbConnectionFactory db) : IRateRepository
         var (where, param) = BuildWhere(f);
         var orderBy = SafeCol(f.SortBy, "EffectiveFrom") + " DESC";
         var countSql = $"{CurrentRatesCte} SELECT COUNT(*) FROM Ranked WHERE rn=1 AND {where}";
-        var dataSql  = $"{CurrentRatesCte} SELECT Id,MQGId,BrandName,MQGCode,MQGLabel,MillId,MillCode,MillName,QualityId,QualityName,GsmMin,GsmMax,[Type] AS Type,RateType,RateCategory,CustomerId,CustomerName,Amount,Discount,EffectiveFrom,IsActive,CreatedAt FROM Ranked WHERE rn=1 AND {where} ORDER BY {orderBy} OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY";
+        var dataSql  = $"{CurrentRatesCte} SELECT Id,MQGId,BrandName,MQGCode,MQGLabel,MillId,MillCode,MillName,MillUnitId,MillUnitName,QualityId,QualityName,GsmMin,GsmMax,[Type] AS Type,RateType,RateCategory,CustomerId,CustomerName,Amount,Discount,EffectiveFrom,IsActive,CreatedAt FROM Ranked WHERE rn=1 AND {where} ORDER BY {orderBy} OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY";
         param.Add("Offset", f.Offset);
         param.Add("PageSize", f.PageSize);
         using var conn = db.Create();
@@ -52,13 +57,15 @@ public class RateRepository(DbConnectionFactory db) : IRateRepository
     public async Task<List<RateListDto>> GetAllForExportAsync(RateFilterRequest f)
     {
         var (where, param) = BuildWhere(f);
-        var sql = $"{CurrentRatesCte} SELECT Id,MQGId,BrandName,MQGCode,MQGLabel,MillId,MillCode,MillName,QualityId,QualityName,GsmMin,GsmMax,[Type] AS Type,RateType,RateCategory,CustomerId,CustomerName,Amount,Discount,EffectiveFrom,IsActive,CreatedAt FROM Ranked WHERE rn=1 AND {where} ORDER BY MQGCode, RateType, CustomerName";
+        var sql = $"{CurrentRatesCte} SELECT Id,MQGId,BrandName,MQGCode,MQGLabel,MillId,MillCode,MillName,MillUnitId,MillUnitName,QualityId,QualityName,GsmMin,GsmMax,[Type] AS Type,RateType,RateCategory,CustomerId,CustomerName,Amount,Discount,EffectiveFrom,IsActive,CreatedAt FROM Ranked WHERE rn=1 AND {where} ORDER BY MQGCode, RateType, CustomerName";
         using var conn = db.Create();
         return (await conn.QueryAsync<RateListDto>(sql, param)).ToList();
     }
 
     public async Task<List<RateHistoryDto>> GetHistoryAsync(int rateId)
     {
+        // Match history within the same MQG + MillUnit + RateType + Category + Customer
+        // so unit-specific rate history stays isolated from other units.
         const string sql = @"
             SELECT h.Id, h.[Rate] AS Amount,
                    CONVERT(NVARCHAR(10), h.EffectiveFrom, 23) AS EffectiveFrom,
@@ -67,6 +74,7 @@ public class RateRepository(DbConnectionFactory db) : IRateRepository
             JOIN   masters.Rates ref ON ref.Id = @RateId
               AND  h.MQGId       = ref.MQGId
               AND  h.RateType    = ref.RateType
+              AND  (h.MillUnitId   = ref.MillUnitId   OR (h.MillUnitId   IS NULL AND ref.MillUnitId   IS NULL))
               AND  (h.RateCategory = ref.RateCategory OR (h.RateCategory IS NULL AND ref.RateCategory IS NULL))
               AND  (h.CustomerId   = ref.CustomerId   OR (h.CustomerId   IS NULL AND ref.CustomerId   IS NULL))
             WHERE  h.IsDeleted = 0
@@ -112,13 +120,68 @@ public class RateRepository(DbConnectionFactory db) : IRateRepository
         return (await conn.QueryAsync<SORateDto>(sql, new { CustomerId = customerId })).ToList();
     }
 
+    // Fallback tier below Rate Master: when this customer/mill has no Rate
+    // Master entry for an item, the SO/PO form pre-fills whatever Rate +
+    // Discount were used on that same customer/mill's most recent order.
+    // Keyed by Mill + Quality + GSM — the SAME dimensions Rate Master itself
+    // prices by (see GetForCustomerAsync above, matched via MillQualityGsm
+    // ranges) — NOT by exact Material/Size, so a repeat order for a
+    // different size of the same mill/quality/gsm still gets the last
+    // agreed rate. Client-requested, mirrors how Rate Master already works.
+    // Cancelled orders are excluded (their rate may be exactly why they got
+    // cancelled — confirmed with the client before building this). User can
+    // still edit the value.
+    public async Task<List<LastRateDto>> GetLastSoRatesForCustomerAsync(int customerId)
+    {
+        const string sql = @"
+            WITH Ranked AS (
+                SELECT mat.MillId, mat.QualityId, mat.GSM, sol.Rate, sol.Discount,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY mat.MillId, mat.QualityId, mat.GSM
+                           ORDER BY so.OrderDate DESC, so.Id DESC
+                       ) AS rn
+                FROM   sales.SalesOrderLines sol
+                JOIN   sales.SalesOrders     so  ON so.Id  = sol.SOId
+                JOIN   masters.Materials     mat ON mat.Id = sol.MaterialId
+                WHERE  so.CustomerId  = @CustomerId
+                  AND  so.IsDeleted   = 0
+                  AND  sol.IsDeleted  = 0
+                  AND  so.[Status]   <> 'Cancelled'
+            )
+            SELECT MillId, QualityId, GSM AS Gsm, Rate, Discount FROM Ranked WHERE rn = 1";
+        using var conn = db.Create();
+        return (await conn.QueryAsync<LastRateDto>(sql, new { CustomerId = customerId })).ToList();
+    }
+
+    public async Task<List<LastRateDto>> GetLastPoRatesForMillAsync(int millId)
+    {
+        const string sql = @"
+            WITH Ranked AS (
+                SELECT mat.MillId, mat.QualityId, mat.GSM, ISNULL(poi.Rate,0) AS Rate, ISNULL(poi.Discount,0) AS Discount,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY mat.MillId, mat.QualityId, mat.GSM
+                           ORDER BY po.OrderDate DESC, po.Id DESC
+                       ) AS rn
+                FROM   procurement.PurchaseOrderItems poi
+                JOIN   procurement.PurchaseOrders      po  ON po.Id  = poi.POId
+                JOIN   masters.Materials                mat ON mat.Id = poi.MaterialId
+                WHERE  po.MillId     = @MillId
+                  AND  po.IsDeleted  = 0
+                  AND  poi.IsDeleted = 0
+                  AND  po.[Status]  <> 'Cancelled'
+            )
+            SELECT MillId, QualityId, GSM AS Gsm, Rate, Discount FROM Ranked WHERE rn = 1";
+        using var conn = db.Create();
+        return (await conn.QueryAsync<LastRateDto>(sql, new { MillId = millId })).ToList();
+    }
+
     public async Task<int> CreateAsync(Rate e)
     {
         const string sql = @"
             INSERT INTO masters.Rates
-                (MQGId,RateType,RateCategory,CustomerId,[Rate],Discount,EffectiveFrom,IsActive,CreatedAt,CreatedBy)
+                (MQGId,MillUnitId,RateType,RateCategory,CustomerId,[Rate],Discount,EffectiveFrom,IsActive,CreatedAt,CreatedBy)
             OUTPUT INSERTED.Id
-            VALUES (@MQGId,@RateType,@RateCategory,@CustomerId,@Amount,@Discount,@EffectiveFrom,@IsActive,@CreatedAt,@CreatedBy)";
+            VALUES (@MQGId,@MillUnitId,@RateType,@RateCategory,@CustomerId,@Amount,@Discount,@EffectiveFrom,@IsActive,@CreatedAt,@CreatedBy)";
         using var conn = db.Create();
         return await conn.ExecuteScalarAsync<int>(sql, e);
     }

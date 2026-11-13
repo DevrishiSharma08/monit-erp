@@ -25,6 +25,12 @@ export interface ColumnConfig<TData> {
   /** Key to access the data in the row object */
   accessorKey: keyof TData;
 
+  /** Computed accessor — when provided, this value is what sort / search /
+   *  text-filter operate on (overrides `accessorKey` for read purposes).
+   *  Use when the displayed value combines multiple fields (e.g. "Mill —
+   *  Unit") and you want filtering to match either side. */
+  accessorFn?: (row: TData) => string | number | null | undefined;
+
   /** Display name for the column header */
   header: string;
 
@@ -101,6 +107,9 @@ export interface DataGridProps<TData> {
   /** When truthy for a row, that row gets a persistent blue highlight (e.g. while its modal is open) */
   highlightRow?: (row: TData) => boolean;
 
+  /** When truthy for a row, that row is greyed out (e.g. Cancelled records) — stays visible for tracking but visually de-emphasized */
+  dimRow?: (row: TData) => boolean;
+
   /** Initial page size for pagination */
   initialPageSize?: number;
 
@@ -130,6 +139,49 @@ export interface DataGridProps<TData> {
 
   /** Called when external column visibility changes */
   onExternalColumnVisibilityChange?: (vis: Record<string, boolean>) => void;
+
+  /**
+   * Show a checkbox column on the left for row selection. When any rows are
+   * ticked, the Export menu only exports the selected ones — otherwise it
+   * falls back to the full filtered set (current behavior).
+   */
+  enableRowSelection?: boolean;
+
+  /**
+   * Override the "Export → PDF" action with a page-specific renderer. Receives
+   * the source rows (selected if any ticked, else the full filtered set). SO
+   * and PO grids wire this to a backend bulk-PDF endpoint so the exported
+   * file matches the in-app Preview / Print layout.
+   */
+  onPdfExport?:    (rows: TData[]) => Promise<void> | void;
+
+  /**
+   * Optional second PDF action — when set the Export menu adds a "PDF
+   * (Separate, ZIP)" entry that ships one PDF per row inside a ZIP archive.
+   * Useful for SO / PO grids when the user wants individual files instead
+   * of a single combined multi-page document.
+   */
+  onPdfZipExport?: (rows: TData[]) => Promise<void> | void;
+
+  /**
+   * Optional "Export → JPG" action — when set the Export menu adds a "JPG"
+   * entry that downloads one image file per row directly (no ZIP) — the
+   * same rendered layout as the row's own "Export as Image" action, just
+   * triggered for every selected/filtered row at once so each file can be
+   * forwarded immediately (e.g. on WhatsApp) with no archive to extract.
+   */
+  onImageExport?: (rows: TData[]) => Promise<void> | void;
+
+  /**
+   * Lock the table to the visible viewport so the horizontal scrollbar
+   * always sits at the bottom of the on-screen window (no need to scroll
+   * the whole page down to reach it). Vertical scroll happens inside the
+   * grid; KPI / filters / toolbar above stay fixed.
+   *
+   * Pass a CSS calc string (e.g. `"calc(100vh - 320px)"`) tailored to how
+   * much chrome sits above the grid on that page.
+   */
+  scrollMaxHeight?: string;
 }
 
 /**

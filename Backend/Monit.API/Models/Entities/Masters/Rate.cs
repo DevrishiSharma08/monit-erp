@@ -5,6 +5,7 @@ namespace Monit.API.Models.Entities.Masters;
 public class Rate : BaseEntity
 {
     public int      MQGId         { get; set; }
+    public int?     MillUnitId    { get; set; }                  // NULL = mill-wide; non-null = unit-specific
     public string   RateType      { get; set; } = string.Empty;  // Sale / Purchase
     public string?  RateCategory  { get; set; }                  // null for Sale | Self / Customer for Purchase
     public int?     CustomerId    { get; set; }

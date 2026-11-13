@@ -1,8 +1,9 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState, ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
 import { CheckCircle, XCircle, AlertTriangle, Info, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ApiError } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ToastType = "success" | "error" | "warning" | "info";
@@ -34,10 +35,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toast = useCallback(
-    (type: ToastType, message: string, duration = 3500) => {
+    (type: ToastType, message: string, duration?: number) => {
       const id = Math.random().toString(36).slice(2);
       setToasts((prev) => [...prev, { id, type, message, duration }]);
-      setTimeout(() => dismiss(id), duration);
+      // Error/warning toasts carry a reason the user needs to actually read
+      // and act on (e.g. "why didn't my save go through") — they stay on
+      // screen until manually dismissed via the X button instead of
+      // vanishing on a timer. Success/info are quick confirmations and
+      // still auto-dismiss so they don't pile up. An explicit duration
+      // argument always wins either way.
+      const effectiveDuration = duration ?? (type === "error" || type === "warning" ? 0 : 3500);
+      if (effectiveDuration > 0) {
+        setTimeout(() => dismiss(id), effectiveDuration);
+      }
     },
     [dismiss]
   );
@@ -47,14 +57,38 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const warning = useCallback((msg: string) => toast("warning", msg), [toast]);
   const info    = useCallback((msg: string) => toast("info",    msg), [toast]);
 
+  // Global safety net for uncaught API errors (e.g. delete handlers that
+  // forgot try/catch). Instead of Next.js dev overlay / browser console
+  // spam, surface the backend's message via a toast so users always see
+  // the friendly permission-denied / conflict / validation text.
+  // 401 is skipped — AuthContext handles auth-expired redirects.
+  useEffect(() => {
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const reason = e.reason;
+      if (reason instanceof ApiError && reason.status !== 401) {
+        error(reason.message || "Request failed.");
+        e.preventDefault();  // suppress dev-overlay + browser console noise
+      }
+    };
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => window.removeEventListener("unhandledrejection", onRejection);
+  }, [error]);
+
   return (
     <ToastContext.Provider value={{ toast, success, error, warning, info }}>
       {children}
-      {/* Toast container */}
-      <div className="fixed bottom-6 left-1/2 z-[100] flex -translate-x-1/2 flex-col gap-2 min-w-[320px] max-w-sm w-full px-4">
-        {toasts.map((t) => (
-          <ToastItem key={t.id} toast={t} onDismiss={dismiss} />
-        ))}
+      {/* Toast container — centered on the viewport so every message
+          (success, error, permission-denied, etc.) shows in the same
+          prominent spot regardless of which page fired it. */}
+      {/* z-[10000] — deliberately above Modal/PortalModal's z-[9999] so a
+          toast fired while an Edit modal is open (e.g. a rejected save)
+          is never hidden behind it. */}
+      <div className="pointer-events-none fixed inset-0 z-[10000] flex items-center justify-center px-4">
+        <div className="pointer-events-auto flex w-full max-w-sm flex-col gap-2">
+          {toasts.map((t) => (
+            <ToastItem key={t.id} toast={t} onDismiss={dismiss} />
+          ))}
+        </div>
       </div>
     </ToastContext.Provider>
   );

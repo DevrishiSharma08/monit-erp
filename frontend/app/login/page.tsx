@@ -123,7 +123,7 @@ export default function LoginPage() {
                 <Package className="h-5 w-5 text-white" />
               </div>
               <div>
-                <p className="text-base font-extrabold leading-tight text-white">Monit Paper Agency</p>
+                <p className="text-base font-extrabold leading-tight text-white">Monit Paper Sales Agency</p>
                 <p className="text-xs text-blue-400/70">Indore, Madhya Pradesh</p>
               </div>
             </div>
@@ -176,7 +176,7 @@ export default function LoginPage() {
                 <Package className="h-4 w-4 text-white" />
               </div>
               <div>
-                <p className="text-sm font-bold text-gray-900">Monit Paper Agency</p>
+                <p className="text-sm font-bold text-gray-900">Monit Paper Sales Agency</p>
                 <p className="text-[10px] text-gray-500">ERP System</p>
               </div>
             </div>
@@ -203,7 +203,7 @@ export default function LoginPage() {
                       onChange={(e) => setCompanyId(Number(e.target.value) as 1 | 2)}
                       className="w-full appearance-none rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-4 py-2.5 text-sm text-gray-900 transition-all focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
                     >
-                      <option value={1}>Monit Paper Agency</option>
+                      <option value={1}>Monit Paper Sales Agency</option>
                       <option value={2}>Monit Paper Associates</option>
                     </select>
                   </div>

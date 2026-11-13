@@ -17,6 +17,10 @@ Backend/Monit.API/appsettings.Production.json
 # ── Backend Logs ──────────────────────────────────────────────────────────────
 Backend/Monit.API/logs/
 
+# ── Deploy artifacts (publish output, zipped builds) — never source, often contain live DB password ──
+Backend/Monit.API/publish/
+Backend/Monit.API/*.zip
+
 # ── Node / Next.js ────────────────────────────────────────────────────────────
 frontend/node_modules/
 frontend/.next/

@@ -2,25 +2,30 @@
 
 import { useState, useMemo, useEffect } from "react";
 import {
-  millApi, MillRow, MillUnitDto,
+  millApi, MillRow, MillUnitPickerOption,
   materialApi, MaterialDropdown,
-  rateApi, RateRow,
+  rateApi, RateRow, SORateDto, LastRateDto,
   customerApi, CustomerSODropdown,
   salesOrderApi, SalesOrderRow,
   instructionApi, InstructionDropdown,
   PORow, CreatePODto,
 } from "@/lib/api-services";
-import { SalesOrder } from "@/context/SalesOrderContext";
+import { SalesOrder, useSalesOrder } from "@/context/SalesOrderContext";
+import { useCompanySettings } from "@/context/CompanySettingsContext";
+import { useToast } from "@/context/ToastContext";
+import { Modal } from "@/components/Modal";
+import { AlertTriangle } from "lucide-react";
 import {
   Save, Package, Trash2, Zap, ShoppingCart,
-  CheckCircle2, Eye, MapPin, ClipboardList, ArrowLeft, FileText,
+  CheckCircle2, Eye, MapPin, ClipboardList, ArrowLeft, FileText, Plus, Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Combobox } from "@/components/ui/Combobox";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const MONIT_NAME    = "Monit Paper Agency";
-const MONIT_ADDRESS = "Monit Paper Agency, Plot 45, Industrial Area, Lasudia, Indore - 452001 (MP)";
+// Hardcoded MONIT_NAME / MONIT_ADDRESS removed — every "Monit" reference now
+// comes from CompanySettingsContext (multi-tenant: Monit Paper Agency vs
+// Monit Paper Associates, each in its own DB with its own address/GST).
+// Form pulls the live config via useCompanySettings() inside the component.
 
 const inputCls = (readOnly?: boolean) =>
   cn(
@@ -76,6 +81,14 @@ interface FormState {
   deliveryMode: string;
   shipmentMode: "Normal" | "Blind" | "InvoiceOverride";
   blindShipment: boolean;
+  // Client-requested toggle (default false): reveal the linked SO's
+  // delivery party (B) instead of Customer (A) on Shipped To. Only
+  // meaningful for POs "Against Sales Order" — ignored otherwise.
+  showDeliveryParty: boolean;
+  // Client-requested toggle (default false): print the "Customer : ..."
+  // reference line at all, in ANY shipment mode including Blind/Override.
+  // Off by default so Blind POs don't leak the customer's identity.
+  showCustomerName: boolean;
   invoiceParty: string;
   invoicePartyId?: number;
   directCustomer: string;
@@ -84,11 +97,15 @@ interface FormState {
   expectedDeliveryDate: string;
   millSONumber: string;
   paymentTerms: string;
+  insurancePolicyNo: string;
   totalQuantity: number;
   totalValue: number;
   status: string;
   remarks: string;
   specialInstructions: string;
+  // Backfill / backdated entry — mirrors SalesOrderForm's Backfill mode.
+  isBackfilled?: boolean;
+  poNumber?: string;   // user-typed original PO number, only when isBackfilled
 }
 
 interface PurchaseOrderFormProps {
@@ -96,21 +113,58 @@ interface PurchaseOrderFormProps {
   sourceSO?: SalesOrder;
   onSubmit: (dto: CreatePODto, editId?: number) => Promise<void>;
   onCancel?: () => void;
+  /** Existing POs from the parent page's fresh local state — used by the
+   *  pre-save duplicate detector. Falls back to the context list if not
+   *  supplied (older callers), but context can be stale because the PO
+   *  page keeps its own local cache that isn't pushed back to context. */
+  existingPos?: PORow[];
 }
 
 // ─── Rate finder ──────────────────────────────────────────────────────────────
 
-function findRateData(materialId: number, materials: MaterialDropdown[], rates: RateRow[]): { rate: number; discount: number } {
+function findRateData(
+  materialId: number,
+  millId: number,
+  millUnitId: number | undefined,
+  materials: MaterialDropdown[],
+  rates: RateRow[],
+  lastRates: LastRateDto[] = [],
+): { rate: number; discount: number } {
   const mat = materials.find((m) => m.id === materialId);
   if (!mat) return { rate: 0, discount: 0 };
-  const row = rates.find(
-    (r) => r.qualityId === mat.qualityId && r.gsmMin <= mat.gsm && r.gsmMax >= mat.gsm && r.isActive
-  );
-  return { rate: row?.amount ?? 0, discount: row?.discount ?? 0 };
+
+  // Rate Master now supports per-unit rates (migration 33). Resolution order
+  // for the right rate row:
+  //   1. exact mill + exact mill-unit match (per-unit pricing)
+  //   2. exact mill + no mill-unit on row (legacy mill-wide pricing)
+  // Quality + GSM-range + active flag must always match.
+  const baseFilter = (r: RateRow) =>
+    r.millId === millId &&
+    r.qualityId === mat.qualityId &&
+    r.gsmMin <= mat.gsm && r.gsmMax >= mat.gsm &&
+    r.isActive;
+
+  const row =
+    (millUnitId != null
+      ? rates.find((r) => baseFilter(r) && r.millUnitId === millUnitId)
+      : undefined)
+    ?? rates.find((r) => baseFilter(r) && r.millUnitId == null);
+
+  if (row) return { rate: row.amount, discount: row.discount ?? 0 };
+
+  // Fallback (below Rate Master) — this mill's most recent non-cancelled PO
+  // rate for the same Mill+Quality+GSM (same dimensions Rate Master itself
+  // prices by — size doesn't matter), so a repeat order doesn't need the
+  // rate re-typed from scratch. Client-requested; user can still edit it.
+  const last = lastRates.find((r) => r.millId === millId && r.qualityId === mat.qualityId && r.gsm === mat.gsm);
+  return last ? { rate: last.rate, discount: last.discount } : { rate: 0, discount: 0 };
 }
 
 function calcFinal(rate: number, discount: number) {
-  return rate * (1 - discount / 100);
+  // PO discount is a FLAT ₹/KG amount (matches Rate Master + SO convention).
+  // Earlier this treated `discount` as a percentage which produced negative
+  // finals when the user entered values > 100. Final = list-rate − discount.
+  return rate - discount;
 }
 
 // ─── Init helpers ─────────────────────────────────────────────────────────────
@@ -125,11 +179,14 @@ function initFromPO(po: PORow): { form: FormState; items: FormItem[] } {
       deliveryMode: po.deliveryMode ?? "To Godown",
       shipmentMode: (po.shipmentMode ?? "Normal") as FormState["shipmentMode"],
       blindShipment: po.blindShipment,
+      showDeliveryParty: po.showDeliveryParty ?? false,
+      showCustomerName: po.showCustomerName ?? false,
       invoiceParty: po.invoiceParty ?? "", invoicePartyId: po.invoicePartyId,
       directCustomer: po.directCustomer ?? "", directCustomerId: po.directCustomerId,
       directDeliveryAddress: po.directDeliveryAddress ?? "",
       expectedDeliveryDate: po.expectedDeliveryDate ?? "",
       millSONumber: po.millSONumber ?? "", paymentTerms: po.paymentTerms ?? "",
+      insurancePolicyNo: po.insurancePolicyNo ?? "",
       totalQuantity: po.totalQuantity, totalValue: po.totalValue,
       status: po.status, remarks: po.remarks ?? "", specialInstructions: po.specialInstructions ?? "",
     },
@@ -138,7 +195,12 @@ function initFromPO(po: PORow): { form: FormState; items: FormItem[] } {
       materialId: item.materialId, description: item.description ?? "",
       gsm: item.gsm ?? 0, size: item.size ?? "", unit: item.unit ?? "",
       quantity: item.quantity, weightKg: item.weightKg ?? 0,
-      rate: item.rate, discount: item.discount ?? 0, finalPrice: item.rate,
+      // Stored `rate` is the post-discount (finalPrice) value. The form's
+      // Rate input shows the LIST/master rate, so reconstruct it as
+      // finalPrice + discount. finalPrice stays = stored rate.
+      rate:        +(item.rate + (item.discount ?? 0)).toFixed(2),
+      discount:    item.discount ?? 0,
+      finalPrice:  item.rate,
       amount: item.amount,
       linkedSOLineId: item.linkedSOLineId, remark: item.remark ?? "", autoRate: false,
     })),
@@ -153,7 +215,8 @@ function initFromSO(so: SalesOrder): { form: Partial<FormState>; items: FormItem
       directCustomer: so.customer, directCustomerId: parseInt(so.customerId),
       directDeliveryAddress: so.lines[0]?.deliveryAddress ?? "",
       deliveryMode: "Direct To Customer", shipmentMode: "Normal", blindShipment: false,
-      paymentTerms: so.paymentTerms, status: "Approval Pending",
+      showDeliveryParty: false, showCustomerName: false,
+      paymentTerms: so.paymentTerms, insurancePolicyNo: so.insurancePolicyNo ?? "", status: "Approval Pending",
     },
     items: so.lines.map((line, i) => ({
       tempId: `soitem_${line.id}`, lineNumber: i + 1,
@@ -172,10 +235,15 @@ const BLANK_FORM = (): FormState => ({
   orderDate: new Date().toISOString().split("T")[0],
   poType: "For Stock", linkedSOId: undefined, linkedSONumber: "",
   deliveryMode: "To Godown", shipmentMode: "Normal", blindShipment: false,
+  showDeliveryParty: false, showCustomerName: false,
   invoiceParty: "", invoicePartyId: undefined,
-  directCustomer: "", directCustomerId: undefined, directDeliveryAddress: MONIT_ADDRESS,
-  expectedDeliveryDate: "", millSONumber: "", paymentTerms: "",
+  // directDeliveryAddress starts blank — the form effect fills it from
+  // CompanySettingsContext once the config loads (so multi-tenant /
+  // user-edited address is honoured instead of a hardcoded string).
+  directCustomer: "", directCustomerId: undefined, directDeliveryAddress: "",
+  expectedDeliveryDate: "", millSONumber: "", paymentTerms: "", insurancePolicyNo: "",
   totalQuantity: 0, totalValue: 0, status: "Approval Pending", remarks: "", specialInstructions: "",
+  isBackfilled: false, poNumber: undefined,
 });
 
 // ─── Preview ──────────────────────────────────────────────────────────────────
@@ -187,9 +255,12 @@ function POFormPreview({ form, items, onBack, onSave, isLoading }: {
   onSave: () => Promise<void>;
   isLoading: boolean;
 }) {
+  const { config: companyConfig } = useCompanySettings();
+  const monitName = companyConfig.companyName ?? "";
+  const monitAddr = companyConfig.address ?? "";
   const mode    = form.shipmentMode;
-  const billTo  = mode === "Blind" ? MONIT_NAME : mode === "InvoiceOverride" ? form.invoiceParty : form.directCustomer;
-  const shipTo  = mode === "Blind" ? MONIT_ADDRESS : form.directDeliveryAddress;
+  const billTo  = mode === "Blind" ? monitName : mode === "InvoiceOverride" ? form.invoiceParty : form.directCustomer;
+  const shipTo  = mode === "Blind" ? monitAddr : form.directDeliveryAddress;
 
   const totalQty = items.reduce((s, i) => s + i.quantity, 0);
   const totalWt  = items.reduce((s, i) => s + i.weightKg, 0);
@@ -229,7 +300,7 @@ function POFormPreview({ form, items, onBack, onSave, isLoading }: {
           {[
             { label: "Payment Terms",     value: form.paymentTerms || "—" },
             { label: "Expected Delivery", value: form.expectedDeliveryDate || "—" },
-            { label: "Mill SO No.",       value: form.millSONumber || "—" },
+            { label: "Order ID",          value: form.millSONumber || "—" },
           ].map(({ label, value }) => (
             <div key={label} className="px-4 py-2.5">
               <p className="text-[10px] uppercase tracking-wide text-gray-400">{label}</p>
@@ -249,7 +320,7 @@ function POFormPreview({ form, items, onBack, onSave, isLoading }: {
                 <th className="px-2 py-2">Size</th>
                 <th className="px-2 py-2">Weight (kg)</th>
                 <th className="px-2 py-2">Rate (₹)</th>
-                <th className="px-2 py-2">Disc%</th>
+                <th className="px-2 py-2">Disc (₹/KG)</th>
                 <th className="px-2 py-2">Final (₹)</th>
                 <th className="px-2 py-2">Amount (₹)</th>
               </tr>
@@ -273,7 +344,7 @@ function POFormPreview({ form, items, onBack, onSave, isLoading }: {
                     {sheetsHint && <div className="text-[10px] font-normal text-gray-400">{sheetsHint.toLocaleString("en-IN")} sheets</div>}
                   </td>
                   <td className="px-2 py-2 text-gray-600">{item.rate > 0 ? item.rate.toLocaleString("en-IN") : "—"}</td>
-                  <td className="px-2 py-2 text-gray-500">{item.discount > 0 ? `${item.discount}%` : "—"}</td>
+                  <td className="px-2 py-2 text-gray-500">{item.discount > 0 ? `₹${item.discount.toLocaleString("en-IN")}` : "—"}</td>
                   <td className="px-2 py-2 font-semibold text-blue-700">{item.finalPrice > 0 ? item.finalPrice.toFixed(2) : "—"}</td>
                   <td className="px-2 py-2 font-bold text-gray-900">
                     {item.amount > 0 ? `₹${item.amount.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "—"}
@@ -349,14 +420,29 @@ function POFormPreview({ form, items, onBack, onSave, isLoading }: {
 
 // ─── Form ─────────────────────────────────────────────────────────────────────
 
-export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseOrderFormProps) {
+export function PurchaseOrderForm({ initialData, sourceSO, onSubmit, existingPos }: PurchaseOrderFormProps) {
   const isEdit = !!initialData?.id;
 
+  // Company config drives every "Monit" name + address inside this form
+  // (Bill From / Bill To when Blind, default godown Delivery Address, etc).
+  // Single source of truth — same string the SO/PO PDFs use.
+  const { config: companyConfig, allConfigs } = useCompanySettings();
+  const { error: showError } = useToast();
+  const monitName = companyConfig.companyName ?? "";
+  const monitAddr = companyConfig.address ?? "";
+
   const [mills, setMills]                   = useState<MillRow[]>([]);
-  const [millUnits, setMillUnits]           = useState<MillUnitDto[]>([]);
+  // Flat per-unit list — used by the merged Mill+Unit picker so the user
+  // selects "ITC Paperboards — Bhadrachalam" directly instead of mill then
+  // unit in two steps.
+  const [unitOptions, setUnitOptions]       = useState<MillUnitPickerOption[]>([]);
   const [allMaterials, setAllMaterials]     = useState<MaterialDropdown[]>([]);
   const [millMaterials, setMillMaterials]   = useState<MaterialDropdown[]>([]);
   const [purchaseRates, setPurchaseRates]   = useState<RateRow[]>([]);
+  // Fallback tier below Rate Master — this mill's most recent non-cancelled
+  // PO rate per item, used only when Rate Master has no entry for the
+  // picked item.
+  const [lastPoRates, setLastPoRates]       = useState<LastRateDto[]>([]);
   const [soCustomers, setSoCustomers]       = useState<CustomerSODropdown[]>([]);
   const [availableSOs, setAvailableSOs]     = useState<SalesOrderRow[]>([]);
   const [instructions, setInstructions]     = useState<InstructionDropdown[]>([]);
@@ -380,10 +466,39 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
 
   const [isLoading, setIsLoading]         = useState(false);
   const [showPreview, setShowPreview]     = useState(false);
+  // Combobox is a fully-controlled text input — its displayed value must
+  // come from the parent every render. While the user is actively typing
+  // (no confirmed option picked yet), show what they typed here instead of
+  // re-deriving from form.millId/millUnitId, which would collapse back to
+  // the last confirmed label (or blank) on every keystroke and make typing
+  // look broken. Null = "show the confirmed selection's label" (default).
+  const [millUnitQuery, setMillUnitQuery] = useState<string | null>(null);
+  // Same "typing state separate from confirmed value" pattern as
+  // millUnitQuery, one per item row (keyed by tempId) — the native
+  // <input list>/<datalist> combo this replaced got stuck once its value
+  // exactly matched an option: the browser hid every other suggestion
+  // until the field was cleared out completely (client-reported).
+  const [itemCodeQuery, setItemCodeQuery] = useState<Record<string, string | null>>({});
+  // Pre-save duplicate check reads from `existingPos` prop (caller's
+  // fresh list) — context isn't synced when the PO page saves locally,
+  // so this avoids stale data. SO context still used to resolve
+  // customer via linkedSOId fallback.
+  const { salesOrders } = useSalesOrder();
+  // Rich duplicate info — the modal shows full PO details inline so the
+  // user can decide without leaving the form (which would lose entered
+  // data). `matchedMaterials` lists the codes that overlap with the
+  // current form so the user knows EXACTLY what's duplicated.
+  const [dupes, setDupes] = useState<Array<{
+    po: PORow;
+    customerName: string;
+    matchedMaterials: string[];
+  }> | null>(null);
 
   // ── Load masters ──────────────────────────────────────────────────────────
   useEffect(() => {
     millApi.list().then((r) => setMills(r.items.filter((m) => m.isActive))).catch(() => {});
+    // Flat per-unit list for the merged Mill+Unit picker.
+    millApi.unitPicker().then(setUnitOptions).catch(() => {});
     materialApi.dropdown().then(setAllMaterials).catch(() => {});
     customerApi.forSO().then(setSoCustomers).catch(() => {});
     if (!sourceSO) {
@@ -391,29 +506,42 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Mill change → rates, materials, instructions, units ──────────────────
+  // Auto-populate insurance policy for new POs once allConfigs loads (mirrors SalesOrderForm).
   useEffect(() => {
-    if (!form.millId) { setPurchaseRates([]); setMillMaterials([]); setInstructions([]); setMillUnits([]); return; }
+    if (!initialData?.id && !form.insurancePolicyNo) {
+      const first = allConfigs.find((c) => c.insurancePolicyNo);
+      if (first?.insurancePolicyNo) {
+        setForm((prev) => ({ ...prev, insurancePolicyNo: first.insurancePolicyNo! }));
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allConfigs]);
+
+  // ── Mill change → rates, materials, instructions ─────────────────────────
+  // Unit list no longer fetched here — the merged Mill/Unit picker already
+  // has every unit pre-loaded via /mills/unit-picker.
+  useEffect(() => {
+    if (!form.millId) { setPurchaseRates([]); setLastPoRates([]); setMillMaterials([]); setInstructions([]); return; }
     rateApi.list({ rateType: "Purchase", millId: form.millId }).then((r) => setPurchaseRates(r.items)).catch(() => {});
+    rateApi.lastPoForMill(form.millId).then(setLastPoRates).catch(() => {});
     materialApi.dropdown(form.millId).then(setMillMaterials).catch(() => {});
     instructionApi.byMill(form.millId).then(setInstructions).catch(() => {});
-    millApi.getById(form.millId).then((d) => setMillUnits(d.units ?? [])).catch(() => {});
   }, [form.millId]);
 
   // ── Auto-apply rates when rates + materials load ───────────────────────────
   useEffect(() => {
-    if (!purchaseRates.length || !allMaterials.length) return;
+    if ((!purchaseRates.length && !lastPoRates.length) || !allMaterials.length) return;
     setItems((prev) =>
       prev.map((item) => {
         if (!item.materialId) return item;
         if (item.autoRate === false && item.rate > 0) return item; // user manually set rate
-        const { rate, discount } = findRateData(item.materialId, allMaterials, purchaseRates);
+        const { rate, discount } = findRateData(item.materialId, form.millId, form.millUnitId, allMaterials, purchaseRates, lastPoRates);
         if (!rate) return item;
         const fp = calcFinal(rate, discount);
         return { ...item, rate, discount, finalPrice: fp, amount: item.weightKg * fp, autoRate: true };
       })
     );
-  }, [purchaseRates, allMaterials]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [purchaseRates, lastPoRates, allMaterials, form.millId, form.millUnitId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Totals ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -430,6 +558,10 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
   const displaySOCustomer = sourceSO?.customer ?? linkedSODetails?.customer ?? form.directCustomer;
   const displaySOContact  = sourceSO?.contactPerson ?? linkedSODetails?.contactPerson ?? "";
   const hasSORef          = !!(form.linkedSOId || sourceSO);
+  // Only meaningful when the linked SO actually has a separate delivery
+  // party (B) recorded — otherwise there's nothing for the toggle to reveal.
+  const soDeliveryParty        = sourceSO?.deliveryParty ?? linkedSODetails?.deliveryParty ?? "";
+  const soDeliveryPartyAddress = sourceSO?.deliveryPartyAddress ?? linkedSODetails?.deliveryPartyAddress ?? "";
 
   // Flatten all instruction groups into individual lines for per-line checkbox selection
   const allInstrLines = instructions.flatMap((instr) => instr.lines.filter((l) => l.trim()));
@@ -446,20 +578,31 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
     orderDate: form.orderDate, poType: form.poType,
     linkedSOId: form.linkedSOId, deliveryMode: form.deliveryMode || undefined,
     shipmentMode: form.shipmentMode, blindShipment: form.blindShipment,
+    showDeliveryParty: form.showDeliveryParty,
+    showCustomerName: form.showCustomerName,
     invoiceParty: form.invoiceParty || undefined, invoicePartyId: form.invoicePartyId,
     directCustomerId: form.directCustomerId,
     directDeliveryAddress: form.directDeliveryAddress || undefined,
     expectedDeliveryDate: form.expectedDeliveryDate || undefined,
     millSONumber: form.millSONumber || undefined,
     paymentTerms: form.paymentTerms || undefined,
+    insurancePolicyNo: form.insurancePolicyNo || undefined,
     totalQuantity: form.totalQuantity, totalValue: form.totalValue,
     gstPercentage: 18, remarks: form.remarks || undefined,
     specialInstructions: form.specialInstructions || undefined,
+    isBackfilled: !!form.isBackfilled,
+    poNumber: form.isBackfilled ? (form.poNumber || "").trim() : undefined,
     items: items.map((item, i) => ({
-      lineNumber: i + 1, materialId: item.materialId,
+      // materialId 0 = free-text custom item (no matching master); send null so
+      // the backend stores NULL instead of hitting the FK constraint on Id=0.
+      lineNumber: i + 1, materialId: item.materialId > 0 ? item.materialId : null,
       description: item.description || undefined,
       gsm: item.gsm || undefined, size: item.size || undefined, unit: item.unit || undefined,
       quantity: item.quantity, weightKg: item.weightKg || undefined,
+      // PO line stores Rate = post-discount (finalPrice), Discount = flat
+      // ₹/KG knock-off. Existing data follows this convention; displays
+      // recover the list/master rate as `rate + discount` (single formula
+      // across the codebase to keep semantics consistent).
       rate: item.finalPrice, discount: item.discount || undefined, amount: item.amount,
       linkedSOLineId: item.linkedSOLineId, remark: item.remark || undefined,
     })),
@@ -474,44 +617,29 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
       shipmentMode: "Normal", blindShipment: false,
       invoiceParty: "", invoicePartyId: undefined,
       directCustomer: type === "For Stock" ? "" : prev.directCustomer,
-      directDeliveryAddress: type === "For Stock" ? MONIT_ADDRESS : "",
+      directDeliveryAddress: type === "For Stock" ? monitAddr : "",
       linkedSOId: type === "For Stock" ? undefined : prev.linkedSOId,
       linkedSONumber: type === "For Stock" ? "" : prev.linkedSONumber,
+      showDeliveryParty: type === "For Stock" ? false : prev.showDeliveryParty,
+      showCustomerName: type === "For Stock" ? false : prev.showCustomerName,
     }));
     setItems([]);
   };
 
-  const handleMillChange = async (millIdStr: string) => {
-    const mill = mills.find((m) => m.id === parseInt(millIdStr));
-    if (!mill) {
-      setMillUnits([]);
-      setForm((prev) => ({ ...prev, millId: 0, millName: "", millUnitId: undefined, millUnitName: undefined }));
-      return;
-    }
-    // Fetch units for the selected mill
-    const detail = await millApi.getById(mill.id).catch(() => null);
-    const units = detail?.units ?? [];
-    setMillUnits(units);
-    const defaultUnit = units.find(u => u.isDefault) ?? (units.length === 1 ? units[0] : undefined);
-    setForm((prev) => ({
-      ...prev,
-      millId: mill.id, millName: mill.name,
-      millUnitId: defaultUnit?.id,
-      millUnitName: defaultUnit?.unitName,
-      paymentTerms: mill?.paymentTerms ?? prev.paymentTerms,
-    }));
-  };
+  // handleMillChange + millUnits state removed — replaced by the single
+  // Combobox-based Mill/Unit picker (unitOptions from /mills/unit-picker)
+  // which sets millId / millUnitId / paymentTerms in one step.
 
   const handleSOChange = (soIdStr: string) => {
     if (!soIdStr) {
-      setForm((prev) => ({ ...prev, linkedSOId: undefined, linkedSONumber: "", directCustomer: "", directDeliveryAddress: "" }));
+      setForm((prev) => ({ ...prev, linkedSOId: undefined, linkedSONumber: "", directCustomer: "", directDeliveryAddress: "", showDeliveryParty: false, showCustomerName: false }));
       setItems([]);
       return;
     }
     const so = availableSOs.find((s) => s.id === parseInt(soIdStr));
     if (!so) return;
     const newItems: FormItem[] = so.lines.map((line, i) => {
-      const { rate, discount } = findRateData(line.materialId, allMaterials, purchaseRates);
+      const { rate, discount } = findRateData(line.materialId, form.millId, form.millUnitId, allMaterials, purchaseRates, lastPoRates);
       const fp  = calcFinal(rate, discount);
       const qty = line.qty ?? line.orderedQty;
       const wt  = (line as any).weightKg ?? line.orderedQty;
@@ -528,7 +656,7 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
     setForm((prev) => ({
       ...prev, linkedSOId: so.id, linkedSONumber: so.soNumber,
       directCustomer: so.customer, directDeliveryAddress: so.lines[0]?.deliveryAddress ?? "",
-      deliveryMode: "Direct To Customer",
+      deliveryMode: "Direct To Customer", showDeliveryParty: false, showCustomerName: false,
     }));
   };
 
@@ -536,7 +664,7 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
     setForm((prev) => {
       let addr = prev.directDeliveryAddress;
       if (mode === "Blind") {
-        addr = MONIT_ADDRESS;
+        addr = monitAddr;
       } else if (prev.shipmentMode === "Blind") {
         addr = sourceSO?.lines[0]?.deliveryAddress ?? linkedSODetails?.lines[0]?.deliveryAddress ?? "";
       } else if (mode === "Normal" && prev.shipmentMode === "InvoiceOverride") {
@@ -547,6 +675,11 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
         directDeliveryAddress: addr,
         invoiceParty: mode !== "InvoiceOverride" ? "" : prev.invoiceParty,
         invoicePartyId: mode !== "InvoiceOverride" ? undefined : prev.invoicePartyId,
+        // Delivery-party toggle only has any effect in Normal mode (Blind
+        // always forces Monit; Custom Invoice follows the Invoice Party
+        // instead) — reset it so a stale "on" from a previous Normal
+        // session doesn't silently carry over if the user switches back.
+        showDeliveryParty: mode === "Normal" ? prev.showDeliveryParty : false,
       };
     });
     if (mode !== "InvoiceOverride") { setSelectedInvoiceCustomer(null); setInvoiceDeliveryId(undefined); }
@@ -574,6 +707,12 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
     setForm((prev) => ({ ...prev, directDeliveryAddress: addr?.address ?? "" }));
     setInvoiceDeliveryId(parseInt(idStr));
   };
+
+  // Number inputs otherwise let an accidental scroll-wheel pass over the
+  // field increment/decrement it (client-reported: values silently changed
+  // while scrolling the page). Blurring on wheel hands the scroll straight
+  // back to the page instead of the input.
+  const blurOnWheel = (e: React.WheelEvent<HTMLInputElement>) => e.currentTarget.blur();
 
   const handleItemQtyChange = (index: number, qty: number) => {
     setItems((prev) => {
@@ -619,12 +758,46 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
         const matId = Number(value);
         const mat = millMaterials.find((m) => m.id === matId) ?? allMaterials.find((m) => m.id === matId);
         if (mat) {
-          const { rate, discount } = findRateData(matId, allMaterials, purchaseRates);
+          const { rate, discount } = findRateData(matId, form.millId, form.millUnitId, allMaterials, purchaseRates, lastPoRates);
           const fp = calcFinal(rate, discount);
           updated[index] = {
             ...updated[index], materialId: mat.id, description: mat.code,
             gsm: mat.gsm, size: mat.sizeLabel, unit: mat.packingType,
             rate, discount, finalPrice: fp, amount: updated[index].weightKg * fp, autoRate: rate > 0,
+          };
+        }
+      } else if (field === "description") {
+        // Item-Code field — free-text + datalist autocomplete (mirrors SO behaviour).
+        // If the typed text exactly matches a known material code, hydrate the
+        // line (GSM, size, unit, rate). Otherwise keep the text as a custom
+        // description and clear materialId so the row is treated as a free entry.
+        const text = String(value);
+        const mat  = (millMaterials.find((m) => m.code === text) ?? allMaterials.find((m) => m.code === text));
+        if (mat) {
+          const { rate, discount } = findRateData(mat.id, form.millId, form.millUnitId, allMaterials, purchaseRates, lastPoRates);
+          const fp = calcFinal(rate, discount);
+          updated[index] = {
+            ...updated[index], materialId: mat.id, description: mat.code,
+            gsm: mat.gsm, size: mat.sizeLabel, unit: mat.packingType,
+            rate, discount, finalPrice: fp, amount: updated[index].weightKg * fp, autoRate: rate > 0,
+          };
+        } else {
+          // Free-text custom code. The code is composed as
+          // Mill/Quality[/Brand]/GSM/Size — so the LAST segment is the size and
+          // the second-to-last is the GSM. Parse them out and mirror into the
+          // Size / GSM columns so the row stays internally consistent.
+          const parts = text.split("/").map((p) => p.trim()).filter(Boolean);
+          const last  = parts[parts.length - 1] ?? "";
+          const prev  = parts[parts.length - 2] ?? "";
+          const sizeLike = /^\d+(\.\d+)?([xX×]\d+(\.\d+)?)?$/.test(last);
+          const gsmLike  = /^\d+$/.test(prev);
+          updated[index] = {
+            ...updated[index],
+            description: text,
+            materialId:  0,
+            autoRate:    false,
+            size:        sizeLike ? last : updated[index].size,
+            gsm:         gsmLike  ? Number(prev) : updated[index].gsm,
           };
         }
       } else if (field === "quantity") {
@@ -668,17 +841,95 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
     }
   };
 
+  // Pre-save duplicate detector — returns PO numbers (if any) that share
+  // the same (MillUnit, Customer, Material) composite with the current
+  // form. Prefer `existingPos` (caller's fresh list — keeps POs saved
+  // during the session) over the context (which is loaded once on mount
+  // and doesn't refresh after saves). Customer resolution mirrors
+  // PDF/email logic: direct customer first, linked-SO customer as
+  // fallback. Skips the PO being edited + terminal statuses
+  // (Completed / Cancelled) since those can't block new orders.
+  // Returns rich duplicate info (the matching POs + the codes that overlap)
+  // so the warning modal can render full details inline. Empty array means
+  // no duplicate found.
+  const findDuplicatePos = () => {
+    const editingId = initialData?.id;
+    const formUnitId  = form.millUnitId ?? null;
+    const formMillId  = form.millId ?? null;
+    const formCustomerId = form.directCustomerId
+      ?? (form.linkedSOId
+          ? Number(salesOrders.find((s) => Number(s.id) === form.linkedSOId)?.customerId ?? 0) || null
+          : null);
+    if (formCustomerId == null) return [];   // stock PO — can't dedupe
+    const formMatIds = new Set(
+      items.map((i) => i.materialId).filter((id) => id && id > 0),
+    );
+    if (formMatIds.size === 0) return [];
+
+    const source: PORow[] = existingPos ?? [];
+    const matches: Array<{ po: PORow; customerName: string; matchedMaterials: string[] }> = [];
+
+    for (const po of source) {
+      if (editingId && po.id === editingId) continue;
+      if (["Completed", "Cancelled"].includes(po.status)) continue;
+      const poUnitId = po.millUnitId ?? null;
+      const poMillId = po.millId ?? null;
+      const unitMatch = (formUnitId != null && formUnitId === poUnitId)
+                     || (formUnitId == null && poUnitId == null
+                         && formMillId === poMillId);
+      if (!unitMatch) continue;
+      const poCustomerId = po.directCustomerId
+        ?? (po.linkedSOId
+            ? Number(salesOrders.find((s) => Number(s.id) === po.linkedSOId)?.customerId ?? 0) || undefined
+            : undefined);
+      if (poCustomerId !== formCustomerId) continue;
+
+      const overlapItems = (po.items ?? []).filter((i) => i.materialId != null && formMatIds.has(i.materialId));
+      if (overlapItems.length === 0) continue;
+
+      const customerName = po.directCustomer
+        ?? (po.linkedSOId
+            ? salesOrders.find((s) => Number(s.id) === po.linkedSOId)?.customer
+            : "")
+        ?? "—";
+      matches.push({
+        po,
+        customerName,
+        matchedMaterials: overlapItems
+          .map((i) => i.description?.trim() || `Material #${i.materialId}`)
+          .filter((v, idx, arr) => arr.indexOf(v) === idx),  // dedupe
+      });
+    }
+    return matches;
+  };
+
   const handleSave = async () => {
     if (!form.millId || items.length === 0) return;
-    setIsLoading(true);
-    try { await onSubmit(buildDTO(), initialData?.id); }
-    finally { setIsLoading(false); }
+    const matches = findDuplicatePos();
+    if (matches.length > 0) { setDupes(matches); return; }
+    await doSave();
   };
 
   const handleSaveFromPreview = async () => {
+    const matches = findDuplicatePos();
+    if (matches.length > 0) { setDupes(matches); return; }
+    await doSave();
+  };
+
+  const doSave = async () => {
     setIsLoading(true);
-    try { await onSubmit(buildDTO(), initialData?.id); }
-    finally { setIsLoading(false); }
+    try {
+      await onSubmit(buildDTO(), initialData?.id);
+    } catch (e) {
+      // Caught (and shown) here explicitly rather than left unhandled —
+      // an unhandled rejection also trips Next.js's dev-mode error overlay
+      // (looks like the app crashed), on top of whatever the global
+      // ToastContext listener shows. Catching it and calling the toast
+      // ourselves gives just the one clean, centered message.
+      showError(e instanceof Error ? e.message : "Save failed.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // ── Preview ───────────────────────────────────────────────────────────────
@@ -704,6 +955,99 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
   return (
     <div className="space-y-3">
 
+      {/* ── Already-sent-to-mill warning — editing doesn't lock much (see
+          GuardMaterialSpecChangeAsync backend-side for the actual Material/
+          GSM/Size/Quantity guard) and never auto-resends the PDF/email, so
+          this is a heads-up rather than a block. Client-asked 2026-09-11. ── */}
+      {isEdit && initialData && initialData.status !== "Approval Pending" && initialData.status !== "Cancelled" && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <p className="text-sm font-semibold text-amber-800">⚠️ This PO has already been sent to mill (Status: {initialData.status})</p>
+          <p className="mt-0.5 text-xs text-amber-700">
+            Material/GSM/Size/Quantity can't be changed once the mill reports any progress. Everything else saves normally, but the mill
+            won't automatically see the update — use "Send to Mill" again after saving if they need to know.
+          </p>
+        </div>
+      )}
+
+      {/* ── Linked-SO reminder — editing this PO never touches its source
+          SO (they're fully independent after creation), so flag it as a
+          reminder to check the other side too. Client-asked 2026-09-11. ── */}
+      {isEdit && initialData?.linkedSONumber && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+          <p className="text-xs font-semibold text-blue-800">
+            🔗 This PO is linked to Sales Order <span className="font-mono">{initialData.linkedSONumber}</span>
+          </p>
+          <p className="mt-0.5 text-xs text-blue-700">
+            Changing quantities, rates, or delivery details here won't update the SO — check whether it needs the same change.
+          </p>
+        </div>
+      )}
+
+      {/* ── Backfill / backdated PO strip — only on create, mirrors
+          SalesOrderForm's Backfill mode exactly ──────────────────────────── */}
+      {!isEdit && (
+        <div className={cn(
+          "rounded-xl border px-4 py-3 transition-colors",
+          form.isBackfilled
+            ? "border-amber-300 bg-amber-50"
+            : "border-gray-200 bg-white"
+        )}>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!form.isBackfilled}
+              onChange={(e) => setForm((prev) => ({
+                ...prev,
+                isBackfilled: e.target.checked,
+                // Clear typed PO number if toggling off
+                poNumber: e.target.checked ? prev.poNumber : undefined,
+              }))}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-gray-800">📋 Backfill old / historical PO</span>
+                {form.isBackfilled && (
+                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-800 uppercase">Backfill mode</span>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-gray-500">
+                {form.isBackfilled
+                  ? "Enter the PO number from your manual register and pick the original order date. Auto-numbering is paused for this entry."
+                  : "Tick this to record an old order from your manual register with its original PO number and date."}
+              </p>
+            </div>
+          </label>
+          {form.isBackfilled && (
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Original PO Number <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={form.poNumber ?? ""}
+                  onChange={(e) => setForm((prev) => ({ ...prev, poNumber: e.target.value }))}
+                  placeholder="e.g. PO/2024/05/038"
+                  className={inputCls()}
+                  required
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Original Order Date <span className="text-red-500">*</span></label>
+                <input
+                  type="date"
+                  value={form.orderDate || ""}
+                  onChange={(e) => setForm((prev) => ({ ...prev, orderDate: e.target.value }))}
+                  max={new Date().toISOString().split("T")[0]}
+                  className={inputCls()}
+                  required
+                />
+                <p className="mt-0.5 text-[10px] text-gray-400">Must be a past date.</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ══ Card 1: PO Details ════════════════════════════════════════════════ */}
       <div className={CARD}>
         <div className="flex items-center gap-2 pb-1 border-b border-gray-200">
@@ -713,33 +1057,55 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
           <p className="text-sm font-semibold text-gray-700">PO Details</p>
         </div>
 
-        {/* Row 1: Mill | Mill Unit | PO Date | PO Type */}
-        <div className={millUnits.length > 1 ? "grid grid-cols-4 gap-3" : "grid grid-cols-3 gap-3"}>
+        {/* Row 1: Mill Unit picker | PO Date | PO Type — single combined
+            picker per client UAT. Each option is a mill UNIT (e.g.
+            "ITC Paperboards — Bhadrachalam") so the user picks the unit
+            directly instead of mill then unit in two dropdowns. Mills with
+            no units appear once as a fallback row with just the mill name. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <div>
-            <label className={labelCls}>Mill <span className="text-red-400">*</span></label>
-            <select value={form.millId ? String(form.millId) : ""} onChange={(e) => handleMillChange(e.target.value)} className={inputCls()} required>
-              <option value="">Select Mill</option>
-              {mills.map((m) => <option key={m.id} value={String(m.id)}>{m.name} ({m.code})</option>)}
-            </select>
+            <label className={labelCls}>Mill / Unit <span className="text-red-400">*</span></label>
+            <Combobox
+              options={unitOptions.map(o => ({
+                value: `${o.millId}:${o.unitId ?? 0}`,
+                label: o.displayName,
+                sub:   o.millCode,
+              }))}
+              inputValue={
+                millUnitQuery !== null
+                  ? millUnitQuery
+                  : form.millUnitId
+                  ? (unitOptions.find(o => o.millId === form.millId && o.unitId === form.millUnitId)?.displayName ?? `${form.millName} — ${form.millUnitName ?? ""}`.trim())
+                  : (form.millId ? (unitOptions.find(o => o.millId === form.millId && !o.unitId)?.displayName ?? form.millName) : "")
+              }
+              placeholder="Search mill / unit…"
+              allowCustom={false}
+              onChange={(text, opt) => {
+                if (!opt) {
+                  // Still typing / cleared — keep showing what was typed so
+                  // the box doesn't look broken; mill-change effect will
+                  // also clear rates / materials once millId actually clears.
+                  setMillUnitQuery(text);
+                  setForm(prev => ({ ...prev, millId: 0, millName: "", millUnitId: undefined, millUnitName: undefined }));
+                  return;
+                }
+                const [millIdStr, unitIdStr] = opt.value.split(":");
+                const picked = unitOptions.find(u =>
+                  u.millId === Number(millIdStr) &&
+                  (u.unitId ?? 0) === Number(unitIdStr));
+                if (!picked) return;
+                setMillUnitQuery(null);
+                setForm(prev => ({
+                  ...prev,
+                  millId:       picked.millId,
+                  millName:     picked.millName,
+                  millUnitId:   picked.unitId,
+                  millUnitName: picked.unitName,
+                  paymentTerms: picked.paymentTerms ?? prev.paymentTerms,
+                }));
+              }}
+            />
           </div>
-          {millUnits.length > 1 && (
-            <div>
-              <label className={labelCls}>Mill Unit</label>
-              <select
-                value={form.millUnitId ? String(form.millUnitId) : ""}
-                onChange={(e) => {
-                  const u = millUnits.find(u => u.id === parseInt(e.target.value));
-                  setForm(p => ({ ...p, millUnitId: u?.id, millUnitName: u?.unitName }));
-                }}
-                className={inputCls()}
-              >
-                <option value="">— All units —</option>
-                {millUnits.map((u, i) => (
-                  <option key={u.id ?? i} value={u.id ? String(u.id) : ""}>{u.unitName}</option>
-                ))}
-              </select>
-            </div>
-          )}
           <div>
             <label className={labelCls}>PO Date <span className="text-red-400">*</span></label>
             <input type="date" value={form.orderDate} onChange={(e) => setForm((p) => ({ ...p, orderDate: e.target.value }))} className={inputCls()} required />
@@ -753,11 +1119,12 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
           </div>
         </div>
 
-        {/* Row 2: Mill SO# | Expected Delivery | Payment Terms */}
-        <div className="grid grid-cols-3 gap-3">
+        {/* Row 2: Mill SO# | Expected Delivery | Payment Terms | Insurance —
+            stacks on mobile so each input stays a full-width tap target. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
-            <label className={labelCls}>Mill SO No.</label>
-            <input type="text" value={form.millSONumber} onChange={(e) => setForm((p) => ({ ...p, millSONumber: e.target.value }))} placeholder="Assigned by mill" className={inputCls()} />
+            <label className={labelCls}>Order ID</label>
+            <input type="text" value={form.millSONumber} onChange={(e) => setForm((p) => ({ ...p, millSONumber: e.target.value }))} placeholder="Mill's order ID" className={inputCls()} />
           </div>
           <div>
             <label className={labelCls}>Expected Delivery <span className="text-red-400">*</span></label>
@@ -766,6 +1133,35 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
           <div>
             <label className={labelCls}>Payment Terms</label>
             <input type="text" value={form.paymentTerms} onChange={(e) => setForm((p) => ({ ...p, paymentTerms: e.target.value }))} className={inputCls()} placeholder={selectedMill ? "Auto from mill" : "Select mill first"} />
+          </div>
+          <div>
+            <label className={labelCls + " flex items-center gap-1.5"}>
+              <Shield className="h-3 w-3 text-blue-400" />
+              Insurance Policy No.
+            </label>
+            {allConfigs.filter((c) => c.insurancePolicyNo).length > 1 ? (
+              <select
+                value={form.insurancePolicyNo || ""}
+                onChange={(e) => setForm((p) => ({ ...p, insurancePolicyNo: e.target.value }))}
+                className={cn(inputCls(), "cursor-pointer")}>
+                <option value="">— Select policy —</option>
+                {allConfigs
+                  .filter((c) => c.insurancePolicyNo)
+                  .map((c) => (
+                    <option key={c.id} value={c.insurancePolicyNo!}>
+                      {c.insurancePolicyNo} — {c.companyName ?? `Company ${c.id}`}
+                    </option>
+                  ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                readOnly
+                value={form.insurancePolicyNo || companyConfig.insurancePolicyNo || ""}
+                placeholder="Set in Company Settings"
+                className={inputCls(true)}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -811,6 +1207,59 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
                 <label className={labelCls}>Contact</label>
                 <input type="text" value={displaySOContact || "—"} readOnly className={inputCls(true)} />
               </div>
+            </div>
+          )}
+
+          {/* Customer-name toggle — shown whenever this PO is linked to an
+              SO. Off by default: the mill sees NO customer-identity line at
+              all (client-reported: it used to always print, which leaked
+              the customer's name on Blind-shipment POs). Applies the same
+              way regardless of shipment mode, including Blind/Override —
+              Billed To/Shipped To are unaffected either way. */}
+          {hasSORef && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.showCustomerName}
+                  onChange={(e) => setForm((prev) => ({ ...prev, showCustomerName: e.target.checked }))}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-400"
+                />
+                <span className="text-xs">
+                  <span className="font-semibold text-gray-700">Show customer name to mill</span>
+                  <span className="block text-gray-500">
+                    Check this to print "Customer : {displaySOCustomer}" on the PO. Leave unchecked to hide the customer's identity from the mill entirely — recommended for Blind shipments.
+                  </span>
+                </span>
+              </label>
+            </div>
+          )}
+
+          {/* Delivery party toggle — only shown when this SO actually has a
+              separate delivery party (B) recorded, AND shipment mode is
+              Normal. Hidden for Blind (Shipped To is always forced to Monit
+              there, so this toggle has no effect) and for Custom Invoice
+              (Shipped To follows the manually-picked Invoice Party instead).
+              Off by default: the mill keeps seeing only Customer (A)
+              exactly as before, unless the user explicitly opts in here. */}
+          {hasSORef && soDeliveryParty && form.shipmentMode === "Normal" && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.showDeliveryParty}
+                  onChange={(e) => setForm((prev) => ({ ...prev, showDeliveryParty: e.target.checked }))}
+                  className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-400"
+                />
+                <span className="text-xs">
+                  <span className="font-semibold text-amber-800">Show delivery party to mill</span>
+                  <span className="block text-amber-600">
+                    This SO's material is to be delivered to <strong>{soDeliveryParty}</strong>
+                    {soDeliveryPartyAddress ? ` (${soDeliveryPartyAddress})` : ""} instead of {displaySOCustomer}.
+                    Check this to show the delivery party's name &amp; address on the PO — otherwise the mill sees only the customer, as usual.
+                  </span>
+                </span>
+              </label>
             </div>
           )}
 
@@ -860,11 +1309,11 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
                   <>
                     <div>
                       <label className={labelCls}>Bill To (Mill sees)</label>
-                      <input type="text" value={MONIT_NAME} readOnly className={inputCls(true)} />
+                      <input type="text" value={monitName} readOnly className={inputCls(true)} />
                     </div>
                     <div>
                       <label className={labelCls}>Ship To (Mill sends here)</label>
-                      <input type="text" value={MONIT_ADDRESS} readOnly className={inputCls(true)} />
+                      <input type="text" value={monitAddr} readOnly className={inputCls(true)} />
                     </div>
                   </>
                 )}
@@ -915,10 +1364,10 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
           <div>
             <label className={labelCls}>Delivery Address (Godown)</label>
             <input type="text"
-              value={form.directDeliveryAddress || MONIT_ADDRESS}
+              value={form.directDeliveryAddress || monitAddr}
               onChange={(e) => setForm((p) => ({ ...p, directDeliveryAddress: e.target.value }))}
               className={inputCls()}
-              placeholder={MONIT_ADDRESS}
+              placeholder={monitAddr}
             />
           </div>
         </div>
@@ -938,21 +1387,27 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
               )}
             </p>
           </div>
-          {isForStock && (
-            <button type="button" onClick={addItem}
-              className="flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-100 transition-colors">
-              + Add Item
-            </button>
-          )}
+          {/* Top-bar Add Item button removed per client UAT — the primary
+              add button now sits BELOW the items list so the user doesn't
+              have to scroll back up after adding 8-10 rows. */}
         </div>
 
         {totalItems === 0 && (
-          <div className="rounded-xl border-2 border-dashed border-gray-200 py-6 text-center">
-            <Package className="h-6 w-6 mx-auto mb-1.5 text-gray-300" />
-            <p className="text-xs text-gray-400">
-              {isAgainstSO ? "Select a Sales Order above — items will auto-fill" : "Click \"+ Add Item\" to begin"}
-            </p>
-          </div>
+          isForStock ? (
+            <button
+              type="button"
+              onClick={addItem}
+              className="w-full rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/30 py-6 text-center transition-colors hover:border-blue-400 hover:bg-blue-50">
+              <Plus className="mx-auto h-5 w-5 text-blue-500" />
+              <p className="mt-1.5 text-sm font-semibold text-blue-600">Add first item</p>
+              <p className="text-[11px] text-gray-400">Click to start adding PO lines</p>
+            </button>
+          ) : (
+            <div className="rounded-xl border-2 border-dashed border-gray-200 py-6 text-center">
+              <Package className="h-6 w-6 mx-auto mb-1.5 text-gray-300" />
+              <p className="text-xs text-gray-400">Select a Sales Order above — items will auto-fill</p>
+            </div>
+          )
         )}
 
         <div className="space-y-3">
@@ -979,28 +1434,43 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
                   )}
                 </div>
 
-                {/* Row 1: Material | GSM | Size | Unit */}
+                {/* Row 1: Material | GSM | Size | Unit — all three editable
+                    (client UAT, supersedes the earlier lock): if a mistake
+                    was made in item/quality/GSM/size, the user can correct
+                    it directly instead of only via the composite Item Code.
+                    Safety now lives on the backend — GuardMaterialSpecChangeAsync
+                    rejects the save once the mill has reported any progress
+                    (status past "Order Placed") against the original spec. */}
                 <div className="grid grid-cols-12 gap-2">
                   <div className="col-span-6">
                     <label className={labelCls}>Material</label>
-                    {fromSO ? (
-                      <input type="text" value={item.description || "—"} readOnly className={inputCls(true)} />
-                    ) : (
-                      <select value={item.materialId ? String(item.materialId) : ""} onChange={(e) => handleItemChange(idx, "materialId", e.target.value)} className={inputCls()} required>
-                        <option value="">Select Material</option>
-                        {(millMaterials.length ? millMaterials : allMaterials).map((m) => (
-                          <option key={m.id} value={String(m.id)}>{m.code}</option>
-                        ))}
-                      </select>
-                    )}
+                    <Combobox
+                      options={(millMaterials.length ? millMaterials : allMaterials).map((m) => ({
+                        value: String(m.id),
+                        label: m.code,
+                        sub: m.gsm ? `${m.gsm}g` : undefined,
+                      }))}
+                      inputValue={itemCodeQuery[item.tempId] ?? item.description ?? ""}
+                      onChange={(text, opt) => {
+                        setItemCodeQuery((prev) => ({ ...prev, [item.tempId]: opt ? null : text }));
+                        handleItemChange(idx, "description", opt ? opt.label : text);
+                      }}
+                      placeholder="Mill / Quality / GSM / Size — type or pick"
+                      required
+                    />
                   </div>
                   <div className="col-span-2">
                     <label className={labelCls}>GSM</label>
-                    <input type="text" value={item.gsm || ""} readOnly className={inputCls(true)} />
+                    <input type="number" min={0} value={item.gsm || ""}
+                      onChange={(e) => handleItemChange(idx, "gsm", Number(e.target.value))}
+                      onWheel={blurOnWheel}
+                      className={cn(inputCls(), "no-spinner")} />
                   </div>
                   <div className="col-span-3">
                     <label className={labelCls}>Size</label>
-                    <input type="text" value={item.size || ""} readOnly className={inputCls(true)} />
+                    <input type="text" value={item.size || ""}
+                      onChange={(e) => handleItemChange(idx, "size", e.target.value)}
+                      className={inputCls()} />
                   </div>
                   <div className="col-span-1">
                     <label className={labelCls}>Unit</label>
@@ -1008,19 +1478,24 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
                   </div>
                 </div>
 
-                {/* Row 2: Qty | Wt(KG) | Rate | Disc% | Final | Amount */}
+                {/* Row 2: Qty | Wt(KG) | Rate | Disc (₹/KG) | Final | Amount */}
                 <div className="grid grid-cols-12 gap-2 items-end">
                   <div className="col-span-2">
-                    <label className={labelCls}>Qty <span className="text-red-400">*</span></label>
-                    <input type="number" value={item.quantity || ""} min="0" required
+                    {/* Qty (sheet count) — optional. Weight in KG is the
+                        primary quantity that drives Amount + downstream flow. */}
+                    <label className={labelCls}>Qty</label>
+                    <input type="number" value={item.quantity || ""} min="0"
                       onChange={(e) => handleItemQtyChange(idx, parseFloat(e.target.value) || 0)}
-                      className={inputCls()} />
+                      onWheel={blurOnWheel}
+                      placeholder="sheets (optional)"
+                      className={cn(inputCls(), "no-spinner")} />
                   </div>
                   <div className="col-span-2">
-                    <label className={labelCls}>Wt (KG)</label>
-                    <input type="number" value={item.weightKg || ""} min="0"
+                    <label className={labelCls}>Wt (KG) <span className="text-red-400">*</span></label>
+                    <input type="number" value={item.weightKg || ""} min="0" required
                       onChange={(e) => handleItemWeightChange(idx, parseFloat(e.target.value) || 0)}
-                      className={inputCls()} />
+                      onWheel={blurOnWheel}
+                      className={cn(inputCls(), "no-spinner")} />
                   </div>
                   <div className="col-span-2">
                     <label className={cn(labelCls, "flex items-center gap-1")}>
@@ -1033,15 +1508,17 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
                     </label>
                     <input type="number" value={item.rate || ""} min="0" step="0.01"
                       onChange={(e) => handleItemRateChange(idx, parseFloat(e.target.value) || 0)}
+                      onWheel={blurOnWheel}
                       placeholder="₹"
-                      className={inputCls()} />
+                      className={cn(inputCls(), "no-spinner")} />
                   </div>
                   <div className="col-span-2">
-                    <label className={labelCls}>Disc %</label>
-                    <input type="number" value={item.discount || ""} min="0" max="100" step="0.01"
+                    <label className={labelCls}>Disc (₹/KG)</label>
+                    <input type="number" value={item.discount || ""} min="0" step="0.01"
                       onChange={(e) => handleItemDiscountChange(idx, parseFloat(e.target.value) || 0)}
-                      placeholder="0"
-                      className={inputCls()} />
+                      onWheel={blurOnWheel}
+                      placeholder="₹/KG off list"
+                      className={cn(inputCls(), "no-spinner")} />
                   </div>
                   <div className="col-span-2">
                     <label className={labelCls}>Final (₹)</label>
@@ -1072,6 +1549,18 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
               </div>
             );
           })}
+          {/* Bottom-of-list Add Item button — primary add control, only
+              available for "For Stock" POs (against-SO POs auto-mirror the
+              SO's lines). Lives below the list so the button keeps moving
+              down with the user as rows are appended (client UAT). */}
+          {isForStock && totalItems > 0 && (
+            <button
+              type="button"
+              onClick={addItem}
+              className="w-full flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/40 py-3 text-sm font-semibold text-blue-600 transition-colors hover:border-blue-400 hover:bg-blue-50">
+              <Plus className="h-4 w-4" /> Add Item
+            </button>
+          )}
         </div>
       </div>
 
@@ -1172,6 +1661,87 @@ export function PurchaseOrderForm({ initialData, sourceSO, onSubmit }: PurchaseO
           </button>
         </div>
       </div>
+
+      {/* Duplicate-PO warning — full details inline so the user can decide
+          without leaving the form (which would lose their entered data).
+          Each match card shows: PO number + status, customer, mill unit,
+          overlapping materials, value + date. Continue → save; Cancel →
+          back to the form with all fields preserved. */}
+      <Modal
+        isOpen={dupes !== null}
+        onClose={() => setDupes(null)}
+        title="Duplicate PO detected"
+        subtitle="Same Mill Unit + Customer + Material combination already exists on these POs."
+        size="lg"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setDupes(null)}
+              className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Cancel — go back to the form
+            </button>
+            <button
+              type="button"
+              onClick={async () => { setDupes(null); await doSave(); }}
+              disabled={isLoading}
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 transition-colors"
+            >
+              {isLoading ? "Saving…" : "Continue & Save Anyway"}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 p-3">
+            <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700">
+              Form data is preserved — click <strong>Cancel</strong> to review
+              your entries, or <strong>Continue</strong> to save anyway.
+            </p>
+          </div>
+
+          {(dupes ?? []).map(({ po, customerName, matchedMaterials }) => (
+            <div key={po.id} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="font-mono text-sm font-bold text-violet-700">{po.poNumber}</span>
+                <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                  {po.status}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                <div>
+                  <span className="text-gray-400">Mill Unit:</span>{" "}
+                  <span className="font-medium text-gray-800">
+                    {po.millUnitName?.trim() || po.millName || "—"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Customer:</span>{" "}
+                  <span className="font-medium text-gray-800">{customerName}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">PO Date:</span>{" "}
+                  <span className="font-medium text-gray-800">{po.orderDate}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Value:</span>{" "}
+                  <span className="font-semibold text-emerald-700">
+                    ₹{(po.totalValue ?? 0).toLocaleString("en-IN")}
+                  </span>
+                </div>
+                <div className="col-span-2 mt-1 pt-1.5 border-t border-gray-100">
+                  <span className="text-gray-400">Overlapping items:</span>{" "}
+                  <span className="font-medium text-orange-700">
+                    {matchedMaterials.join(", ")}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Modal>
     </div>
   );
 }

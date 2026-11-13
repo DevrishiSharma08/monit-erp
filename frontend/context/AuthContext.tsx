@@ -58,7 +58,7 @@ interface AuthContextValue {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const COMPANY_NAMES: Record<number, string> = {
-  1: "Monit Paper Agency",
+  1: "Monit Paper Sales Agency",
   2: "Monit Paper Associates",
 };
 
@@ -108,7 +108,7 @@ function loadUser(): AuthUser | null {
     const u = JSON.parse(raw) as AuthUser;
     if (!u.permissions) u.permissions = [];
     if (!u.companyId)   u.companyId   = 1;
-    if (!u.companyName) u.companyName = COMPANY_NAMES[u.companyId] ?? "Monit Paper Agency";
+    if (!u.companyName) u.companyName = COMPANY_NAMES[u.companyId] ?? "Monit Paper Sales Agency";
     return u;
   } catch {
     return null;
@@ -148,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ...cached,
             permissions: decodePermsFromToken(newToken),
             companyId,
-            companyName: COMPANY_NAMES[companyId] ?? "Monit Paper Agency",
+            companyName: COMPANY_NAMES[companyId] ?? "Monit Paper Sales Agency",
           });
         } else {
           setAccessToken(null);
@@ -187,7 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           customerName: data.user.customerName,
           permissions:  decodePermsFromToken(data.accessToken),
           companyId:    cid,
-          companyName:  COMPANY_NAMES[cid] ?? "Monit Paper Agency",
+          companyName:  COMPANY_NAMES[cid] ?? "Monit Paper Sales Agency",
         };
 
         setAccessToken(data.accessToken);

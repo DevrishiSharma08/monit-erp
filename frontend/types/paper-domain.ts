@@ -62,6 +62,10 @@ export interface MillOrderTracker {
 
   history?: MillTrackerHistoryLog[];
   remarks?: string;
+  // The PO item line's own Remark (distinct from `remarks` above, which is
+  // the tracker's own status note) — client-requested 2026-11-06.
+  itemRemark?: string;
+  brandName?: string;
 
   customerName?: string;
   soCustomerName?: string;
@@ -114,7 +118,9 @@ export interface TruckLoadPlan {
   deliveryMode: "Direct To Customer" | "To Godown" | "Multi-Stop";
 
   plannedLoadDate: string;
-  plannedDeliveryDate: string;
+  /** Deprecated per client UAT — load date is the only schedule planned
+   *  against; delivery ETA was unreliable. Kept optional for legacy rows. */
+  plannedDeliveryDate?: string;
   actualLoadDate?: string;
   actualDeliveryDate?: string;
 

@@ -1,4 +1,4 @@
-import { apiFetch, apiDownload } from "./api";
+import { apiFetch, apiDownload, apiDownloadPost, apiUploadFile } from "./api";
 
 // ── Shared ────────────────────────────────────────────────────────────────────
 
@@ -16,7 +16,13 @@ function qs(p: Record<string, string | number | boolean | undefined | null>): st
   return parts.length ? "?" + parts.join("&") : "";
 }
 
-const LIST_SIZE = 200;
+// Every masters "list" call below fetches once (page 1) and lets the DataGrid
+// filter/search/paginate client-side — there's no server round-trip per
+// search keystroke. That only works if this cap comfortably exceeds real
+// row counts: Materials alone is already at 448 rows on one tenant DB, and a
+// 200 cap was silently truncating the list (item existed and blocked
+// re-creation via a 409, but was invisible on screen — client-reported).
+const LIST_SIZE = 5000;
 
 // ── Units ─────────────────────────────────────────────────────────────────────
 
@@ -123,7 +129,7 @@ export interface MillContactDto {
   isDefault?: boolean;
 }
 export interface MillUnitDto {
-  id?: number; unitName: string; address?: string; isDefault?: boolean; contacts: MillContactDto[];
+  id?: number; unitName: string; address?: string; gstNo?: string; isDefault?: boolean; contacts: MillContactDto[];
 }
 export interface MillRow {
   id: number; code: string; name: string;
@@ -137,6 +143,21 @@ export interface MillDetailRow extends MillRow {
 }
 export interface MillDropdown { id: number; code: string; name: string; paymentTerms?: string; }
 
+// Flat per-unit picker option — one entry per mill UNIT, used by the PO Form
+// and any other consumer that lets the user pick the unit directly instead
+// of picking mill + unit in two separate dropdowns. Mills with no units
+// surface as a single row where `unitId` is null.
+export interface MillUnitPickerOption {
+  millId:       number;
+  millCode:     string;
+  millName:     string;
+  unitId?:      number;
+  unitName?:    string;
+  isDefault:    boolean;
+  paymentTerms?: string;
+  displayName:  string;   // pre-composed "Mill — Unit"
+}
+
 export interface MillContactRow { id?: number; contactPerson: string; designation?: string; phone?: string; email?: string; isDefault?: boolean; }
 
 const ML_BASE = "/api/v1/masters/mills";
@@ -149,6 +170,7 @@ export const millApi = {
                  apiFetch<MillDetailRow>(`${ML_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
   remove:      (id: number) => apiFetch<void>(`${ML_BASE}/${id}`, { method: "DELETE" }),
   dropdown:    () => apiFetch<MillDropdown[]>(`${ML_BASE}/dropdown`),
+  unitPicker:  () => apiFetch<MillUnitPickerOption[]>(`${ML_BASE}/unit-picker`),
   getContacts: (id: number) => apiFetch<MillContactRow[]>(`${ML_BASE}/${id}/contacts`),
 };
 
@@ -253,6 +275,7 @@ export interface RateRow {
   id: number;
   // Item identification (merged from MQG)
   millId: number; millCode: string; millName: string;
+  millUnitId?: number; millUnitName?: string;
   qualityId: number; qualityName: string; qualityGroup?: string;
   gsmMin: number; gsmMax: number;
   type: string;                 // "Reel" | "Sheet"
@@ -279,8 +302,16 @@ interface RateSaleDto {
   millId: number; qualityId: number; gsmMin: number; gsmMax: number; type: string;
   customerIds?: number[]; amount: number; discount?: number; effectiveFrom: string;
 }
+export interface PurchaseUnitRateEntry {
+  millUnitId?: number;
+  amount: number;
+  discount?: number;
+}
 interface RatePurchaseDto extends RateSaleDto {
   rateCategory: string;
+  // When supplied + non-empty, backend ignores `amount`/`discount` and creates
+  // one Rate row per unit entry (per customer if Customer category).
+  unitRates?: PurchaseUnitRateEntry[];
 }
 
 export const rateApi = {
@@ -293,7 +324,19 @@ export const rateApi = {
              apiFetch<RateHistoryRow[]>(`${RT_BASE}/${rateId}/history`),
   forCustomer: (customerId: number) =>
                  apiFetch<SORateDto[]>(`${RT_BASE}/for-customer/${customerId}`),
+  // Fallback (below Rate Master) — rate+discount from this customer's/mill's
+  // most recent non-cancelled SO/PO, keyed by Mill+Quality+GSM (same
+  // dimensions Rate Master itself prices by — NOT exact item/size), so a
+  // repeat order for a different size still pre-fills last time's price.
+  // User can still edit it.
+  lastSoForCustomer: (customerId: number) =>
+                 apiFetch<LastRateDto[]>(`${RT_BASE}/last-so/${customerId}`),
+  lastPoForMill: (millId: number) =>
+                 apiFetch<LastRateDto[]>(`${RT_BASE}/last-po/${millId}`),
 };
+
+// "Last order" rate fallback — keyed by Mill+Quality+GSM (see rateApi.lastSoForCustomer/lastPoForMill above).
+export interface LastRateDto { millId: number; qualityId: number; gsm: number; rate: number; discount: number; }
 
 export interface SORateDto { materialId: number; rate: number; discount: number; }
 
@@ -382,6 +425,7 @@ export interface CompanyConfigData {
   companyName?:       string;
   address?:           string;
   gstNumber?:         string;
+  panNumber?:         string;
   insurancePolicyNo?: string;
   insurancePolicyFy?: string;
   insuranceIssuer?:   string;
@@ -412,6 +456,7 @@ export const companyConfigApi = {
     companyName?:       string;
     address?:           string;
     gstNumber?:         string;
+    panNumber?:         string;
     insurancePolicyNo?: string;
     insurancePolicyFy?: string;
     insuranceIssuer?:   string;
@@ -542,6 +587,9 @@ export const roleApi = {
 export interface SalesOrderLineDto {
   id: number; lineNumber: number;
   materialId: number; materialCode: string;
+  // Brand alias from the quality master — used to re-compose the displayed
+  // item code when SalesOrderRow.showBrandInItemCode is true.
+  brandName?: string;
   gsm?: number; size?: string; unit?: string;
   orderedQty: number; weightKg?: number; qty?: number;
   rate: number; discount: number; finalPrice?: number; amount: number;
@@ -553,22 +601,46 @@ export interface SalesOrderLineDto {
 export interface SalesOrderRow {
   id: number; soNumber: string;
   customerId: number; contactPersonId?: number; salesmanId?: number; deliveryPartyId?: number;
-  customer: string; contactPerson?: string;
+  customer: string;
+  customerGstNo?: string;       // from masters.Customers — for PDF/email Bill To
+  customerAddress?: string;     // billing address from masters.Customers
+  contactPerson?: string;
   customerPhone?: string; customerEmail?: string;
-  salesman?: string; deliveryParty?: string; deliveryPartyAddress?: string;
+  salesman?: string; deliveryParty?: string;
+  deliveryPartyGstNo?: string;  // when a delivery party is set, its GST goes in Ship To
+  deliveryPartyAddress?: string;
   orderDate: string; requiredDeliveryDate?: string;
   status: string;
-  deliveryMode?: string; deliveryTerms?: string; paymentTerms?: string;
+  deliveryMode?: string; paymentTerms?: string;
   remarks?: string; insurancePolicyNo?: string;
   totalValue: number;
+  // Ad-hoc flag — when true the SO displays each line's item code with the
+  // brand inserted between quality and gsm (e.g. "B1/MAPLITHO/MAP/50/23x36"
+  // instead of the stored brand-less "B1/MAPLITHO/50/23x36").
+  showBrandInItemCode?: boolean;
+  // True when this SO was entered as a backfill of a historical record from
+  // the user's pre-system register. Auto-sequence was not consumed; SONumber
+  // is the user-supplied original value.
+  isBackfilled?: boolean;
+  // Set when status = "Cancelled" via the 3-dot menu's Cancel action (distinct
+  // from Delete — the row/number stays, greyed out, for tracking).
+  cancelReason?: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
   emailSentAt?: string;
   linkedPoCount?: number;
   lines: SalesOrderLineDto[];
 }
 
 export interface CreateSOLineDto {
+  // Present when editing an existing line — lets the backend update it in
+  // place instead of soft-deleting + reinserting under a new Id (which
+  // would silently break procurement.PurchaseOrderItems.LinkedSOLineId).
+  // Omitted/undefined for a brand-new line.
+  id?: number;
   lineNumber: number;
-  materialId: number; materialCode?: string;
+  materialId: number | null;   // null = free-text custom item
+  materialCode?: string;
   gsm?: number; size?: string; unit?: string;
   orderedQty: number; qty?: number;
   rate: number; discount?: number; finalPrice?: number; amount: number;
@@ -579,12 +651,36 @@ export interface CreateSODto {
   customerId: number; contactPersonId?: number;
   salesmanName?: string; deliveryPartyId?: number;
   orderDate: string; requiredDeliveryDate?: string;
-  paymentTerms?: string; deliveryTerms?: string; deliveryMode?: string;
+  paymentTerms?: string; deliveryMode?: string;
   remarks?: string; insurancePolicyNo?: string;
+  showBrandInItemCode?: boolean;
+  // Backfill / backdated entry — when true, soNumber MUST be provided and
+  // carries the user's original (pre-system) number. Auto-sequence is skipped.
+  isBackfilled?: boolean;
+  soNumber?: string;
   lines: CreateSOLineDto[];
 }
 
 export interface UpdateSODto extends CreateSODto { status?: string; }
+
+// ─── Helper: SO display code (brand toggle) ──────────────────────────────────
+// Stored material codes are brand-less (e.g. "B1/MAPLITHO/50/23x36"). When an
+// SO has ShowBrandInItemCode = true, the brand alias is re-inserted after the
+// quality segment for display ("B1/MAPLITHO/MAP/50/23x36"). All other places
+// keep showing the stored code unchanged.
+export function soLineDisplayCode(line: { materialCode?: string; brandName?: string }, showBrand: boolean | undefined): string {
+  const code = line.materialCode ?? "";
+  if (!showBrand || !line.brandName || !line.brandName.trim()) return code;
+  const parts = code.split("/");
+  // Stored format is Mill/Quality/GSM/Size → insert brand at index 2
+  // (between Quality and GSM). If the code doesn't match this shape, fall
+  // back to a safe suffix so the user still sees the brand somewhere.
+  if (parts.length >= 4) {
+    parts.splice(2, 0, line.brandName.toUpperCase());
+    return parts.join("/");
+  }
+  return `${code} [${line.brandName.toUpperCase()}]`;
+}
 
 const SO_BASE = "/api/v1/sales-orders";
 
@@ -596,9 +692,17 @@ export const salesOrderApi = {
   update:    (id: number, dto: UpdateSODto) => apiFetch<SalesOrderRow>(`${SO_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
   approve:   (id: number) => apiFetch<void>(`${SO_BASE}/${id}/approve`, { method: "PATCH" }),
   remove:    (id: number) => apiFetch<void>(`${SO_BASE}/${id}`, { method: "DELETE" }),
+  cancel:    (id: number, reason: string) =>
+               apiFetch<SalesOrderRow>(`${SO_BASE}/${id}/cancel`, { method: "PATCH", body: JSON.stringify({ reason }) }),
   sendEmail:   (id: number, dto: SendMailRequest) =>
                  apiFetch<SendMailResponse>(`${SO_BASE}/${id}/send-email`, { method: "POST", body: JSON.stringify(dto) }),
-  downloadPdf: (id: number) => apiDownload(`${SO_BASE}/${id}/pdf`),
+  downloadPdf:         (id: number)    => apiDownload(`${SO_BASE}/${id}/pdf`),
+  downloadBulkPdf:     (ids: number[]) => apiDownloadPost(`${SO_BASE}/pdf-bulk`,     { ids }),
+  downloadBulkPdfZip:  (ids: number[]) => apiDownloadPost(`${SO_BASE}/pdf-bulk-zip`, { ids }),
+  // Same document as downloadPdf, as one JPG (all pages stitched into one
+  // image) — client-requested so an SO opens instantly when shared (e.g.
+  // WhatsApp) instead of needing a PDF viewer.
+  downloadImage:       (id: number)    => apiDownload(`${SO_BASE}/${id}/image`),
 };
 
 // ── Purchase Orders ────────────────────────────────────────────────────────────
@@ -606,6 +710,9 @@ export const salesOrderApi = {
 export interface POItemRow {
   id: number; lineNumber: number;
   materialId: number; description?: string;
+  // Brand alias pulled from materials → StockSubGroups — rendered as its own
+  // column on the PO PDF / email / print (replacing the old Item Code column).
+  brandName?: string;
   gsm?: number; size?: string; unit?: string;
   quantity: number; weightKg?: number;
   rate: number; discount?: number; amount: number;
@@ -615,23 +722,56 @@ export interface POItemRow {
 
 export interface PORow {
   id: number; poNumber: string;
-  millId: number; millName: string; millCode?: string; millUnitId?: number; millUnitName?: string;
+  millId: number; millName: string; millCode?: string;
+  millGstNo?: string;                              // resolved from unit (or mill) — for PDF/email "Order To" GST
+  millUnitId?: number; millUnitName?: string;
+  millUnitAddress?: string;                        // shown in "Order To" cell when a unit is picked
   orderDate: string; poType: string;
   linkedSOId?: number; linkedSONumber?: string;
+  // Linked SO's customer (whose order this is) and its separate delivery
+  // party (where goods actually ship — client-requested split), same
+  // fields the PDF's Shipped-To fallback chain uses. See purchase-orders
+  // View modal's shipName/shipAddr/shipGst resolution below.
+  linkedSOCustomerName?: string; linkedSOCustomerAddress?: string; linkedSOCustomerGstNo?: string;
+  linkedSODeliveryPartyName?: string; linkedSODeliveryPartyAddress?: string; linkedSODeliveryPartyGstNo?: string;
+  // User-controlled toggle (default false): reveal the SO's delivery party
+  // (B) instead of Customer (A) on this PO's Shipped To. Off = unchanged
+  // default behaviour.
+  showDeliveryParty: boolean;
+  // User-controlled toggle (default false): print the "Customer : ..."
+  // reference line at all, in ANY shipment mode (Normal/Blind/Override).
+  // Off by default so Blind POs don't leak the customer's identity.
+  showCustomerName: boolean;
   deliveryMode?: string; shipmentMode?: string; blindShipment: boolean;
   invoiceParty?: string; invoicePartyId?: number;
-  directCustomerId?: number; directCustomer?: string; directDeliveryAddress?: string;
+  invoicePartyGstNo?: string; invoicePartyAddress?: string;       // for PDF/email "Shipped To" in InvoiceOverride mode
+  directCustomerId?: number; directCustomer?: string;
+  directCustomerGstNo?: string; directCustomerAddress?: string;   // for PDF/email "Shipped To" in Normal mode
+  directDeliveryAddress?: string;
   expectedDeliveryDate?: string; millSONumber?: string; paymentTerms?: string;
+  insurancePolicyNo?: string;
   totalQuantity: number; totalValue: number;
   status: string; gstPercentage?: number;
   remarks?: string; specialInstructions?: string;
   createdAt: string;
+  // True when this PO was entered as a backfill of a historical record from
+  // the user's pre-system manual register. Auto-sequence was not consumed;
+  // poNumber is the user-supplied original value.
+  isBackfilled?: boolean;
+  // Set when status = "Cancelled" via the 3-dot menu's Cancel action (distinct
+  // from Delete — the row/number stays, greyed out, for tracking).
+  cancelReason?: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
   emailSentAt?: string;
+  // Compared against emailSentAt on screen to show a "resend to mill?"
+  // reminder when the PO was edited after it was last emailed out.
+  updatedAt?: string;
   items: POItemRow[];
 }
 
 export interface CreatePOItemDto {
-  lineNumber: number; materialId: number;
+  lineNumber: number; materialId: number | null;   // null = free-text custom item
   description?: string; gsm?: number; size?: string; unit?: string;
   quantity: number; weightKg?: number; rate: number; discount?: number; amount: number;
   linkedSOLineId?: number; remark?: string;
@@ -641,11 +781,18 @@ export interface CreatePODto {
   millId: number; millUnitId?: number; orderDate: string; poType: string;
   linkedSOId?: number; deliveryMode?: string;
   shipmentMode?: string; blindShipment: boolean;
+  showDeliveryParty?: boolean;
+  showCustomerName?: boolean;
   invoiceParty?: string; invoicePartyId?: number;
   directCustomerId?: number; directDeliveryAddress?: string;
   expectedDeliveryDate?: string; millSONumber?: string; paymentTerms?: string;
+  insurancePolicyNo?: string;
   totalQuantity: number; totalValue: number;
   gstPercentage?: number; remarks?: string; specialInstructions?: string;
+  // Backfill / backdated entry — when true, poNumber MUST be provided and
+  // carries the user's original (pre-system) number. Auto-numbering is skipped.
+  isBackfilled?: boolean;
+  poNumber?: string;
   items: CreatePOItemDto[];
 }
 
@@ -660,9 +807,17 @@ export const poApi = {
   update:  (id: number, dto: UpdatePODto) => apiFetch<PORow>(`${PO_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
   approve:   (id: number) => apiFetch<void>(`${PO_BASE}/${id}/approve`, { method: "PATCH" }),
   remove:    (id: number) => apiFetch<void>(`${PO_BASE}/${id}`, { method: "DELETE" }),
+  cancel:    (id: number, reason: string) =>
+               apiFetch<PORow>(`${PO_BASE}/${id}/cancel`, { method: "PATCH", body: JSON.stringify({ reason }) }),
   sendEmail:   (id: number, dto: SendMailRequest) =>
                  apiFetch<SendMailResponse>(`${PO_BASE}/${id}/send-email`, { method: "POST", body: JSON.stringify(dto) }),
-  downloadPdf: (id: number) => apiDownload(`${PO_BASE}/${id}/pdf`),
+  downloadPdf:         (id: number)    => apiDownload(`${PO_BASE}/${id}/pdf`),
+  downloadBulkPdf:     (ids: number[]) => apiDownloadPost(`${PO_BASE}/pdf-bulk`,     { ids }),
+  downloadBulkPdfZip:  (ids: number[]) => apiDownloadPost(`${PO_BASE}/pdf-bulk-zip`, { ids }),
+  // Same document as downloadPdf, as one JPG (all pages stitched into one
+  // image) — client-requested so a PO opens instantly when shared (e.g.
+  // WhatsApp) instead of needing a PDF viewer.
+  downloadImage:       (id: number)    => apiDownload(`${PO_BASE}/${id}/image`),
 };
 
 // ── Mill Tracker ──────────────────────────────────────────────────────────────
@@ -687,7 +842,8 @@ export interface MillTrackerRow {
   id: number; poId: number; poItemId?: number;
   poNumber: string; poDate?: string;
   millId: number; mill: string; millAddress?: string; millUnitId?: number; millUnitName?: string;
-  materialId?: number; paper?: string; gsm?: number; size?: string;
+  isClosed?: boolean; closedAt?: string; closedBy?: string; closeReason?: string;
+  materialId?: number; paper?: string; brandName?: string; gsm?: number; size?: string;
   orderedQty: number; readyQty: number; dispatchedQty: number; balanceQty: number;
   rate: number; discount?: number; totalAmount: number;
   productionStatus: string; productionProgress: number;
@@ -697,6 +853,9 @@ export interface MillTrackerRow {
   customerName?: string; customerId?: number;
   soNumber?: string; soDeliveryDate?: string; soCustomerId?: number; soCustomerName?: string;
   remarks?: string; millSONumber?: string; directDeliveryAddress?: string; createdAt: string;
+  // The PO item line's own Remark (distinct from `remarks` above, which is
+  // the tracker's own status note) — client-requested 2026-11-06.
+  itemRemark?: string;
   batches: MillTrackerBatchRow[];
   history: MillTrackerHistoryRow[];
 }
@@ -716,7 +875,7 @@ export interface BulkImportRowInput {
 }
 
 export interface BulkImportResultDto {
-  updated: number; skipped: number; errors: string[];
+  updated: number; unchanged: number; skipped: number; errors: string[]; warnings: string[];
 }
 
 // ── Truck Load Plans ───────────────────────────────────────────────────────────
@@ -807,7 +966,7 @@ export interface GrnRow {
   id: number; grnNumber: string; grnDate: string; status: string;
   poId: number; poNumber: string;
   millTrackerId?: number; sourceLoadPlanId?: number; loadPlanNumber?: string;
-  millId: number; millName: string;
+  millId: number; millName: string; millUnitName?: string;
   materialId: number; paper: string; gsm?: number; size?: string;
   orderedQty: number; previouslyReceivedQty: number; receivedQty: number;
   shortQty: number; damagedQty: number; balanceQty: number;
@@ -834,6 +993,18 @@ export interface GrnRow {
   createdBy: string; createdAt: string;
 }
 
+export interface GrnPackingDto {
+  id?: number; grnId?: number;
+  packingFormat: "Sheet" | "Reel";
+  sheetsPerPacket?: number;
+  noOfPackets?: number;
+  packetsPerBundle?: number;
+  noOfBundles?: number;
+  batchNo?: string;
+  weightKg: number;
+  remarks?: string;
+}
+
 export interface GrnDetailRow extends GrnRow {
   purchaseInvoiceNumber?: string; millChallanNumber?: string;
   expectedWeightMt?: number; suggestedBin?: string;
@@ -849,12 +1020,18 @@ export interface GrnDetailRow extends GrnRow {
   poDate?: string; poSupplierName?: string; poRate?: number;
   // TLP chain
   tlpDate?: string; tlpTruckNumber?: string; tlpTransporter?: string;
+  // Dispatch link (first-stage receipt — populated when GRN created via Dispatch page)
+  dispatchReceiptId?: number;
+  dispatchNumber?: string;
+  // Multi-row packings (new). For new GRNs prefer this over the legacy flat fields.
+  packings: GrnPackingDto[];
   statusLog: GrnStatusLogEntry[];
 }
 
 export interface CreateGrnDto {
   millTrackerId: number;
   sourceLoadPlanId?: number;
+  dispatchReceiptId?: number;     // link to first-stage receipt
   grnDate: string;
   purchaseInvoiceNumber?: string; millChallanNumber?: string;
   dispatchDate?: string;
@@ -864,12 +1041,14 @@ export interface CreateGrnDto {
   receivedWeightMt?: number;
   warehouseId?: number; binLocationId?: number;
   condition?: string; qcResult?: string; qualityGrade?: string;
-  // Packing format
+  // Packing format — legacy flat fields (kept for back-compat)
   packingType: string;        // Sheets | Packets | Bundle
   sheetsPerPacket?: number;
   packetsPerBundle?: number;
   noOfPackets?: number;
   noOfBundles?: number;
+  // New multi-row packings (sheet or reel batch-wise)
+  packings?: GrnPackingDto[];
   // Delivery routing
   grnDeliveryMode: string;  // StockIn | DirectToClient | Split
   directQty: number;
@@ -901,6 +1080,248 @@ export const grnApi = {
   updateStatus: (id: number, dto: UpdateGrnStatusDto) =>
                   apiFetch<GrnDetailRow>(`${GRN_BASE}/${id}/status`, { method: "PATCH", body: JSON.stringify(dto) }),
   remove:       (id: number) => apiFetch<void>(`${GRN_BASE}/${id}`, { method: "DELETE" }),
+};
+
+// ── Dispatch Receipts ──────────────────────────────────────────────────────────
+
+export interface DispatchReceiptItemDto {
+  id: number; dispatchReceiptId: number;
+  sourceTrackerId?: number; sourceTlpItemId?: number; materialId?: number;
+  dispatchedQty: number;
+  itemInvoiceNo?: string;
+  remarks?: string;
+  // Display-only (joined server-side)
+  paper?: string; gsm?: number; size?: string; itemType?: string; poNumber?: string;
+}
+
+export interface DispatchReceiptRow {
+  id: number; dispatchNumber: string; dispatchDate: string;
+  sourceLoadPlanId: number; loadPlanNumber?: string;
+  truckNumber?: string; transporterName?: string; origin?: string;
+  invoiceNumber: string; invoiceDate?: string;
+  millChallanNumber?: string; lrNumber?: string; vehicleNumber?: string;
+  receivedBy?: string; remarks?: string;
+  status: string;  // Pending GRN | Partial GRN | GRN Done
+  createdAt: string;
+  items: DispatchReceiptItemDto[];
+}
+
+export interface PendingTlpItemDto {
+  itemId: number;
+  paper?: string;
+  gsm?: number;
+  size?: string;
+  weightKg: number;
+}
+
+export interface PendingTlpForDispatchRow {
+  tlpId: number; planNumber: string; planDate: string;
+  truckNumber?: string; transporterName?: string; origin?: string;
+  status: string; itemCount: number; totalWeightKg: number;
+  items: PendingTlpItemDto[];
+}
+
+export interface CreateDispatchReceiptItemDto {
+  sourceTrackerId?: number; sourceTlpItemId?: number; materialId?: number;
+  dispatchedQty: number;
+  itemInvoiceNo?: string;
+  remarks?: string;
+  /** When true, the source mill tracker is closed after this dispatch —
+   *  short-delivery finalisation. Balance qty is accepted as-is, tracker
+   *  moves out of the default MOT grid to the Closed tab. */
+  closeTrackerAfter?: boolean;
+}
+
+export interface CreateDispatchReceiptDto {
+  dispatchDate: string;
+  sourceLoadPlanId: number;
+  invoiceNumber: string;
+  invoiceDate?: string;
+  millChallanNumber?: string;
+  lrNumber?: string; vehicleNumber?: string;
+  receivedBy?: string; remarks?: string;
+  items: CreateDispatchReceiptItemDto[];
+}
+
+const DR_BASE = "/api/v1/dispatch-receipts";
+export const dispatchReceiptApi = {
+  list:         (p: { status?: string; invoiceNumber?: string; search?: string;
+                      fromDate?: string; toDate?: string; page?: number; pageSize?: number } = {}) =>
+                  apiFetch<Paged<DispatchReceiptRow>>(DR_BASE + qs({ ...p, page: p.page ?? 1, pageSize: p.pageSize ?? 50 })),
+  getById:      (id: number) => apiFetch<DispatchReceiptRow>(`${DR_BASE}/${id}`),
+  pendingTlps:  () => apiFetch<PendingTlpForDispatchRow[]>(`${DR_BASE}/pending-tlps`),
+  create:       (dto: CreateDispatchReceiptDto) =>
+                  apiFetch<DispatchReceiptRow>(DR_BASE, { method: "POST", body: JSON.stringify(dto) }),
+  update:       (id: number, dto: CreateDispatchReceiptDto & { status?: string }) =>
+                  apiFetch<DispatchReceiptRow>(`${DR_BASE}/${id}`, { method: "PUT", body: JSON.stringify(dto) }),
+  remove:       (id: number) => apiFetch<void>(`${DR_BASE}/${id}`, { method: "DELETE" }),
+};
+
+// ── Delivery Challans (outward — to customer) ─────────────────────────────────
+
+export interface DeliveryChallanItemDto {
+  id: number; challanId: number;
+  salesOrderLineId: number;
+  stockLotId?: number;
+  grnId?: number;
+  materialId?: number;
+  paper?: string; gsm?: number; size?: string;
+  quantityKg: number;
+  rate?: number;
+  remarks?: string;
+  // joined display
+  lotNumber?: string;
+  binLocation?: string;
+  grnNumber?: string;
+  poNumber?: string;
+  soLineNumber?: number;
+  // For the print/PDF's HSN-wise GST summary.
+  hsnCode?: string;
+  gstPercent?: number;
+}
+
+export interface DeliveryChallanRow {
+  id: number;
+  challanNumber: string;
+  challanDate: string;
+  salesOrderId: number;
+  soNumber?: string;
+  customerId: number;
+  customerName?: string;
+  deliveryMode: string;       // FromStock | DirectFromMill | Mixed
+  dispatchedFrom?: string;
+  vehicleNumber?: string;
+  transporterName?: string;
+  lrNumber?: string;
+  driverName?: string;
+  driverPhone?: string;
+  freightAmount?: number;
+  deliveryAddress?: string;
+  eWayBillNumber?: string;
+  remarks?: string;
+  status: string;             // Draft | Dispatched | Delivered | Cancelled
+  createdAt: string;
+  createdBy?: string;
+  itemCount: number;
+  totalQuantityKg: number;
+  // PDF-only fields, borrowed server-side from the linked SO / Customer
+  // master (the DC table itself has no GST/payment-terms/billing-address).
+  customerGstNo?: string;
+  customerAddress?: string;
+  soOrderDate?: string;
+  paymentTerms?: string;
+  items: DeliveryChallanItemDto[];
+}
+
+export interface CreateDeliveryChallanItemDto {
+  salesOrderLineId: number;
+  stockLotId?: number;
+  grnId?: number;
+  quantityKg: number;
+  rate?: number;
+  remarks?: string;
+}
+
+export interface CreateDeliveryChallanDto {
+  challanDate: string;
+  salesOrderId: number;
+  customerId: number;
+  deliveryMode?: string;
+  dispatchedFrom?: string;
+  vehicleNumber?: string;
+  transporterName?: string;
+  lrNumber?: string;
+  driverName?: string;
+  driverPhone?: string;
+  freightAmount?: number;
+  deliveryAddress?: string;
+  eWayBillNumber?: string;
+  remarks?: string;
+  items: CreateDeliveryChallanItemDto[];
+}
+
+export interface OpenSoLineForDcDto {
+  salesOrderId: number;
+  salesOrderLineId: number;
+  lineNumber: number;
+  materialId?: number;
+  paper?: string;
+  gsm?: number;
+  size?: string;
+  orderedQty: number;
+  deliveredQty: number;
+  pendingQty: number;
+  rate?: number;
+  deliveryAddress?: string;
+}
+
+export interface OpenSoForDcDto {
+  salesOrderId: number;
+  soNumber: string;
+  orderDate?: string;
+  customerId: number;
+  customerName?: string;
+  status?: string;
+  requiredDeliveryDate?: string;
+  totalOrderedQty: number;
+  totalDeliveredQty: number;
+  totalPendingQty: number;
+  // True when at least one pending line has stock (pooled stock lot or a
+  // Direct-GRN portion earmarked for this SO) available to pick right now.
+  // List is pre-sorted ready-first by the backend; use this to also style
+  // the row so the user doesn't have to open every SO to find out it has
+  // nothing to deliver yet.
+  hasAvailableStock: boolean;
+  lines: OpenSoLineForDcDto[];
+}
+
+export interface AvailableStockSourceDto {
+  stockLotId?: number;
+  lotNumber?: string;
+  warehouseId?: number;
+  warehouseName?: string;
+  binLocation?: string;
+  fifoSequence?: number;
+  grnId?: number;
+  grnNumber?: string;
+  poNumber?: string;
+  materialId?: number;
+  paper?: string;
+  gsm?: number;
+  size?: string;
+  availableQty: number;
+  costPerUnit?: number;
+  sourceType: "Stock" | "DirectGrn";
+  // Transport snapshot — only populated for DirectGrn rows (carried through
+  // from the GRN's parent dispatch + load plan). DC form auto-fills these
+  // into Vehicle / LR / Transporter / Driver fields the first time a Direct
+  // source is picked, so the user doesn't have to retype them.
+  vehicleNumber?: string;
+  lrNumber?: string;
+  transporterName?: string;
+  driverName?: string;
+  driverPhone?: string;
+}
+
+const DC_BASE = "/api/v1/delivery-challans";
+export const deliveryChallanApi = {
+  list:         (p: { status?: string; salesOrderId?: number; customerId?: number;
+                      challanNumber?: string; search?: string;
+                      fromDate?: string; toDate?: string;
+                      page?: number; pageSize?: number } = {}) =>
+                  apiFetch<Paged<DeliveryChallanRow>>(DC_BASE + qs({ ...p, page: p.page ?? 1, pageSize: p.pageSize ?? 50 })),
+  getById:      (id: number) => apiFetch<DeliveryChallanRow>(`${DC_BASE}/${id}`),
+  openSos:      (customerId?: number) =>
+                  apiFetch<OpenSoForDcDto[]>(DC_BASE + "/open-sos" + qs({ customerId })),
+  sources:      (soLineId: number) =>
+                  apiFetch<AvailableStockSourceDto[]>(`${DC_BASE}/sources/${soLineId}`),
+  create:       (dto: CreateDeliveryChallanDto) =>
+                  apiFetch<DeliveryChallanRow>(DC_BASE, { method: "POST", body: JSON.stringify(dto) }),
+  updateStatus: (id: number, dto: { status: string; remarks?: string }) =>
+                  apiFetch<DeliveryChallanRow>(`${DC_BASE}/${id}/status`, { method: "PATCH", body: JSON.stringify(dto) }),
+  remove:       (id: number) => apiFetch<void>(`${DC_BASE}/${id}`, { method: "DELETE" }),
+  downloadPdf:   (id: number) => apiDownload(`${DC_BASE}/${id}/pdf`),
+  downloadImage: (id: number) => apiDownload(`${DC_BASE}/${id}/image`),
 };
 
 // ── Stock Lots ────────────────────────────────────────────────────────────────
@@ -954,16 +1375,25 @@ export const stockLotApi = {
 
 const MT_BASE = "/api/v1/mill-tracker";
 export const millTrackerApi = {
-  list:         (p: { poId?: number; millId?: number; status?: string; customerId?: number; search?: string; page?: number; pageSize?: number } = {}) =>
+  // closed: "active" (default — omitted below), "closed", "all"
+  list:         (p: { poId?: number; millId?: number; status?: string; customerId?: number; closed?: "active" | "closed" | "all"; search?: string; page?: number; pageSize?: number } = {}) =>
                   apiFetch<Paged<MillTrackerRow>>(MT_BASE + qs({ ...p, page: p.page ?? 1, pageSize: p.pageSize ?? 200 })),
   getById:      (id: number) => apiFetch<MillTrackerRow>(`${MT_BASE}/${id}`),
   getByPo:      (poId: number) => apiFetch<MillTrackerRow[]>(`${MT_BASE}/by-po/${poId}`),
   updateStatus: (id: number, dto: UpdateTrackerStatusDto) =>
                   apiFetch<MillTrackerRow>(`${MT_BASE}/${id}/status`, { method: "PATCH", body: JSON.stringify(dto) }),
+  close:        (id: number, reason?: string) =>
+                  apiFetch<MillTrackerRow>(`${MT_BASE}/${id}/close`, { method: "PATCH", body: JSON.stringify({ reason: reason ?? "" }) }),
   addBatch:     (id: number, dto: AddTrackerBatchDto) =>
                   apiFetch<MillTrackerBatchRow>(`${MT_BASE}/${id}/batches`, { method: "POST", body: JSON.stringify(dto) }),
   bulkImport:   (rows: BulkImportRowInput[]) =>
                   apiFetch<BulkImportResultDto>(`${MT_BASE}/bulk-import`, { method: "POST", body: JSON.stringify(rows) }),
+  // Excel bulk-edit flow — download the current grid as xlsx, edit, upload back.
+  // `closed` must match whatever tab (Active/Closed/All) the user currently
+  // has selected — otherwise the export always falls back to the backend's
+  // default ("active"), silently ignoring the tab the user is actually on.
+  exportExcel:  (p: { closed?: "active" | "closed" | "all" } = {}) => apiDownload(`${MT_BASE}/export-excel` + qs(p)),
+  importExcel:  (file: File) => apiUploadFile<BulkImportResultDto>(`${MT_BASE}/import-excel`, file),
   remove:       (id: number) => apiFetch<void>(`${MT_BASE}/${id}`, { method: "DELETE" }),
 };
 

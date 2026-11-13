@@ -61,6 +61,8 @@ public static class DependencyInjection
         services.AddScoped<IMillTrackerRepository,   MillTrackerRepository>();
         services.AddScoped<ITruckLoadPlanRepository, TruckLoadPlanRepository>();
         services.AddScoped<IGrnRepository,           GrnRepository>();
+        services.AddScoped<IDispatchReceiptRepository, DispatchReceiptRepository>();
+        services.AddScoped<IDeliveryChallanRepository, DeliveryChallanRepository>();
         services.AddScoped<IStockLotRepository,      StockLotRepository>();
         services.AddScoped<IDashboardRepository,     DashboardRepository>();
         services.AddScoped<INotificationRepository,  NotificationRepository>();
@@ -96,6 +98,9 @@ public static class DependencyInjection
         services.AddScoped<IMillTrackerService,      MillTrackerService>();
         services.AddScoped<ITruckLoadPlanService,    TruckLoadPlanService>();
         services.AddScoped<IGrnService,              GrnService>();
+        services.AddScoped<IDispatchReceiptService,  DispatchReceiptService>();
+        services.AddScoped<IDeliveryChallanService,  DeliveryChallanService>();
+        services.AddScoped<IDeliveryChallanPdfService, DeliveryChallanPdfService>();
         services.AddScoped<IStockLotService,         StockLotService>();
         services.AddScoped<IDashboardService,        DashboardService>();
         services.AddScoped<INotificationService,     NotificationService>();
@@ -149,7 +154,14 @@ public static class DependencyInjection
                 policy.WithOrigins(config.CorsOrigins)
                       .AllowAnyHeader()
                       .AllowAnyMethod()
-                      .AllowCredentials();
+                      .AllowCredentials()
+                      // Browsers default cross-origin response header access
+                      // to a small whitelist; Content-Disposition isn't on it.
+                      // Without this, our front-end download helper can't
+                      // read the server-supplied filename and falls back to
+                      // a generic name (which used the wrong extension on
+                      // Excel exports).
+                      .WithExposedHeaders("Content-Disposition");
             });
         });
         return services;

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Monit.API.Common.Middleware;
 using Monit.API.Common.Response;
 using Monit.API.Models.DTOs.Masters;
 using Monit.API.Services.Interfaces;
@@ -28,7 +29,7 @@ public class StockCategoriesController(IStockCategoryService svc) : ControllerBa
         => Ok(ApiResponse<StockCategoryDetailDto>.Ok(await svc.GetByIdAsync(id)));
 
     [HttpPost]
-    [Authorize(Roles = "Admin,Manager")]
+    [RequirePerm("masters.write")]
     public async Task<IActionResult> Create([FromBody] CreateStockCategoryDto dto)
     {
         var result = await svc.CreateAsync(dto, CurrentUser);
@@ -37,12 +38,12 @@ public class StockCategoriesController(IStockCategoryService svc) : ControllerBa
     }
 
     [HttpPut("{id:int}")]
-    [Authorize(Roles = "Admin,Manager")]
+    [RequirePerm("masters.write")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateStockCategoryDto dto)
         => Ok(ApiResponse<StockCategoryDetailDto>.Ok(await svc.UpdateAsync(id, dto, CurrentUser), "Stock Category updated successfully."));
 
     [HttpDelete("{id:int}")]
-    [Authorize(Roles = "Admin")]
+    [RequirePerm("masters.delete")]
     public async Task<IActionResult> Delete(int id)
     {
         await svc.DeleteAsync(id, CurrentUser);
@@ -50,7 +51,7 @@ public class StockCategoriesController(IStockCategoryService svc) : ControllerBa
     }
 
     [HttpPost("bulk")]
-    [Authorize(Roles = "Admin,Manager")]
+    [RequirePerm("masters.write")]
     public async Task<IActionResult> BulkCreate([FromBody] BulkCreateGsmDto dto)
     {
         var result = await svc.BulkCreateAsync(dto, CurrentUser);

@@ -2,13 +2,54 @@
 
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Share2, MessageCircle, Mail, Copy, Check, ChevronDown } from "lucide-react";
+import { Share2, MessageCircle, Mail, Download, Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface ShareData {
   title: string;
   text: string;
   subject?: string;
+  /** Optional PDF fetcher. When provided, the share buttons will attempt
+   *  to attach this PDF via the Web Share API; on platforms that don't
+   *  support file sharing, the PDF is downloaded so the user can attach
+   *  it manually in their mail / chat app. */
+  getPdf?: () => Promise<{ blob: Blob; filename: string }>;
+}
+
+// ── Web Share helpers ────────────────────────────────────────────────────────
+// navigator.share({ files }) is mobile-first (Android Chrome / iOS Safari /
+// macOS Safari). Desktop Chrome/Firefox don't support file share — we fall
+// back to downloading the PDF so the user can attach it themselves.
+async function tryNativeFileShare(
+  blob: Blob, filename: string, title: string, text: string,
+): Promise<boolean> {
+  try {
+    const file = new File([blob], filename, { type: blob.type || "application/pdf" });
+    // navigator.canShare / navigator.share types vary across TS lib targets;
+    // narrow via an explicit shape that matches the Web Share API L2 spec.
+    type NavWithShare = Navigator & {
+      canShare?: (d: { files?: File[]; title?: string; text?: string }) => boolean;
+      share?: (d: { files?: File[]; title?: string; text?: string }) => Promise<void>;
+    };
+    const nav = navigator as NavWithShare;
+    if (typeof nav.canShare === "function" && nav.share &&
+        nav.canShare({ files: [file] })) {
+      await nav.share({ files: [file], title, text });
+      return true;
+    }
+  } catch {
+    // User canceled the share sheet, or share threw — fall back below.
+  }
+  return false;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 100);
 }
 
 // ── Outlook SVG icon ──────────────────────────────────────────────────────────
@@ -46,27 +87,69 @@ function SharePanel({ data, anchor, onClose }: SharePanelProps) {
   const subject = data.subject ?? data.title;
   const encoded = encodeURIComponent(data.text);
   const encodedSubject = encodeURIComponent(subject);
+  const [busy, setBusy] = useState<string | null>(null);
 
-  const handleWhatsApp = () => {
-    window.open(`https://api.whatsapp.com/send?text=${encoded}`, "_blank", "noopener,noreferrer");
+  // Common path: fetch PDF, try native file-share. If unsupported (desktop
+  // Chrome/Firefox), download the PDF and open the messaging app's URL with
+  // text — user attaches the downloaded file manually.
+  async function shareWithFallback(openUrl: () => void) {
+    if (!data.getPdf) { openUrl(); onClose(); return; }
+    try {
+      const { blob, filename } = await data.getPdf();
+      const shared = await tryNativeFileShare(blob, filename, data.title, data.text);
+      if (shared) { onClose(); return; }
+      downloadBlob(blob, filename);
+    } catch {
+      // PDF fetch failed — still open the chat / mail URL so the user can
+      // send the plain-text fallback without losing the action entirely.
+    }
+    openUrl();
     onClose();
-  };
+  }
 
-  const handleEmail = () => {
-    window.location.href = `mailto:?subject=${encodedSubject}&body=${encoded}`;
-    onClose();
-  };
-
-  const handleOutlook = () => {
-    window.open(
-      `https://outlook.office.com/mail/deeplink/compose?subject=${encodedSubject}&body=${encoded}`,
-      "_blank",
-      "noopener,noreferrer"
+  const handleWhatsApp = async () => {
+    setBusy("whatsapp");
+    await shareWithFallback(() =>
+      window.open(`https://api.whatsapp.com/send?text=${encoded}`, "_blank", "noopener,noreferrer"),
     );
-    onClose();
+    setBusy(null);
   };
 
+  const handleEmail = async () => {
+    setBusy("email");
+    await shareWithFallback(() => {
+      window.location.href = `mailto:?subject=${encodedSubject}&body=${encoded}`;
+    });
+    setBusy(null);
+  };
+
+  const handleOutlook = async () => {
+    setBusy("outlook");
+    await shareWithFallback(() =>
+      window.open(
+        `https://outlook.office.com/mail/deeplink/compose?subject=${encodedSubject}&body=${encoded}`,
+        "_blank",
+        "noopener,noreferrer",
+      ),
+    );
+    setBusy(null);
+  };
+
+  // "Copy" repurposed: when a PDF is available, download it (cleaner action
+  // than copying text — the user wants the file). When no PDF, fall back
+  // to clipboard text copy.
   const handleCopy = async () => {
+    if (data.getPdf) {
+      setBusy("copy");
+      try {
+        const { blob, filename } = await data.getPdf();
+        downloadBlob(blob, filename);
+        setCopied(true);
+        setTimeout(() => { setCopied(false); onClose(); }, 1200);
+      } catch { onClose(); }
+      finally { setBusy(null); }
+      return;
+    }
     try {
       await navigator.clipboard.writeText(data.text);
       setCopied(true);
@@ -103,8 +186,12 @@ function SharePanel({ data, anchor, onClose }: SharePanelProps) {
     },
     {
       key: "copy",
-      label: copied ? "Copied!" : "Copy Link",
-      icon: copied ? Check : Copy,
+      // Label flips based on whether a PDF was supplied: "Download PDF" is
+      // a clearer action than "Copy Link" when the share payload is a file.
+      label: copied
+        ? (data.getPdf ? "Downloaded!" : "Copied!")
+        : (data.getPdf ? "Download PDF" : "Copy Link"),
+      icon: copied ? Check : Download,
       color: copied ? "text-green-600" : "text-gray-600",
       bg: "hover:bg-gray-50",
       onClick: handleCopy,
@@ -129,21 +216,27 @@ function SharePanel({ data, anchor, onClose }: SharePanelProps) {
       <p className="truncate px-3.5 pb-1.5 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
         Share
       </p>
-      {options.map(({ key, label, icon: Icon, color, bg, onClick }) => (
-        <button
-          key={key}
-          onClick={(e) => { e.stopPropagation(); onClick(); }}
-          className={cn(
-            "flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 transition-colors",
-            bg
-          )}
-        >
-          <Icon className={cn("h-3.5 w-3.5 flex-shrink-0", color)} />
-          <span className={cn(key === "copy" && copied && "text-green-700 font-medium")}>
-            {label}
-          </span>
-        </button>
-      ))}
+      {options.map(({ key, label, icon: Icon, color, bg, onClick }) => {
+        const isBusy = busy === key;
+        return (
+          <button
+            key={key}
+            disabled={busy !== null}
+            onClick={(e) => { e.stopPropagation(); onClick(); }}
+            className={cn(
+              "flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 transition-colors",
+              bg,
+              busy !== null && !isBusy && "opacity-40 cursor-not-allowed",
+              isBusy && "bg-blue-50",
+            )}
+          >
+            <Icon className={cn("h-3.5 w-3.5 flex-shrink-0", color)} />
+            <span className={cn(key === "copy" && copied && "text-green-700 font-medium")}>
+              {isBusy ? "Preparing PDF…" : label}
+            </span>
+          </button>
+        );
+      })}
     </div>,
     document.body
   );

@@ -122,7 +122,12 @@ export async function apiDownload(path: string): Promise<{ blob: Blob; filename:
     if (!res.ok) throw new ApiError(res.status, `Download failed (${res.status})`);
     const cd = res.headers.get("content-disposition") ?? "";
     const match = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-    const filename = match ? match[1].replace(/['"]/g, "") : "download.pdf";
+    // Fallback chain: server-supplied filename > best-guess from path + content-type.
+    // Avoids the old "download.pdf" default that mis-extensioned Excel exports
+    // when CORS wasn't exposing Content-Disposition.
+    const filename = match
+      ? match[1].replace(/['"]/g, "")
+      : guessDownloadFilename(path, res.headers.get("content-type") ?? "");
     return { blob: await res.blob(), filename };
   };
   try {
@@ -132,6 +137,102 @@ export async function apiDownload(path: string): Promise<{ blob: Blob; filename:
       const newToken = await refreshOnce();
       if (!newToken) throw err;
       return doGet(newToken);
+    }
+    throw err;
+  }
+}
+
+// Multipart file upload — used for Excel re-upload (mill tracker bulk edit
+// etc). Sends `multipart/form-data` with the file under the field name "file".
+// Response is the standard ApiResponse<T> envelope.
+export async function apiUploadFile<T>(path: string, file: File, fieldName = "file"): Promise<T> {
+  if (!path.startsWith("/api/v1/auth/")) {
+    await _authSettlePromise;
+  }
+  const doPost = async (token: string | null) => {
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const fd = new FormData();
+    fd.append(fieldName, file, file.name);
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: "POST",
+      credentials: "include",
+      headers,                 // don't set Content-Type — browser sets boundary
+      body: fd,
+    });
+    const text = await res.text();
+    if (!text.trim()) throw new ApiError(res.status, `Upload failed (${res.status})`);
+    const body = JSON.parse(text) as ApiEnvelope<T>;
+    if (!res.ok || !body.success) {
+      const msg = body.errors?.[0] ?? body.message ?? `Upload failed (${res.status})`;
+      throw new ApiError(res.status, msg);
+    }
+    return body.data as T;
+  };
+  try {
+    return await doPost(_accessToken);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      const newToken = await refreshOnce();
+      if (!newToken) throw err;
+      return doPost(newToken);
+    }
+    throw err;
+  }
+}
+
+// Pick a sensible filename + extension when the server didn't supply (or
+// the browser couldn't read) Content-Disposition. Prefers the last URL
+// segment, then falls back to a date-stamped name. Extension comes from the
+// Content-Type header where possible — protects users from getting an .xlsx
+// blob saved as .pdf (and refusing to open in their browser viewer).
+function guessDownloadFilename(path: string, contentType: string): string {
+  const last = path.split("?")[0].split("/").filter(Boolean).pop() ?? "download";
+  const base = last.includes(".") ? last : last;   // keep extension from path if present
+  if (last.includes(".")) return last;
+  const ct = contentType.toLowerCase();
+  let ext = "bin";
+  if      (ct.includes("pdf"))            ext = "pdf";
+  else if (ct.includes("spreadsheetml"))  ext = "xlsx";
+  else if (ct.includes("excel"))          ext = "xlsx";
+  else if (ct.includes("csv"))            ext = "csv";
+  else if (ct.includes("wordprocessing")) ext = "docx";
+  else if (ct.includes("officedocument")) ext = "xlsx";
+  else if (ct.includes("zip"))            ext = "zip";
+  return `${base}.${ext}`;
+}
+
+// POST variant of apiDownload — sends a JSON body, gets back a file blob.
+// Used by bulk-export endpoints that take a list of ids in the body and
+// stream a PDF response.
+export async function apiDownloadPost(path: string, body: unknown): Promise<{ blob: Blob; filename: string }> {
+  if (!path.startsWith("/api/v1/auth/")) {
+    await _authSettlePromise;
+  }
+  const doPost = async (token: string | null) => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: "POST",
+      credentials: "include",
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new ApiError(res.status, `Download failed (${res.status})`);
+    const cd = res.headers.get("content-disposition") ?? "";
+    const match = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+    const filename = match
+      ? match[1].replace(/['"]/g, "")
+      : guessDownloadFilename(path, res.headers.get("content-type") ?? "");
+    return { blob: await res.blob(), filename };
+  };
+  try {
+    return await doPost(_accessToken);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      const newToken = await refreshOnce();
+      if (!newToken) throw err;
+      return doPost(newToken);
     }
     throw err;
   }

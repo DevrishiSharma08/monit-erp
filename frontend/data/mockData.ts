@@ -389,8 +389,17 @@ export interface MillOrderTracker {
   millUnitName?: string;
 
   paper: string;
+  brandName?: string;
   gsm: number;
   size: string;
+
+  /** Close-tracker (short-delivery final acceptance) flow. When true, the
+   *  tracker is finalised at the received qty — balance is treated as
+   *  short delivery. Row hides from the default MOT grid view. */
+  isClosed?: boolean;
+  closedAt?: string;
+  closedBy?: string;
+  closeReason?: string;
 
   // Quantity tracking
   orderedQty: number;
@@ -427,6 +436,9 @@ export interface MillOrderTracker {
   history?: MillTrackerHistoryLog[];
 
   remarks?: string;
+  // The PO item line's own Remark (distinct from `remarks` above, which is
+  // the tracker's own status note) — client-requested 2026-11-06.
+  itemRemark?: string;
 
   // Customer linkage (denormalized from linked SO for display)
   customerName?: string;        // PO delivery customer
@@ -495,6 +507,11 @@ export interface PurchaseOrder {
   // Header information
   mill: string;
   millId?: string;
+  /** Picked Mill Unit on the PO — used by the duplicate-PO detector to
+   *  compare new POs against existing rows on the (unit, customer, item)
+   *  composite key. */
+  millUnitId?: number;
+  millUnitName?: string;
   orderDate: string;
 
   // PO Type
@@ -536,7 +553,13 @@ export interface PurchaseOrder {
   totalValue: number;
 
   // Status
-  status: 'Draft' | 'Sent to Mill' | 'Acknowledged' | 'In Production' | 'Partial Ready' | 'Ready' | 'Dispatched' | 'Part Received' | 'Completed';
+  status: 'Draft' | 'Sent to Mill' | 'Acknowledged' | 'In Production' | 'Partial Ready' | 'Ready' | 'Dispatched' | 'Part Received' | 'Completed' | 'Cancelled';
+
+  // Set when status = "Cancelled" via the 3-dot menu's Cancel action
+  // (distinct from Delete — the row/number stays, greyed out, for tracking).
+  cancelReason?: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
 
   // Tally Integration (hidden fields)
   tallyLedgerName?: string;
@@ -607,7 +630,10 @@ export interface TruckLoadPlan {
 
   // Dates
   plannedLoadDate: string;
-  plannedDeliveryDate: string;
+  /** Deprecated per client UAT — load date is the only schedule planned
+   *  against; delivery ETA was unreliable and removed from the TLP form
+   *  and all displays. Kept optional so legacy mock rows still compile. */
+  plannedDeliveryDate?: string;
   actualLoadDate?: string;
   actualDeliveryDate?: string;
 

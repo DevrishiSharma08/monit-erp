@@ -17,7 +17,7 @@ const selectCls = "w-full rounded-lg border border-gray-200 bg-white px-3 py-2 t
 const DESIGNATIONS = ["", "Owner", "Purchaser", "Accountant", "Sales"];
 
 function emptyContact(): MillContactDto { return { contactPerson: "", designation: "", phone: "", email: "" }; }
-function emptyUnit(): MillUnitDto { return { unitName: "", address: "", contacts: [emptyContact()] }; }
+function emptyUnit(): MillUnitDto { return { unitName: "", address: "", gstNo: "", contacts: [emptyContact()] }; }
 
 export default function MillMasterPage() {
   const [data,      setData]      = useState<MillRow[]>([]);
@@ -145,6 +145,7 @@ export default function MillMasterPage() {
             ...u,
             unitName: u.unitName.trim(),
             address: u.address?.trim() || undefined,
+            gstNo:   u.gstNo?.trim() || undefined,
             contacts: u.contacts
               .filter((c) => c.contactPerson.trim())
               .map((c) => ({
@@ -157,12 +158,15 @@ export default function MillMasterPage() {
           })),
       };
       if (editItem) {
-        const u = await millApi.update(editItem.id, { ...dto, isActive: fActive });
-        setData((prev) => prev.map((x) => x.id === u.id ? u : x));
+        await millApi.update(editItem.id, { ...dto, isActive: fActive });
       } else {
-        const c = await millApi.create(dto);
-        setData((prev) => [...prev, c]);
+        await millApi.create(dto);
       }
+      // Refetch the whole list — the grid's GstNo column uses a COALESCE on
+      // the default unit's GstNo, which the update/create response (returning
+      // the mill-level detail) does not compute. A fresh list re-pulls the
+      // correctly merged value for every row.
+      setData((await millApi.list()).items);
       setShowModal(false);
     } catch (e) { setError(e instanceof ApiError ? e.message : "Save failed"); }
     finally { setSaving(false); }
@@ -179,6 +183,20 @@ export default function MillMasterPage() {
   // ── Columns ───────────────────────────────────────────────────────────────
 
   const columns: ColumnConfig<MillRow>[] = useMemo(() => [
+    {
+      id: "_actions", accessorKey: "id", header: "",
+      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50, sticky: "left",
+      cell: (info) => {
+        const row = info.row.original;
+        return (
+          <ActionMenu items={[
+            { label: "View",   icon: Eye,    onClick: () => openView(row.id)      },
+            { label: "Edit",   icon: Pencil, onClick: () => openEdit(row)         },
+            { label: "Delete", icon: Trash2, onClick: () => setDeleteId(row.id), variant: "danger" },
+          ]} />
+        );
+      },
+    },
     {
       id: "code", accessorKey: "code", header: "Code",
       filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 90,
@@ -240,34 +258,22 @@ export default function MillMasterPage() {
           v ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-100 text-gray-500 border-gray-200")}>{v ? "Active" : "Inactive"}</span>;
       },
     },
-    {
-      id: "_actions", accessorKey: "id", header: "",
-      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50,
-      cell: (info) => {
-        const row = info.row.original;
-        return (
-          <ActionMenu items={[
-            { label: "View",   icon: Eye,    onClick: () => openView(row.id)      },
-            { label: "Edit",   icon: Pencil, onClick: () => openEdit(row)         },
-            { label: "Delete", icon: Trash2, onClick: () => setDeleteId(row.id), variant: "danger" },
-          ]} />
-        );
-      },
-    },
   ], []);
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className="flex h-[calc(100vh-112px)] flex-col gap-4 overflow-hidden">
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2 flex-shrink-0">
           <AlertTriangle className="h-4 w-4 flex-shrink-0" /> {error}
           <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">✕</button>
         </div>
       )}
+      <div className="flex flex-1 min-h-0 flex-col">
       <DataGrid
         data={data} columns={columns} tableName="mills"
         enableFilters enablePagination enableColumnReordering enableColumnVisibility
         initialPageSize={10}
+        scrollMaxHeight="100%"
         toolbarActions={
           <button onClick={openAdd} disabled={loading}
             className="flex items-center gap-2 rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 shadow-sm disabled:opacity-60">
@@ -276,6 +282,7 @@ export default function MillMasterPage() {
           </button>
         }
       />
+      </div>
 
       {/* Add / Edit Modal */}
       <Modal isOpen={showModal} onClose={() => setShowModal(false)}
@@ -398,12 +405,20 @@ export default function MillMasterPage() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className={labelCls}>Unit Name *</label>
                     <input value={unit.unitName}
                       onChange={(e) => updateUnit(ui, "unitName", e.target.value)}
                       placeholder="e.g. Silvassa Unit" className={inputCls} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>GST No.</label>
+                    <input value={unit.gstNo ?? ""}
+                      onChange={(e) => updateUnit(ui, "gstNo", e.target.value.toUpperCase())}
+                      placeholder="e.g. 24ABCDE1234F1Z5"
+                      maxLength={15}
+                      className={`${inputCls} font-mono uppercase`} />
                   </div>
                   <div>
                     <label className={labelCls}>Address</label>
@@ -501,7 +516,16 @@ export default function MillMasterPage() {
                         <span className="text-[10px] bg-amber-50 text-amber-600 border border-amber-200 rounded-full px-1.5 py-0.5 font-medium">Default</span>
                       )}
                     </div>
-                    {u.address && <p className="text-xs text-gray-500 pl-5">{u.address}</p>}
+                    {(u.address || u.gstNo) && (
+                      <div className="pl-5 space-y-0.5">
+                        {u.address && <p className="text-xs text-gray-500">{u.address}</p>}
+                        {u.gstNo && (
+                          <p className="text-xs text-gray-500">
+                            GST: <span className="font-mono font-medium text-gray-700">{u.gstNo}</span>
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {u.contacts.length > 0 && (
                       <div className="space-y-1 pl-5">
                         {u.contacts.map((c, j) => (

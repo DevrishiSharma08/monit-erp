@@ -36,21 +36,21 @@ export function KpiCard({
     <div
       onClick={onClick}
       className={cn(
-        "group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm",
+        "group relative overflow-hidden rounded-2xl border border-white/80 p-2.5 sm:p-3.5 shadow-sm",
         "transition-all duration-200 hover:-translate-y-1 hover:shadow-lg",
         onClick && "cursor-pointer active:scale-[0.98]",
         iconBg,
         className
       )}
     >
-      <p className={cn("text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate", iconColor)}>
+      <p className={cn("text-[9px] sm:text-[10px] font-semibold uppercase tracking-wider truncate", iconColor)}>
         {title}
       </p>
-      <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">
+      <p className="mt-1 text-xl sm:text-3xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">
         {value}
       </p>
       {subtitle && (
-        <p className={cn("mt-1 text-[10px] sm:text-xs truncate", subtitleColors[subtitleColor])}>
+        <p className={cn("mt-0.5 text-[9px] sm:text-[11px] truncate", subtitleColors[subtitleColor])}>
           {subtitle}
         </p>
       )}
@@ -61,7 +61,7 @@ export function KpiCard({
         "transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18]",
         iconColor
       )}>
-        <Icon className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
+        <Icon className="h-14 w-14 sm:h-16 sm:w-16" strokeWidth={1} />
       </div>
     </div>
   );

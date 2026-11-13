@@ -10,6 +10,8 @@ public interface IRateRepository
     Task<List<RateListDto>>         GetAllForExportAsync(RateFilterRequest filter);
     Task<List<RateHistoryDto>>      GetHistoryAsync(int rateId);
     Task<List<SORateDto>>           GetForCustomerAsync(int customerId);
+    Task<List<LastRateDto>>         GetLastSoRatesForCustomerAsync(int customerId);
+    Task<List<LastRateDto>>         GetLastPoRatesForMillAsync(int millId);
     Task<int>                       CreateAsync(Rate entity);
     Task                            SoftDeleteAsync(int id, string deletedBy);
 }

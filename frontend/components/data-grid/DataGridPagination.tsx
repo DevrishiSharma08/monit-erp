@@ -59,25 +59,25 @@ export function DataGridPagination<TData>({
   };
 
   return (
-    <div className="flex items-center justify-between border-t px-6 py-4">
-      <p className="text-sm text-gray-600">
+    <div className="flex items-center justify-between border-t px-4 py-2 flex-shrink-0">
+      <p className="text-xs text-gray-600">
         Showing {startItem} to {endItem} of {totalItems} items
       </p>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         {/* Previous button */}
         <button
           onClick={() => table.previousPage()}
           disabled={!table.getCanPreviousPage()}
           className={cn(
-            "rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
+            "rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
             table.getCanPreviousPage()
               ? "border-gray-300 text-gray-700 hover:bg-gray-50"
               : "border-gray-200 text-gray-400 cursor-not-allowed"
           )}
           aria-label="Previous page"
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft className="h-3.5 w-3.5" />
         </button>
 
         {/* Page numbers */}
@@ -98,7 +98,7 @@ export function DataGridPagination<TData>({
               key={pageNumber}
               onClick={() => table.setPageIndex(pageNumber)}
               className={cn(
-                "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                "rounded-lg px-2.5 py-1 text-xs font-medium transition-colors",
                 isActive
                   ? "bg-blue-500 text-white"
                   : "border border-gray-300 text-gray-700 hover:bg-gray-50"
@@ -116,14 +116,14 @@ export function DataGridPagination<TData>({
           onClick={() => table.nextPage()}
           disabled={!table.getCanNextPage()}
           className={cn(
-            "rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
+            "rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
             table.getCanNextPage()
               ? "border-gray-300 text-gray-700 hover:bg-gray-50"
               : "border-gray-200 text-gray-400 cursor-not-allowed"
           )}
           aria-label="Next page"
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>

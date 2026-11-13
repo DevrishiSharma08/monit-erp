@@ -15,9 +15,21 @@ public class MillRepository(DbConnectionFactory db) : IMillRepository
         var orderBy = SafeColumn(f.SortBy, "m.Name") + " " + f.SafeSortOrder;
 
         var countSql = $"SELECT COUNT(*) FROM masters.Mills m WHERE {where}";
+        // GstNo column on the grid shows the mill-level GstNo first (the
+        // "main" mill registration); only if that's blank, falls back to the
+        // 1st unit's GstNo. This means editing any other unit's GstNo never
+        // changes the grid — only mill-level (or 1st unit when mill-level is
+        // empty) updates affect the outside view. All unit GSTs are still
+        // visible inside the view modal regardless.
         var dataSql  = $@"
             SELECT m.Id, m.Code, m.Name, m.OwnerName, m.Phone, m.Email,
-                   m.GstNo, m.PaymentTerms, m.IsActive, m.CreatedAt,
+                   ISNULL(
+                       m.GstNo,
+                       (SELECT TOP 1 GstNo FROM masters.MillUnits
+                         WHERE MillId = m.Id AND IsDeleted = 0 AND GstNo IS NOT NULL
+                         ORDER BY Id)
+                   ) AS GstNo,
+                   m.PaymentTerms, m.IsActive, m.CreatedAt,
                    (SELECT COUNT(*) FROM masters.MillUnits WHERE MillId = m.Id AND IsDeleted = 0) AS UnitCount
             FROM   masters.Mills m
             WHERE  {where}
@@ -37,9 +49,17 @@ public class MillRepository(DbConnectionFactory db) : IMillRepository
     {
         var (where, param) = BuildWhere(f);
         var orderBy = SafeColumn(f.SortBy, "m.Name") + " " + f.SafeSortOrder;
+        // Same priority as the paged list: mill-level GstNo first, 1st unit
+        // GstNo as fallback. Keeps exports in sync with the grid view.
         var sql = $@"
             SELECT m.Id, m.Code, m.Name, m.OwnerName, m.Phone, m.Email,
-                   m.GstNo, m.PaymentTerms, m.IsActive, m.CreatedAt,
+                   ISNULL(
+                       m.GstNo,
+                       (SELECT TOP 1 GstNo FROM masters.MillUnits
+                         WHERE MillId = m.Id AND IsDeleted = 0 AND GstNo IS NOT NULL
+                         ORDER BY Id)
+                   ) AS GstNo,
+                   m.PaymentTerms, m.IsActive, m.CreatedAt,
                    (SELECT COUNT(*) FROM masters.MillUnits WHERE MillId = m.Id AND IsDeleted = 0) AS UnitCount
             FROM   masters.Mills m WHERE {where} ORDER BY {orderBy}";
         using var conn = db.Create();
@@ -55,7 +75,7 @@ public class MillRepository(DbConnectionFactory db) : IMillRepository
                    (SELECT COUNT(*) FROM masters.MillUnits WHERE MillId = m.Id AND IsDeleted = 0) AS UnitCount
             FROM   masters.Mills m WHERE m.Id = @Id AND m.IsDeleted = 0;
 
-            SELECT Id, MillId, UnitName, Address, IsDefault
+            SELECT Id, MillId, UnitName, Address, GstNo, IsDefault
             FROM   masters.MillUnits WHERE MillId = @Id AND IsDeleted = 0 ORDER BY Id;
 
             SELECT mc.Id, mc.MillUnitId, mc.ContactPerson, mc.Designation, mc.Phone, mc.Email, mc.IsDefault
@@ -105,7 +125,7 @@ public class MillRepository(DbConnectionFactory db) : IMillRepository
             VALUES (@Code, @Name, @OwnerName, @Phone, @Email, @GstNo, @PaymentTerms, @IsActive, @CreatedAt, @CreatedBy)";
 
         var millId = await conn.ExecuteScalarAsync<int>(insertMill, m, tx);
-        await SaveUnits(conn, tx, millId, units, createdBy);
+        await ReconcileUnits(conn, tx, millId, units, createdBy);
 
         tx.Commit();
         return millId;
@@ -124,17 +144,7 @@ public class MillRepository(DbConnectionFactory db) : IMillRepository
             WHERE Id = @Id AND IsDeleted = 0";
 
         await conn.ExecuteAsync(updateMill, m, tx);
-
-        // Soft-delete old contacts then old units
-        const string deleteContacts = @"
-            UPDATE masters.MillContacts SET IsDeleted=1
-            WHERE MillUnitId IN (SELECT Id FROM masters.MillUnits WHERE MillId=@Id AND IsDeleted=0)";
-        await conn.ExecuteAsync(deleteContacts, new { m.Id }, tx);
-
-        const string deleteUnits = "UPDATE masters.MillUnits SET IsDeleted=1 WHERE MillId=@Id AND IsDeleted=0";
-        await conn.ExecuteAsync(deleteUnits, new { m.Id }, tx);
-
-        await SaveUnits(conn, tx, m.Id, units, updatedBy);
+        await ReconcileUnits(conn, tx, m.Id, units, updatedBy);
 
         tx.Commit();
     }
@@ -153,6 +163,37 @@ public class MillRepository(DbConnectionFactory db) : IMillRepository
         return (await conn.QueryAsync<MillDropdownDto>(sql)).ToList();
     }
 
+    // Flat unit-level dropdown — every mill unit gets its own row prefixed
+    // with the mill name. Mills with NO units still produce one fallback row
+    // so they remain selectable.
+    public async Task<List<MillUnitPickerDto>> GetUnitPickerAsync()
+    {
+        // LEFT JOIN so mills without any units still appear once with NULL
+        // unit columns. Sort: mill name → default first → unit name.
+        const string sql = @"
+            SELECT m.Id           AS MillId,
+                   m.Code         AS MillCode,
+                   m.Name         AS MillName,
+                   mu.Id          AS UnitId,
+                   mu.UnitName    AS UnitName,
+                   ISNULL(mu.IsDefault, 0) AS IsDefault,
+                   m.PaymentTerms AS PaymentTerms
+            FROM   masters.Mills      m
+            LEFT JOIN masters.MillUnits mu ON mu.MillId = m.Id AND mu.IsDeleted = 0
+            WHERE  m.IsDeleted = 0 AND m.IsActive = 1
+            ORDER BY m.Name, mu.IsDefault DESC, mu.UnitName";
+
+        using var conn = db.Create();
+        var rows = (await conn.QueryAsync<MillUnitPickerDto>(sql)).ToList();
+        foreach (var r in rows)
+        {
+            r.DisplayName = string.IsNullOrWhiteSpace(r.UnitName)
+                ? r.MillName
+                : $"{r.MillName} — {r.UnitName}";
+        }
+        return rows;
+    }
+
     public async Task<List<MillContactDto>> GetContactsAsync(int millId)
     {
         // Flatten contacts across all units of this mill
@@ -166,30 +207,86 @@ public class MillRepository(DbConnectionFactory db) : IMillRepository
         return (await conn.QueryAsync<MillContactDto>(sql, new { MillId = millId })).ToList();
     }
 
-    private static async Task SaveUnits(
+    // Reconciles submitted units against what's already on file, matched by
+    // Id, so an EDITED unit keeps its original MillUnits.Id forever — it is
+    // UPDATED in place, never soft-deleted-and-reinserted under a new Id.
+    //
+    // Every historical reference to a unit (procurement.PurchaseOrders.
+    // MillUnitId, procurement.MillTrackers, masters.Rates, GRN mill-unit
+    // fields, ...) is a plain FK to masters.MillUnits.Id with no IsDeleted
+    // filter on that join — so the old behaviour (blanket soft-delete all
+    // units on every Mill save, then re-insert everything fresh) silently
+    // orphaned every past PO/tracker/rate to a frozen, never-updated copy
+    // of the unit each time ANY field on the mill was edited, even if the
+    // user only fixed a phone number and never touched the unit at all.
+    // Client-reported: correcting a unit's Address in Masters never showed
+    // up on an old PO — the "corrected" row was actually a brand-new Id;
+    // the old (wrong) row just sat there soft-deleted, still being read by
+    // every historical reference that pointed at its Id.
+    private static async Task ReconcileUnits(
         System.Data.IDbConnection conn,
         System.Data.IDbTransaction tx,
         int millId,
         List<MillUnitDto> units,
-        string createdBy)
+        string updatedBy)
     {
-        const string insertUnit = @"
-            INSERT INTO masters.MillUnits (MillId, UnitName, Address, IsDefault, IsActive, CreatedAt, CreatedBy)
-            OUTPUT INSERTED.Id
-            VALUES (@MillId, @UnitName, @Address, @IsDefault, 1, GETUTCDATE(), @CreatedBy)";
+        var existingIds = (await conn.QueryAsync<int>(
+            "SELECT Id FROM masters.MillUnits WHERE MillId=@MillId AND IsDeleted=0",
+            new { MillId = millId }, tx)).ToHashSet();
 
+        const string updateUnit = @"
+            UPDATE masters.MillUnits SET
+                UnitName=@UnitName, Address=@Address, GstNo=@GstNo, IsDefault=@IsDefault,
+                UpdatedAt=GETUTCDATE(), UpdatedBy=@UpdatedBy
+            WHERE Id=@Id AND MillId=@MillId AND IsDeleted=0";
+
+        const string insertUnit = @"
+            INSERT INTO masters.MillUnits (MillId, UnitName, Address, GstNo, IsDefault, IsActive, CreatedAt, CreatedBy)
+            OUTPUT INSERTED.Id
+            VALUES (@MillId, @UnitName, @Address, @GstNo, @IsDefault, 1, GETUTCDATE(), @CreatedBy)";
+
+        // Contacts have no external FK references anywhere else in the app
+        // (unlike units), so wipe-and-reinsert per unit is safe here.
+        const string deleteContactsForUnit = "UPDATE masters.MillContacts SET IsDeleted=1 WHERE MillUnitId=@MillUnitId AND IsDeleted=0";
         const string insertContact = @"
             INSERT INTO masters.MillContacts (MillUnitId, ContactPerson, Designation, Phone, Email, IsDefault, IsActive, CreatedAt, CreatedBy)
             VALUES (@MillUnitId, @ContactPerson, @Designation, @Phone, @Email, @IsDefault, 1, GETUTCDATE(), @CreatedBy)";
 
+        var keptIds = new HashSet<int>();
+
         foreach (var unit in units.Where(u => !string.IsNullOrWhiteSpace(u.UnitName)))
         {
-            var unitId = await conn.ExecuteScalarAsync<int>(insertUnit,
-                new { MillId = millId, unit.UnitName, unit.Address, unit.IsDefault, CreatedBy = createdBy }, tx);
+            int unitId;
+            if (unit.Id is > 0 && existingIds.Contains(unit.Id.Value))
+            {
+                unitId = unit.Id.Value;
+                await conn.ExecuteAsync(updateUnit,
+                    new { Id = unitId, MillId = millId, unit.UnitName, unit.Address, unit.GstNo, unit.IsDefault, UpdatedBy = updatedBy }, tx);
+                keptIds.Add(unitId);
+            }
+            else
+            {
+                unitId = await conn.ExecuteScalarAsync<int>(insertUnit,
+                    new { MillId = millId, unit.UnitName, unit.Address, unit.GstNo, unit.IsDefault, CreatedBy = updatedBy }, tx);
+            }
 
+            await conn.ExecuteAsync(deleteContactsForUnit, new { MillUnitId = unitId }, tx);
             foreach (var c in unit.Contacts.Where(c => !string.IsNullOrWhiteSpace(c.ContactPerson)))
                 await conn.ExecuteAsync(insertContact,
-                    new { MillUnitId = unitId, c.ContactPerson, c.Designation, c.Phone, c.Email, c.IsDefault, CreatedBy = createdBy }, tx);
+                    new { MillUnitId = unitId, c.ContactPerson, c.Designation, c.Phone, c.Email, c.IsDefault, CreatedBy = updatedBy }, tx);
+        }
+
+        // Units that existed before but weren't in this submission were
+        // genuinely removed by the user in the UI — soft-delete just those.
+        var removedIds = existingIds.Except(keptIds).ToList();
+        if (removedIds.Count > 0)
+        {
+            await conn.ExecuteAsync(
+                "UPDATE masters.MillContacts SET IsDeleted=1 WHERE MillUnitId IN @Ids AND IsDeleted=0",
+                new { Ids = removedIds }, tx);
+            await conn.ExecuteAsync(
+                "UPDATE masters.MillUnits SET IsDeleted=1 WHERE Id IN @Ids",
+                new { Ids = removedIds }, tx);
         }
     }
 

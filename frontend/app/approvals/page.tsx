@@ -16,6 +16,7 @@ import { PurchaseOrderForm } from "@/components/forms/PurchaseOrderForm";
 import { cn } from "@/lib/utils";
 import { createPortal } from "react-dom";
 import { useSalesOrder } from "@/context/SalesOrderContext";
+import { useCompanySettings } from "@/context/CompanySettingsContext";
 import { useToast } from "@/context/ToastContext";
 import { poApi, PORow, CreatePODto, salesOrderApi, customerApi, millApi } from "@/lib/api-services";
 import { emailSentCache } from "@/lib/emailSentCache";
@@ -24,7 +25,10 @@ import { KpiCard } from "@/components/ui/KpiCard";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function buildEmailData(so: SalesOrder): EmailFormData {
+// Approval email builders take the live company name from
+// CompanySettingsContext so the sign-off matches the active tenant
+// (Monit Paper Agency vs Monit Paper Associates).
+function buildEmailData(so: SalesOrder, companyName: string): EmailFormData {
   const totalKg = so.lines.reduce((s, l) => s + ((l as any).weightKg ?? 0), 0);
   return {
     to:      (so as any).customerEmail ? [(so as any).customerEmail] : [],
@@ -45,12 +49,12 @@ function buildEmailData(so: SalesOrder): EmailFormData {
       `Thank you for your business.`,
       ``,
       `Regards,`,
-      `Monit Paper Agency`,
+      companyName,
     ].join("\n"),
   };
 }
 
-function buildPOEmailData(po: PORow): EmailFormData {
+function buildPOEmailData(po: PORow, companyName: string): EmailFormData {
   const totalWeightKg = po.items.reduce((s, i) => s + (i.weightKg ?? 0), 0);
   return {
     to:      [],
@@ -73,7 +77,7 @@ function buildPOEmailData(po: PORow): EmailFormData {
       `Please acknowledge receipt and confirm production schedule.`,
       ``,
       `Regards,`,
-      `Monit Paper Agency`,
+      companyName,
     ].filter((l, i, a) => l !== "" || (i > 0 && a[i - 1] !== "")).join("\n"),
   };
 }
@@ -127,7 +131,6 @@ function ApprovalViewModal({
                 { label: "Salesman",      value: so.salesman },
                 { label: "Payment Terms", value: so.paymentTerms || "—" },
                 { label: "Delivery Mode", value: so.deliveryMode },
-                { label: "Delivery Terms",value: so.deliveryTerms || "—" },
                 {
                   label: "Delivery Party",
                   value: (so as any).deliveryParty || so.customer,
@@ -247,6 +250,11 @@ function POApprovalViewModal({
   onEdit: () => void;
   onClose: () => void;
 }) {
+  // Tenant-aware "Monit" name for the Bill-To (Blind shipment) display —
+  // matches what the SO/PO PDFs print so the modal preview is 1:1 with
+  // the document the mill receives.
+  const { config: poApprovalCfg } = useCompanySettings();
+  const monitName = poApprovalCfg.companyName?.trim() ?? "";
   const shipMode  = po.shipmentMode ?? (po.blindShipment ? "Blind" : "Normal");
   const isBlind    = shipMode === "Blind";
   const isOverride = shipMode === "InvoiceOverride";
@@ -283,7 +291,7 @@ function POApprovalViewModal({
               { label: "Payment Terms",     value: po.paymentTerms || "—" },
               { label: "Total Qty",         value: po.totalQuantity.toLocaleString("en-IN") },
               { label: "Total Value",       value: `₹${po.totalValue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` },
-              ...(po.millSONumber ? [{ label: "Mill SO No.", value: po.millSONumber }] : []),
+              ...(po.millSONumber ? [{ label: "Order ID", value: po.millSONumber }] : []),
               ...(po.poType !== "For Stock" ? [{ label: "PO Type", value: po.poType }] : []),
             ].map(({ label, value }) => (
               <div key={label}>
@@ -317,7 +325,7 @@ function POApprovalViewModal({
                   <>
                     <div>
                       <p className="text-[10px] uppercase tracking-wide text-indigo-400">Bill To (Mill sees)</p>
-                      <p className="text-sm font-medium text-orange-700">Monit Paper Agency</p>
+                      <p className="text-sm font-medium text-orange-700">{monitName || "—"}</p>
                     </div>
                     <div>
                       <p className="text-[10px] uppercase tracking-wide text-indigo-400">Ship To</p>
@@ -480,6 +488,11 @@ function POApprovalViewModal({
 export default function ApprovalsPage() {
   const { salesOrders, updateSalesOrder, reload } = useSalesOrder();
   const { success, error: showError } = useToast();
+  // Company name + address come from Settings — used by the email
+  // builders + the "Bill To (Mill sees)" display on blind POs so the
+  // active tenant's brand string is always what's shown / sent.
+  const { config: companyConfig } = useCompanySettings();
+  const monitName = companyConfig.companyName?.trim() ?? "";
 
   // ── Tab state ─────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<"so" | "po">("so");
@@ -734,6 +747,21 @@ export default function ApprovalsPage() {
 
   const soColumns: ColumnConfig<SalesOrder>[] = useMemo(() => [
     {
+      id: "_actions", accessorKey: "id", header: "",
+      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50, sticky: "left",
+      cell: (info) => {
+        const so = info.row.original;
+        return (
+          <ActionMenu items={[
+            { label: "View",           icon: Eye,      onClick: () => setViewOrder(so) },
+            { label: "Edit SO",        icon: Pencil,   onClick: () => handleEdit(so) },
+            { label: "Approve",        icon: ThumbsUp, onClick: () => handleApprove(so.id) },
+            { label: "Approve & Send", icon: Mail,     onClick: () => handleApproveAndSend(so) },
+          ]} />
+        );
+      },
+    },
+    {
       id: "_select", accessorKey: "id", header: "",
       filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 44,
       cell: (info) => {
@@ -811,27 +839,27 @@ export default function ApprovalsPage() {
         </span>
       ),
     },
-    {
-      id: "_actions", accessorKey: "id", header: "",
-      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50,
-      cell: (info) => {
-        const so = info.row.original;
-        return (
-          <ActionMenu items={[
-            { label: "View",           icon: Eye,      onClick: () => setViewOrder(so) },
-            { label: "Edit SO",        icon: Pencil,   onClick: () => handleEdit(so) },
-            { label: "Approve",        icon: ThumbsUp, onClick: () => handleApprove(so.id) },
-            { label: "Approve & Send", icon: Mail,     onClick: () => handleApproveAndSend(so) },
-          ]} />
-        );
-      },
-    },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [selectedIds, toggleOne, handleApprove, handleApproveAndSend, handleEdit]);
 
   // ── PO Columns ─────────────────────────────────────────────────────────────
 
   const poColumns: ColumnConfig<PORow>[] = useMemo(() => [
+    {
+      id: "_actions", accessorKey: "id", header: "",
+      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50, sticky: "left",
+      cell: (info) => {
+        const po = info.row.original;
+        return (
+          <ActionMenu items={[
+            { label: "View",           icon: Eye,      onClick: () => setViewPO(po) },
+            { label: "Edit",           icon: Pencil,   onClick: () => setEditPO(po) },
+            { label: "Approve",        icon: ThumbsUp, onClick: () => handleApprovePO(po) },
+            { label: "Approve & Send", icon: Mail,     onClick: () => handleApprovePOAndSend(po) },
+          ]} />
+        );
+      },
+    },
     {
       id: "_select", accessorKey: "id", header: "",
       filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 44,
@@ -919,21 +947,6 @@ export default function ApprovalsPage() {
         </span>
       ),
     },
-    {
-      id: "_actions", accessorKey: "id", header: "",
-      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50,
-      cell: (info) => {
-        const po = info.row.original;
-        return (
-          <ActionMenu items={[
-            { label: "View",           icon: Eye,      onClick: () => setViewPO(po) },
-            { label: "Edit",           icon: Pencil,   onClick: () => setEditPO(po) },
-            { label: "Approve",        icon: ThumbsUp, onClick: () => handleApprovePO(po) },
-            { label: "Approve & Send", icon: Mail,     onClick: () => handleApprovePOAndSend(po) },
-          ]} />
-        );
-      },
-    },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [selectedPOIds, toggleOnePO, handleApprovePO, handleApprovePOAndSend, setEditPO]);
 
@@ -999,10 +1012,10 @@ export default function ApprovalsPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="flex h-[calc(100vh-112px)] flex-col gap-4 overflow-hidden">
 
       {/* Tab switcher */}
-      <div className="flex border-b border-gray-200">
+      <div className="flex border-b border-gray-200 flex-shrink-0">
         <button
           onClick={() => setActiveTab("so")}
           className={cn(
@@ -1040,7 +1053,7 @@ export default function ApprovalsPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="kpi-grid grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+      <div className="kpi-grid grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 flex-shrink-0">
         <KpiCard
           title="Pending Approvals"
           value={activeCount}
@@ -1070,7 +1083,7 @@ export default function ApprovalsPage() {
 
       {/* ── SO Tab ─────────────────────────────────────────────────────────────── */}
       {activeTab === "so" && (
-        <>
+        <div className="flex flex-1 min-h-0 flex-col">
           {pendingOrders.length === 0 && (
             <div className="rounded-xl border border-green-200 bg-green-50 p-8 text-center">
               <ThumbsUp className="h-8 w-8 text-green-500 mx-auto mb-2" />
@@ -1088,18 +1101,19 @@ export default function ApprovalsPage() {
               enablePagination
               enableColumnReordering
               enableColumnVisibility
+              scrollMaxHeight="100%"
               initialPageSize={15}
               onRowClick={(so) => setViewOrder(so)}
               emptyMessage="No pending SO approvals."
               toolbarActions={soToolbarActions}
             />
           )}
-        </>
+        </div>
       )}
 
       {/* ── PO Tab ─────────────────────────────────────────────────────────────── */}
       {activeTab === "po" && (
-        <>
+        <div className="flex flex-1 min-h-0 flex-col">
           {poLoading && (
             <div className="rounded-xl border border-gray-100 bg-white p-8 text-center">
               <p className="text-sm text-gray-500">Loading purchase orders…</p>
@@ -1123,13 +1137,14 @@ export default function ApprovalsPage() {
               enablePagination
               enableColumnReordering
               enableColumnVisibility
+              scrollMaxHeight="100%"
               initialPageSize={15}
               onRowClick={(po) => setViewPO(po)}
               emptyMessage="No pending PO approvals."
               toolbarActions={poToolbarActions}
             />
           )}
-        </>
+        </div>
       )}
 
       {/* SO View Modal */}
@@ -1163,7 +1178,7 @@ export default function ApprovalsPage() {
       {emailOrder && (
         <EmailModal
           title={`Send — ${emailOrder.soNumber}`}
-          initialData={buildEmailData(emailOrder)}
+          initialData={buildEmailData(emailOrder, monitName)}
           contacts={emailContacts}
           onSend={handleSendEmail}
           onClose={() => { setEmailOrder(null); setEmailContacts([]); }}
@@ -1191,6 +1206,7 @@ export default function ApprovalsPage() {
         >
           <PurchaseOrderForm
             initialData={editPO}
+            existingPos={pendingPOs}
             onSubmit={handleEditPOSubmit}
             onCancel={() => setEditPO(null)}
           />
@@ -1201,7 +1217,7 @@ export default function ApprovalsPage() {
       {emailPO && (
         <EmailModal
           title={`Send PO — ${emailPO.poNumber}`}
-          initialData={buildPOEmailData(emailPO)}
+          initialData={buildPOEmailData(emailPO, monitName)}
           contacts={emailContacts}
           onSend={handleSendPOEmail}
           onClose={() => { setEmailPO(null); setEmailContacts([]); }}

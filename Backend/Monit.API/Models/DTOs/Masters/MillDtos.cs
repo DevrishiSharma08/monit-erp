@@ -19,6 +19,7 @@ public class MillUnitDto
     public int?    Id        { get; set; }
     public string  UnitName  { get; set; } = string.Empty;
     public string? Address   { get; set; }
+    public string? GstNo     { get; set; }
     public bool    IsDefault { get; set; }
     public List<MillContactDto> Contacts { get; set; } = new();
 }
@@ -77,6 +78,23 @@ public class MillDropdownDto
     public int    Id   { get; set; }
     public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+}
+
+// Flat per-unit picker — one row per mill unit, prefixed with mill so the
+// user picks the unit directly (e.g. "ITC Paperboards — Bhadrachalam").
+// Mills with NO units yet still produce one row so they remain pickable;
+// in that case UnitId is null and DisplayName = mill name only.
+public class MillUnitPickerDto
+{
+    public int     MillId       { get; set; }
+    public string  MillCode     { get; set; } = string.Empty;
+    public string  MillName     { get; set; } = string.Empty;
+    public int?    UnitId       { get; set; }
+    public string? UnitName     { get; set; }
+    public bool    IsDefault    { get; set; }
+    public string? PaymentTerms { get; set; }
+    // Pre-composed "Mill — Unit" label so every consumer renders consistently.
+    public string  DisplayName  { get; set; } = string.Empty;
 }
 
 // ─── Filter ──────────────────────────────────────────────────────────────────

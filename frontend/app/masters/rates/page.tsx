@@ -114,16 +114,33 @@ export default function RateMasterPage() {
   const [fDiscount,     setFDiscount]     = useState("");
   const [fEffFrom,      setFEffFrom]      = useState("");
 
+  // Per-unit purchase rate entries — populated when a mill is selected and
+  // that mill has units. One row per unit; user enters a different rate for
+  // each. Empty list = legacy single-rate flow (fallback to fAmount/fDiscount).
+  const [fUnitRates, setFUnitRates] = useState<Array<{
+    millUnitId: number;
+    unitName:   string;
+    gstNo?:     string;
+    amount:     string;
+    discount:   string;
+  }>>([]);
+  const [unitsLoading, setUnitsLoading] = useState(false);
+
   // Combobox options
   const millOptions = useMemo<ComboboxOption[]>(
     () => mills.map(m => ({ value: String(m.id), label: `${m.code} · ${m.name}` })),
     [mills]
   );
   const qualOptions = useMemo<ComboboxOption[]>(
+    // Label includes the brand alias in brackets when present so the user can
+    // distinguish quality rows that share a name (e.g. two "Maplitho 70 GSM"
+    // entries — one branded MAP, one without). Without the bracket, the picker
+    // looked ambiguous and the user couldn't tell which one mapped to which
+    // brand on the saved row.
     () => subgroups.map(s => ({
       value: String(s.id),
-      label: s.name,
-      sub: s.groupName,
+      label: s.alias ? `${s.name} (${s.alias})` : s.name,
+      sub:   s.groupName,
     })),
     [subgroups]
   );
@@ -150,12 +167,41 @@ export default function RateMasterPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // When the user picks a mill in the popup, fetch its units. If the mill has
+  // units AND we're creating a new Purchase rate, switch the form to per-unit
+  // rate mode (a table of inputs). In edit mode or for Sale rates, skip — the
+  // user is targeting a single existing rate, so the legacy single-input UI
+  // stays in place.
+  useEffect(() => {
+    if (!fMillId || !showModal || editingRate || activeTab !== "Purchase") {
+      setFUnitRates([]); return;
+    }
+    let cancelled = false;
+    setUnitsLoading(true);
+    millApi.getById(fMillId).then((detail) => {
+      if (cancelled) return;
+      const units = detail.units ?? [];
+      setFUnitRates(units
+        .filter((u) => u.id != null)
+        .map((u) => ({
+          millUnitId: u.id!,
+          unitName:   u.unitName,
+          gstNo:      u.gstNo,
+          amount:     "",
+          discount:   "",
+        })));
+    }).catch(() => { if (!cancelled) setFUnitRates([]); })
+      .finally(() => { if (!cancelled) setUnitsLoading(false); });
+    return () => { cancelled = true; };
+  }, [fMillId, showModal, editingRate, activeTab]);
+
   function resetForm() {
     setFMillInput(""); setFMillId(null);
     setFQualInput(""); setFQualId(null);
     setFGsmMin(""); setFGsmMax(""); setFType("Reel");
     setFRateCat("Self"); setFCustomerIds([]);
     setFAmount(""); setFDiscount(""); setFEffFrom("");
+    setFUnitRates([]);
   }
 
   function openAdd() { resetForm(); setEditingRate(null); setShowModal(true); }
@@ -201,12 +247,19 @@ export default function RateMasterPage() {
   const gsmMaxNum      = Number(fGsmMax);
   const gsmRangeError  = fGsmMin && fGsmMax && gsmMaxNum < gsmMinNum;
 
+  // Per-unit mode is on when the Purchase tab is active, we're creating a
+  // new rate (not editing an existing one), and the chosen mill has units.
+  const perUnitMode = activeTab === "Purchase" && !editingRate && fUnitRates.length > 0;
+  const filledUnitRates = fUnitRates.filter((u) => u.amount.trim() !== "" && Number(u.amount) > 0);
+
   const canSave =
     !!fMillId && !!fQualId &&
     fGsmMin.trim() !== "" && fGsmMax.trim() !== "" &&
     gsmMinNum > 0 && gsmMaxNum >= gsmMinNum &&
     !!fType &&
-    !!fAmount && Number(fAmount) > 0 &&
+    (perUnitMode
+      ? filledUnitRates.length > 0
+      : !!fAmount && Number(fAmount) > 0) &&
     !!fEffFrom &&
     (activeTab === "Sale" || fRateCat === "Self" || fCustomerIds.length > 0);
 
@@ -220,8 +273,8 @@ export default function RateMasterPage() {
         gsmMin:       gsmMinNum,
         gsmMax:       gsmMaxNum,
         type:         fType,
-        amount:       Number(fAmount),
-        discount:     fDiscount ? Number(fDiscount) : undefined,
+        amount:       perUnitMode ? 0 : Number(fAmount),
+        discount:     !perUnitMode && fDiscount ? Number(fDiscount) : undefined,
         effectiveFrom: fEffFrom,
         customerIds:  fCustomerIds.length > 0 ? fCustomerIds : undefined,
       };
@@ -230,12 +283,28 @@ export default function RateMasterPage() {
       if (activeTab === "Sale") {
         rows = await rateApi.createSale(base);
       } else {
-        rows = await rateApi.createPurchase({ ...base, rateCategory: fRateCat });
+        rows = await rateApi.createPurchase({
+          ...base,
+          rateCategory: fRateCat,
+          // Only send unitRates when in per-unit mode AND at least one row
+          // is filled. Backend treats an empty/missing list as legacy single-rate.
+          unitRates: perUnitMode
+            ? filledUnitRates.map((u) => ({
+                millUnitId: u.millUnitId,
+                amount:     Number(u.amount),
+                discount:   u.discount ? Number(u.discount) : undefined,
+              }))
+            : undefined,
+        });
       }
 
       setData(prev => {
-        const newIds = new Set(rows.map(r => `${r.millId}|${r.qualityId}|${r.gsmMin}|${r.gsmMax}|${r.type}|${r.rateType}|${r.rateCategory ?? ""}|${r.customerId ?? ""}`));
-        const pruned = prev.filter(r => !newIds.has(`${r.millId}|${r.qualityId}|${r.gsmMin}|${r.gsmMax}|${r.type}|${r.rateType}|${r.rateCategory ?? ""}|${r.customerId ?? ""}`));
+        // Include MillUnitId in the dedup key so multiple per-unit rates for
+        // the same MQG don't replace each other when they share customer/cat.
+        const keyOf = (r: RateRow) =>
+          `${r.millId}|${r.millUnitId ?? ""}|${r.qualityId}|${r.gsmMin}|${r.gsmMax}|${r.type}|${r.rateType}|${r.rateCategory ?? ""}|${r.customerId ?? ""}`;
+        const newIds = new Set(rows.map(keyOf));
+        const pruned = prev.filter(r => !newIds.has(keyOf(r)));
         return [...rows, ...pruned];
       });
       setShowModal(false);
@@ -262,6 +331,21 @@ export default function RateMasterPage() {
   // ── Columns ──────────────────────────────────────────────────────────────────
   const columns: ColumnConfig<RateRow>[] = useMemo(() => [
     {
+      id: "_actions", accessorKey: "id", header: "",
+      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50, sticky: "left",
+      cell: (info) => {
+        const row = info.row.original as RateRow;
+        return (
+          <ActionMenu items={[
+            { label: "View",    icon: IndianRupee, onClick: () => setViewItem(row) },
+            { label: "Edit",    icon: Pencil,      onClick: () => openEdit(row) },
+            { label: "History", icon: History,     onClick: () => openHistory(row) },
+            { label: "Delete",  icon: Trash2,      onClick: () => setDeleteId(row.id), variant: "danger" },
+          ]} />
+        );
+      },
+    },
+    {
       id: "millName", accessorKey: "millName", header: "Mill",
       filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 160,
       cell: (info) => {
@@ -272,6 +356,16 @@ export default function RateMasterPage() {
             {row.millCode && <span className="ml-1.5 text-xs text-gray-400">{row.millName}</span>}
           </div>
         );
+      },
+    },
+    {
+      id: "millUnitName", accessorKey: "millUnitName", header: "Unit",
+      filterType: "text", enableSorting: true, defaultVisible: true, size: 130,
+      cell: (info) => {
+        const v = info.getValue() as string | undefined;
+        return v
+          ? <span className="inline-flex rounded-full bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 text-xs font-medium">{v}</span>
+          : <span className="text-[11px] text-gray-300 italic">All units</span>;
       },
     },
     {
@@ -386,36 +480,21 @@ export default function RateMasterPage() {
         );
       },
     },
-    {
-      id: "_actions", accessorKey: "id", header: "",
-      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50,
-      cell: (info) => {
-        const row = info.row.original as RateRow;
-        return (
-          <ActionMenu items={[
-            { label: "View",    icon: IndianRupee, onClick: () => setViewItem(row) },
-            { label: "Edit",    icon: Pencil,      onClick: () => openEdit(row) },
-            { label: "History", icon: History,     onClick: () => openHistory(row) },
-            { label: "Delete",  icon: Trash2,      onClick: () => setDeleteId(row.id), variant: "danger" },
-          ]} />
-        );
-      },
-    },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [activeTab]);
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-5 pb-24">
+    <div className="flex h-[calc(100vh-112px)] flex-col gap-4 overflow-hidden">
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2 flex-shrink-0">
           <AlertTriangle className="h-4 w-4 flex-shrink-0" /> {error}
           <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">✕</button>
         </div>
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 flex-shrink-0">
         {[
           { label: "Sale Rates",     value: data.filter(r => r.rateType === "Sale").length,     icon: ShoppingCart, color: "text-blue-600",   bg: "bg-blue-50"   },
           { label: "Purchase Rates", value: data.filter(r => r.rateType === "Purchase").length, icon: Factory,      color: "text-purple-600", bg: "bg-purple-50" },
@@ -435,7 +514,7 @@ export default function RateMasterPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1 w-fit">
+      <div className="flex gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1 w-fit flex-shrink-0">
         {(["Sale", "Purchase"] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={cn("flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all",
@@ -451,11 +530,13 @@ export default function RateMasterPage() {
       </div>
 
       {/* Grid */}
+      <div className="flex flex-1 min-h-0 flex-col">
       <DataGrid
         data={tabData} columns={columns}
         tableName={`${activeTab.toLowerCase()}-rates`}
         enableFilters enablePagination enableColumnReordering enableColumnVisibility
         initialPageSize={10}
+        scrollMaxHeight="100%"
         toolbarActions={
           <button onClick={openAdd} disabled={loading}
             className={cn("flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-white shadow-sm disabled:opacity-60",
@@ -465,10 +546,12 @@ export default function RateMasterPage() {
           </button>
         }
       />
+      </div>
 
       {/* ── Add Rate Modal ──────────────────────────────────────────────────── */}
       <Modal isOpen={showModal} onClose={() => { setShowModal(false); setEditingRate(null); }}
-        title={editingRate ? `Edit ${activeTab} Rate` : `Add ${activeTab} Rate`} size="sm"
+        title={editingRate ? `Edit ${activeTab} Rate` : `Add ${activeTab} Rate`}
+        size={perUnitMode ? "md" : "sm"}
         footer={
           <>
             <button onClick={() => setShowModal(false)} disabled={saving}
@@ -627,28 +710,88 @@ export default function RateMasterPage() {
             </div>
           )}
 
-          {/* Rate + Discount */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>Rate (₹/KG) *</label>
-              <input type="number" min="0" step="0.01" placeholder="0.00"
-                value={fAmount} onChange={e => setFAmount(e.target.value)} className={inputCls} />
+          {/* Rate input — per-unit table when mill has units (Purchase tab),
+              otherwise a single Rate + Discount pair. */}
+          {perUnitMode ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className={labelCls} style={{ margin: 0 }}>
+                  Per-Unit Rates ({fUnitRates.length} unit{fUnitRates.length === 1 ? "" : "s"})
+                </label>
+                {unitsLoading && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
+              </div>
+              <div className="rounded-xl border border-gray-200 overflow-x-auto">
+                <table className="w-full text-sm table-auto">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Unit</th>
+                      <th className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">GST</th>
+                      <th className="px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-500">Rate ₹/KG *</th>
+                      <th className="px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-gray-500">Disc. ₹</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {fUnitRates.map((u, i) => {
+                      const amt  = Number(u.amount) || 0;
+                      const disc = Number(u.discount) || 0;
+                      const net  = amt - disc;
+                      return (
+                        <tr key={u.millUnitId} className="bg-white">
+                          <td className="px-2 py-2 text-sm">
+                            <p className="font-medium text-gray-900 leading-tight">{u.unitName}</p>
+                            {amt > 0 && (
+                              <p className="text-[10px] text-gray-400 leading-tight">Net ₹{net.toFixed(2)}</p>
+                            )}
+                          </td>
+                          <td className="px-2 py-2 text-[11px] font-mono text-gray-500 whitespace-nowrap">{u.gstNo ?? "—"}</td>
+                          <td className="px-2 py-2 text-right">
+                            <input type="number" min="0" step="0.01" placeholder="0.00"
+                              value={u.amount}
+                              onChange={(e) => setFUnitRates((prev) =>
+                                prev.map((r, ri) => ri === i ? { ...r, amount: e.target.value } : r))}
+                              className="w-24 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm focus:border-blue-400 focus:outline-none" />
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            <input type="number" min="0" step="0.01" placeholder="0.00"
+                              value={u.discount}
+                              onChange={(e) => setFUnitRates((prev) =>
+                                prev.map((r, ri) => ri === i ? { ...r, discount: e.target.value } : r))}
+                              className="w-24 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm focus:border-blue-400 focus:outline-none" />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[11px] text-gray-500">
+                Fill in different rates per unit. Leave a row blank to skip that unit. At least one row is required.
+              </p>
             </div>
-            <div>
-              <label className={labelCls}>Discount (₹/KG)</label>
-              <input type="number" min="0" step="0.01" placeholder="0.00"
-                value={fDiscount} onChange={e => setFDiscount(e.target.value)} className={inputCls} />
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Rate (₹/KG) *</label>
+                  <input type="number" min="0" step="0.01" placeholder="0.00"
+                    value={fAmount} onChange={e => setFAmount(e.target.value)} className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>Discount (₹/KG)</label>
+                  <input type="number" min="0" step="0.01" placeholder="0.00"
+                    value={fDiscount} onChange={e => setFDiscount(e.target.value)} className={inputCls} />
+                </div>
+              </div>
 
-          {/* Net rate preview */}
-          {fAmount && (
-            <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-              Net rate = ₹{(Number(fAmount) - (Number(fDiscount) || 0)).toFixed(2)}/KG
-              {fDiscount && Number(fDiscount) > 0 && (
-                <span className="ml-1 text-rose-500">(after ₹{Number(fDiscount).toFixed(2)} discount)</span>
+              {fAmount && (
+                <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                  Net rate = ₹{(Number(fAmount) - (Number(fDiscount) || 0)).toFixed(2)}/KG
+                  {fDiscount && Number(fDiscount) > 0 && (
+                    <span className="ml-1 text-rose-500">(after ₹{Number(fDiscount).toFixed(2)} discount)</span>
+                  )}
+                </p>
               )}
-            </p>
+            </>
           )}
         </div>
       </Modal>

@@ -11,5 +11,6 @@ public interface IPurchaseOrderRepository
     Task                                    UpdateAsync(int id, PurchaseOrderListDto po, IEnumerable<UpsertPurchaseOrderItemDto> items, string updatedBy);
     Task                                    UpdateStatusAsync(int id, string status, string updatedBy);
     Task                                    SoftDeleteAsync(int id, string deletedBy);
+    Task                                    CancelAsync(int id, string reason, string cancelledBy);
     Task                                    MarkEmailSentAsync(int id);
 }

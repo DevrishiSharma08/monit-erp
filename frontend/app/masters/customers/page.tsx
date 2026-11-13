@@ -14,6 +14,7 @@ import {
 } from "@/lib/api-services";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/context/ToastContext";
 
 const inputCls  = "w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100";
 const labelCls  = "block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1";
@@ -29,10 +30,14 @@ const MASKED = "••••••••";
 
 export default function CustomerMasterPage() {
   const { canViewContacts } = useAuth();
+  const { error: showError, success } = useToast();
   const [data,          setData]          = useState<CustomerRow[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [saving,        setSaving]        = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  // Local `error` kept only for the inline card when the LIST load fails
+  // (grid needs a placeholder). Save / delete errors go via the global
+  // toast so they render in the centered notification like everywhere else.
   const [error,         setError]         = useState<string | null>(null);
   const [showModal,     setShowModal]     = useState(false);
   const [editItem,      setEditItem]      = useState<CustomerRow | null>(null);
@@ -170,17 +175,36 @@ export default function CustomerMasterPage() {
       }
       await load();
       setShowModal(false);
-    } catch (e) { setError(e instanceof ApiError ? e.message : "Save failed"); }
+      success(editItem ? "Customer updated." : "Customer created.");
+    } catch (e) { showError(e instanceof ApiError ? e.message : "Save failed"); }
     finally { setSaving(false); }
   }
 
   async function handleDelete(id: number) {
-    try { await customerApi.remove(id); setData(prev => prev.filter(x => x.id !== id)); }
-    catch (e) { setError(e instanceof ApiError ? e.message : "Delete failed"); }
+    try {
+      await customerApi.remove(id);
+      setData(prev => prev.filter(x => x.id !== id));
+      success("Customer deleted.");
+    }
+    catch (e) { showError(e instanceof ApiError ? e.message : "Delete failed"); }
     finally { setDeleteId(null); }
   }
 
   const columns: ColumnConfig<CustomerRow>[] = useMemo(() => [
+    {
+      id: "_actions", accessorKey: "id", header: "",
+      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50, sticky: "left",
+      cell: (info) => {
+        const row = info.row.original;
+        return (
+          <ActionMenu items={[
+            { label: "View",   icon: Eye,    onClick: () => openView(row) },
+            { label: "Edit",   icon: Pencil, onClick: () => openEdit(row) },
+            { label: "Delete", icon: Trash2, onClick: () => setDeleteId(row.id), variant: "danger" },
+          ]} />
+        );
+      },
+    },
     {
       id: "name", accessorKey: "name", header: "Name",
       filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 200,
@@ -235,36 +259,24 @@ export default function CustomerMasterPage() {
         );
       },
     },
-    {
-      id: "_actions", accessorKey: "id", header: "",
-      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50,
-      cell: (info) => {
-        const row = info.row.original;
-        return (
-          <ActionMenu items={[
-            { label: "View",   icon: Eye,    onClick: () => openView(row) },
-            { label: "Edit",   icon: Pencil, onClick: () => openEdit(row) },
-            { label: "Delete", icon: Trash2, onClick: () => setDeleteId(row.id), variant: "danger" },
-          ]} />
-        );
-      },
-    },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className="flex h-[calc(100vh-112px)] flex-col gap-4 overflow-hidden">
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2 flex-shrink-0">
           <AlertTriangle className="h-4 w-4 flex-shrink-0" /> {error}
           <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">✕</button>
         </div>
       )}
 
+      <div className="flex flex-1 min-h-0 flex-col">
       <DataGrid
         data={data} columns={columns} tableName="customers"
         enableFilters enablePagination enableColumnReordering enableColumnVisibility
         initialPageSize={15}
+        scrollMaxHeight="100%"
         toolbarActions={
           <button onClick={openAdd} disabled={loading}
             className="flex items-center gap-2 rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 shadow-sm disabled:opacity-60">
@@ -273,6 +285,7 @@ export default function CustomerMasterPage() {
           </button>
         }
       />
+      </div>
 
       {/* Add / Edit Modal */}
       <Modal isOpen={showModal} onClose={() => setShowModal(false)}
@@ -355,10 +368,10 @@ export default function CustomerMasterPage() {
                   <label className={labelCls}>Credit Days</label>
                   <input type="number" min={0} value={fCreditDays} onChange={e => setFCreditDays(e.target.value)} placeholder="e.g. 30" className={inputCls} />
                 </div>
-                <div>
-                  <label className={labelCls}>Payment Terms</label>
-                  <input type="text" value={fPaymentTerms} onChange={e => setFPaymentTerms(e.target.value)} placeholder="e.g. 30 days net" className={inputCls} />
-                </div>
+                {/* Payment Terms input hidden per client UAT — the field
+                    is still loaded from + saved back to the DB unchanged,
+                    so existing data is preserved exactly as-is for any
+                    customer that already has terms recorded. */}
                 {editItem && (
                   <div className="col-span-2 flex items-center justify-between pt-1">
                     <label className="text-sm font-medium text-gray-700">Active</label>

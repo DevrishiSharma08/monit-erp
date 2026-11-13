@@ -15,6 +15,7 @@ public class MillService(
 {
     public Task<PagedResult<MillListDto>> GetAllAsync(MillFilterRequest filter) => millRepo.GetAllAsync(filter);
     public Task<List<MillDropdownDto>>    GetDropdownAsync()                     => millRepo.GetDropdownAsync();
+    public Task<List<MillUnitPickerDto>>  GetUnitPickerAsync()                   => millRepo.GetUnitPickerAsync();
 
     public async Task<MillDetailDto> GetByIdAsync(int id)
         => await millRepo.GetByIdAsync(id) ?? throw new NotFoundException($"Mill {id} not found.");

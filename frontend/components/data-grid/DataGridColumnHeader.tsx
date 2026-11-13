@@ -44,7 +44,7 @@ export function DataGridColumnHeader<TData, TValue>({
         ref={setNodeRef}
         style={style}
         className={cn(
-          `flex items-center gap-2 ${justifyCls}`,
+          `flex items-center gap-1 min-w-0 ${justifyCls}`,
           isDragging && "cursor-grabbing"
         )}
       >
@@ -52,13 +52,13 @@ export function DataGridColumnHeader<TData, TValue>({
           <button
             {...attributes}
             {...listeners}
-            className="cursor-grab hover:text-gray-900 text-gray-400 touch-none"
+            className="cursor-grab hover:text-gray-900 text-gray-400 touch-none shrink-0 opacity-0 group-hover/th:opacity-100 transition-opacity"
             aria-label="Drag to reorder column"
           >
-            <GripVertical className="h-4 w-4" />
+            <GripVertical className="h-3 w-3" />
           </button>
         )}
-        <span>{title}</span>
+        <span className="truncate">{title}</span>
       </div>
     );
   }
@@ -70,7 +70,7 @@ export function DataGridColumnHeader<TData, TValue>({
       ref={setNodeRef}
       style={style}
       className={cn(
-        `flex items-center gap-2 ${justifyCls}`,
+        `flex items-center gap-1 min-w-0 ${justifyCls}`,
         isDragging && "cursor-grabbing"
       )}
     >
@@ -78,21 +78,21 @@ export function DataGridColumnHeader<TData, TValue>({
         <button
           {...attributes}
           {...listeners}
-          className="cursor-grab hover:text-gray-900 text-gray-400 touch-none"
+          className="cursor-grab hover:text-gray-900 text-gray-400 touch-none shrink-0 opacity-0 group-hover/th:opacity-100 transition-opacity"
           aria-label="Drag to reorder column"
         >
-          <GripVertical className="h-4 w-4" />
+          <GripVertical className="h-3 w-3" />
         </button>
       )}
       <button
         onClick={() => column.toggleSorting(isSorted === "asc")}
-        className="flex items-center gap-1 hover:text-gray-900 transition-colors"
+        className="flex items-center gap-1 hover:text-gray-900 transition-colors min-w-0"
         aria-label={`Sort by ${title}`}
       >
-        <span>{title}</span>
-        {isSorted === "asc" && <ArrowUp className="h-4 w-4" />}
-        {isSorted === "desc" && <ArrowDown className="h-4 w-4" />}
-        {!isSorted && <ArrowUpDown className="h-4 w-4 text-gray-400" />}
+        <span className="truncate">{title}</span>
+        {isSorted === "asc"  && <ArrowUp   className="h-3 w-3 shrink-0" />}
+        {isSorted === "desc" && <ArrowDown className="h-3 w-3 shrink-0" />}
+        {!isSorted && <ArrowUpDown className="h-3 w-3 text-gray-300 shrink-0 opacity-0 group-hover/th:opacity-100 transition-opacity" />}
       </button>
     </div>
   );

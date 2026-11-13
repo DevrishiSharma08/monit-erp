@@ -3,21 +3,25 @@
 import { PermGuard } from "@/components/PermGuard";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
-  grnApi, GrnRow, GrnDetailRow, CreateGrnDto, UpdateGrnDto,
-  truckLoadPlanApi, TruckLoadPlanApiDto,
+  grnApi, GrnRow, GrnDetailRow, CreateGrnDto, UpdateGrnDto, GrnPackingDto,
+  truckLoadPlanApi, TruckLoadPlanApiDto, TruckLoadPlanItemApiDto,
   warehouseApi, WarehouseDropdown,
   millTrackerApi, MillTrackerRow,
+  materialApi, MaterialRow,
+  dispatchReceiptApi, DispatchReceiptRow,
 } from "@/lib/api-services";
 import {
   PackageCheck, Clock, AlertTriangle, CheckCircle, X, FileText,
   Truck, MapPin, Plus, Printer, Search, MoreVertical, Eye,
   Pencil, Trash2, CheckCircle2, Ban, Loader2, ArrowRight, ChevronDown,
-  ShieldAlert, ShieldCheck, EyeOff, Scale, Share2,
+  ShieldAlert, ShieldCheck, EyeOff, Scale, Share2, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { createPortal } from "react-dom";
 import { KpiCard } from "@/components/ui/KpiCard";
+import { useToast } from "@/context/ToastContext";
+import { ApiError } from "@/lib/api";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -82,7 +86,7 @@ function printGRN(grn: GrnDetailRow) {
     @media print{body{padding:16px}}
   </style></head><body>
   <div class="hdr">
-    <div><div class="co">MONIT PAPER AGENCY</div>
+    <div><div class="co">MONIT PAPER SALES AGENCY</div>
     <div class="co-sub">Paper Trading · Indore, Madhya Pradesh</div>
     <div class="co-sub">GST: 23XXXXX0000X1Z5 · Ph: +91-XXXXXXXXXX</div></div>
     <div class="gt"><h2>GOODS RECEIPT NOTE</h2><div class="num">${grn.grnNumber}</div>
@@ -167,7 +171,24 @@ function printGRN(grn: GrnDetailRow) {
 // are identity for callers that already have a kg value, kept for naming clarity.
 
 function qtyToKg(_item: { weightKg?: number; quantity?: number; gsm?: number; size?: string }, kg: number): number {
-  return Math.round(kg);
+  // Identity — the upstream value is already in kg (PO.WeightKg / TLP.Quantity
+  // / GRN.receivedQty / DispatchReceiptItem.dispatchedQty are all decimal kg).
+  // Earlier this called Math.round which rounded 32.5 → 33 across the GRN
+  // create popup, the pending GRN card, the print template, and the
+  // Review-&-Save screen. Decimal preservation per client UAT — mills
+  // ship partial-reel weights and the system must record them exactly.
+  return kg;
+}
+
+// ─── Pending GRN grouping ─────────────────────────────────────────────────────
+// One pending row per (TLP × invoice no) — items with the same invoice cluster
+// together so the warehouse user creates one GRN per mill invoice.
+interface PendingInvoiceGroup {
+  invoiceNo:   string;
+  dispatchRow: DispatchReceiptRow;
+  tlp:         TruckLoadPlanApiDto;
+  tlpItems:    TruckLoadPlanItemApiDto[];
+  totalWeight: number;
 }
 
 // ─── Create GRN Modal ─────────────────────────────────────────────────────────
@@ -176,77 +197,170 @@ type DeliveryMode = "StockIn" | "DirectToClient" | "Split";
 
 type PackingType = "Sheets" | "Packets" | "Bundle";
 
+// Unified packing row — one card per item holds an array of these.
+// For SHEET items: pick a format (Sheets/Packets/Bundle) + counts; weightKg
+// auto-computes from sheetCount × weightPerSheet but the user can override.
+// For REEL items: enter batchNo + weightKg directly per batch.
+interface PackingRow {
+  format: PackingType;
+  // Sheet-format fields
+  sheetsCount?: number;        // when format = "Sheets"
+  sheetsPerPacket?: number;    // when format = "Packets" or "Bundle"
+  noOfPackets?: number;        // when format = "Packets"
+  packetsPerBundle?: number;   // when format = "Bundle"
+  noOfBundles?: number;        // when format = "Bundle"
+  // Reel-format fields
+  batchNo?: string;
+  // Resolved weight (kg). Auto-calculated for sheet rows when wps>0,
+  // user-entered for reel rows or when wps is unknown.
+  weightKg: number;
+  // True once the user types into the weight field on a sheet row — the
+  // auto-calc then stops overwriting their value (real paper weight
+  // differs from theoretical kg).
+  weightOverridden?: boolean;
+}
+
 interface ItemFormState {
-  receivedQty: number;
+  isReel: boolean;
+  weightPerSheet: number;       // kg — computed from material GSM × size
+  packings: PackingRow[];
   damagedQty: number;
   qcResult: string;
   deliveryMode: DeliveryMode;
   directQty: number;
-  // New fields
   itemInvoiceNo: string;
   billingRate: number;
-  packingType: PackingType;
-  sheetsPerPacket: number;
-  packetsPerBundle: number;
-  noOfPackets: number;
-  noOfBundles: number;
+}
+
+const emptySheetRow = (): PackingRow => ({
+  format: "Bundle", weightKg: 0,
+});
+
+const emptyReelRow = (): PackingRow => ({
+  format: "Sheets", batchNo: "", weightKg: 0,
+});
+
+function rowSheetCount(r: PackingRow): number {
+  switch (r.format) {
+    case "Sheets":  return r.sheetsCount ?? 0;
+    case "Packets": return (r.sheetsPerPacket ?? 0) * (r.noOfPackets ?? 0);
+    case "Bundle":  return (r.sheetsPerPacket ?? 0) * (r.packetsPerBundle ?? 0) * (r.noOfBundles ?? 0);
+  }
+}
+
+function computeRowWeight(r: PackingRow, wps: number, isReel: boolean): number {
+  // Reel rows: weight always user-entered. Sheet rows: auto-calc from
+  // sheet count × wps UNLESS the user has explicitly overridden the
+  // weight (real paper varies ±5% vs the theoretical GSM × size — mills
+  // record actual weighbridge readings, so the user needs to be able to
+  // record the real kg without the system silently overwriting it). The
+  // override flag clears whenever sheet inputs are touched again.
+  if (isReel) return r.weightKg || 0;
+  if (r.weightOverridden) return r.weightKg || 0;
+  const sheets = rowSheetCount(r);
+  return wps > 0 ? +(sheets * wps).toFixed(3) : (r.weightKg || 0);
+}
+
+function sumWeight(rows: PackingRow[]): number {
+  return rows.reduce((s, r) => s + (Number(r.weightKg) || 0), 0);
 }
 
 interface CreateGRNModalProps {
   tlp: TruckLoadPlanApiDto;
   warehouses: WarehouseDropdown[];
+  dispatch?: DispatchReceiptRow | null;   // parent dispatch receipt (when GRN flows from dispatch)
   onSave: (dtos: CreateGrnDto[]) => Promise<void>;
   onClose: () => void;
 }
 
-function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProps) {
+function CreateGRNModal({ tlp, warehouses, dispatch, onSave, onClose }: CreateGRNModalProps) {
   const today = new Date().toISOString().split("T")[0];
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const [trackerMap, setTrackerMap] = useState<Record<number, MillTrackerRow>>({});
+  const [materialMap, setMaterialMap] = useState<Record<number, MaterialRow>>({});
 
-  // Load tracker info for each item
+  // Load tracker + material info for each item (material drives Sheet vs Reel
+  // detection AND provides GSM × size for weight-per-sheet computation).
   useEffect(() => {
     const trackerIds = tlp.items.map((i) => i.trackerId).filter(Boolean) as number[];
     const unique = [...new Set(trackerIds)];
-    Promise.all(unique.map((id) => millTrackerApi.getById(id).catch(() => null))).then((results) => {
-      const map: Record<number, MillTrackerRow> = {};
-      results.forEach((t) => { if (t) map[t.id] = t; });
-      setTrackerMap(map);
-      // Auto-populate delivery mode from PO via tracker
+    Promise.all(unique.map((id) => millTrackerApi.getById(id).catch(() => null))).then(async (results) => {
+      const tMap: Record<number, MillTrackerRow> = {};
+      results.forEach((t) => { if (t) tMap[t.id] = t; });
+      setTrackerMap(tMap);
+
+      // Fetch each unique material so we can read itemTypeName / packingType / size
+      const matIds = [...new Set(results.map((t) => t?.materialId).filter(Boolean) as number[])];
+      const mats   = await Promise.all(matIds.map((id) => materialApi.getById(id).catch(() => null)));
+      const mMap: Record<number, MaterialRow> = {};
+      mats.forEach((m) => { if (m) mMap[m.id] = m; });
+      setMaterialMap(mMap);
+
+      // Auto-populate delivery mode, Reel flag, weightPerSheet
       setItemForms((forms) =>
         forms.map((f, idx) => {
-          const t = map[tlp.items[idx]?.trackerId ?? 0];
-          if (!t) return f;
-          const mode: DeliveryMode =
-            t.deliveryMode === "Direct To Customer" ? "DirectToClient" : "StockIn";
-          return { ...f, deliveryMode: mode };
+          const t = tMap[tlp.items[idx]?.trackerId ?? 0];
+          const m = t?.materialId ? mMap[t.materialId] : undefined;
+          const reel = !!m && (
+            (m.itemTypeName || "").toLowerCase().includes("reel") ||
+            (m.packingType || "").toLowerCase() === "reel"
+          );
+          // weight per sheet (kg) = GSM × Length_cm × Width_cm / 10_000_000.
+          //
+          // Rounded to WHOLE grams (1 g granularity) per client UAT — the
+          // display matches what the mill's invoice rounding does and
+          // lines up cleanly with the weighbridge readings most of the
+          // time. Standard "half-up" rounding applies:
+          //   211.575 g  → 212 g  (>= .5 rounds up)
+          //   211.375 g  → 211 g  (< .5 rounds down)
+          //
+          // Per-sheet max error = 0.5 g → up to ±3.3 kg drift on a 6,600
+          // sheet line; operator can ALWAYS override the kg field per row
+          // with the mill's actual weighbridge reading when there's a
+          // material discrepancy.
+          const wpsRaw = m && m.gsm && m.sizeLength && m.sizeWidth
+            ? (m.gsm * Number(m.sizeLength) * Number(m.sizeWidth) / 10_000_000)
+            : 0;
+          // 1_000 = round to 3 decimal places of kg = 0 decimal places of g.
+          const wps = wpsRaw > 0 ? Math.round(wpsRaw * 1_000) / 1_000 : 0;
+          const mode: DeliveryMode = t?.deliveryMode === "Direct To Customer"
+            ? "DirectToClient"
+            : f.deliveryMode;
+          // Seed first packing row with the planned weight as user-entered fallback
+          const seed: PackingRow = reel ? emptyReelRow() : emptySheetRow();
+          if (reel) seed.weightKg = tlp.items[idx]?.quantity ?? 0;
+          return { ...f, deliveryMode: mode, isReel: reel, weightPerSheet: wps, packings: [seed] };
         })
       );
     });
   }, [tlp.items]);
 
   const [itemForms, setItemForms] = useState<ItemFormState[]>(() =>
-    tlp.items.map((item) => ({
-      receivedQty: item.quantity,
-      damagedQty: 0,
-      qcResult: "Accepted",
-      deliveryMode: "StockIn" as DeliveryMode,
-      directQty: 0,
-      itemInvoiceNo: "",
-      billingRate: 0,
-      packingType: "Sheets" as PackingType,
-      sheetsPerPacket: 0,
-      packetsPerBundle: 0,
-      noOfPackets: 0,
-      noOfBundles: 0,
-    }))
+    tlp.items.map((it) => {
+      // Pre-fill the per-item invoice no from the matching dispatch line so
+      // the warehouse user doesn't have to re-type what the dispatch user
+      // already captured. Falls back to the dispatch header InvoiceNumber
+      // when an item didn't have its own invoice on the dispatch side.
+      const dispatchItem = dispatch?.items.find((d) => d.sourceTlpItemId === it.id);
+      const seededInvoice = dispatchItem?.itemInvoiceNo || dispatch?.invoiceNumber || "";
+      return {
+        isReel: false,
+        weightPerSheet: 0,
+        packings: [emptySheetRow()],
+        damagedQty: 0,
+        qcResult: "Accepted",
+        deliveryMode: "StockIn" as DeliveryMode,
+        directQty: 0,
+        itemInvoiceNo: seededInvoice,
+        billingRate: 0,
+      };
+    })
   );
 
   const defaultWarehouseId = warehouses[0]?.id;
-  const [expandedItems, setExpandedItems] = useState<Set<number>>(
-    () => new Set(tlp.items.map((_, i) => i))
-  );
+  // Items start collapsed — user expands each as they fill it.
+  const [expandedItems, setExpandedItems] = useState<Set<number>>(() => new Set());
   const toggleItem = (idx: number) => setExpandedItems((prev) => {
     const next = new Set(prev);
     if (next.has(idx)) next.delete(idx); else next.add(idx);
@@ -262,19 +376,20 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
     set("warehouseId", match?.id as number | undefined);
   };
 
+  // Pre-fill from the parent dispatch receipt — these are already captured on
+  // the Dispatch page so we shouldn't ask the warehouse user to retype them.
   const [form, setForm] = useState({
-    lrNumber: "",
-    vehicleNumber: tlp.truckNumber || "",
-    receivedBy: "",
-    millChallanNumber: "",
-    purchaseInvoiceNumber: "",
-    dispatchDate: "",
-    condition: "Good",
-    qualityGrade: "A Grade",
-    warehouseId: defaultWarehouseId as number | undefined,
-    remarks: "",
-    freightAmount: tlp.freightAmount ?? 0,
-    unloadingCharges: 0,
+    lrNumber:              dispatch?.lrNumber          ?? "",
+    vehicleNumber:         dispatch?.vehicleNumber     ?? tlp.truckNumber ?? "",
+    receivedBy:            dispatch?.receivedBy        ?? "",
+    millChallanNumber:     dispatch?.millChallanNumber ?? "",
+    dispatchDate:          dispatch?.dispatchDate      ?? "",
+    condition:             "Good",
+    qualityGrade:          "A Grade",
+    warehouseId:           defaultWarehouseId as number | undefined,
+    remarks:               "",
+    freightAmount:         tlp.freightAmount ?? 0,
+    unloadingCharges:      0,
   });
 
   const set = useCallback(
@@ -282,37 +397,55 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
     []
   );
 
+  // Update a non-packing field (damagedQty, qcResult, deliveryMode, etc).
   const setItem = useCallback(
-    (idx: number, field: keyof ItemFormState, value: number | string) =>
+    <K extends keyof ItemFormState>(idx: number, field: K, value: ItemFormState[K]) =>
       setItemForms((forms) => forms.map((f, i) => {
         if (i !== idx) return f;
         const updated = { ...f, [field]: value };
-
-        // Auto-compute receivedQty from packing fields
-        const packingFields = ["packingType", "sheetsPerPacket", "packetsPerBundle", "noOfPackets", "noOfBundles"];
-        if (packingFields.includes(field)) {
-          const spp  = field === "sheetsPerPacket"  ? (value as number) : updated.sheetsPerPacket;
-          const ppb  = field === "packetsPerBundle" ? (value as number) : updated.packetsPerBundle;
-          const pkts = field === "noOfPackets"      ? (value as number) : updated.noOfPackets;
-          const bnds = field === "noOfBundles"      ? (value as number) : updated.noOfBundles;
-          const type = field === "packingType"      ? (value as PackingType) : updated.packingType;
-          if (type === "Packets" && spp > 0 && pkts > 0)
-            updated.receivedQty = spp * pkts;
-          else if (type === "Bundle" && spp > 0 && ppb > 0 && bnds > 0)
-            updated.receivedQty = spp * ppb * bnds;
-        }
-
-        // For DirectToClient, auto-set directQty = good qty
+        const received = sumWeight(updated.packings);
+        // Sync directQty when delivery mode changes
         if (field === "deliveryMode" && value === "DirectToClient")
-          updated.directQty = Math.max(0, updated.receivedQty - updated.damagedQty);
+          updated.directQty = Math.max(0, received - updated.damagedQty);
         if (field === "deliveryMode" && value === "StockIn")
           updated.directQty = 0;
-
-        // Keep directQty in sync in DirectToClient mode
-        if ((field === "receivedQty" || field === "damagedQty") && updated.deliveryMode === "DirectToClient") {
-          updated.directQty = Math.max(0, updated.receivedQty - updated.damagedQty);
-        }
+        // Keep directQty in sync in DirectToClient mode when damagedQty changes
+        if (field === "damagedQty" && updated.deliveryMode === "DirectToClient")
+          updated.directQty = Math.max(0, received - updated.damagedQty);
         return updated;
+      })),
+    []
+  );
+
+  // ── Packings (multi-row, weight-driven) ───────────────────────────────────
+  const addPacking = useCallback(
+    (idx: number) => setItemForms((forms) => forms.map((f, i) =>
+      i !== idx ? f : { ...f, packings: [...f.packings, f.isReel ? emptyReelRow() : emptySheetRow()] }
+    )),
+    []
+  );
+  const removePacking = useCallback(
+    (idx: number, rowIdx: number) => setItemForms((forms) => forms.map((f, i) => {
+      if (i !== idx) return f;
+      // Always keep at least one row
+      const rows = f.packings.filter((_, r) => r !== rowIdx);
+      const next = rows.length > 0 ? rows : [f.isReel ? emptyReelRow() : emptySheetRow()];
+      return { ...f, packings: next };
+    })),
+    []
+  );
+  const setPacking = useCallback(
+    <K extends keyof PackingRow>(idx: number, rowIdx: number, field: K, value: PackingRow[K]) =>
+      setItemForms((forms) => forms.map((f, i) => {
+        if (i !== idx) return f;
+        const rows = f.packings.map((r, ri) => {
+          if (ri !== rowIdx) return r;
+          const merged = { ...r, [field]: value };
+          // Recompute weight automatically for sheet rows whenever counts/format change
+          if (!f.isReel) merged.weightKg = computeRowWeight(merged, f.weightPerSheet, false);
+          return merged;
+        });
+        return { ...f, packings: rows };
       })),
     []
   );
@@ -327,27 +460,48 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
     tlp.items
       .filter((item) => item.trackerId)
       .map((item, idx) => {
-        const iForm = itemForms[idx];
-        const goodQty  = Math.max(0, iForm.receivedQty - iForm.damagedQty);
-        const shortQty = Math.max(0, item.quantity - iForm.receivedQty - iForm.damagedQty);
-        const directQty = iForm.deliveryMode === "DirectToClient" ? goodQty : iForm.directQty;
+        const iForm        = itemForms[idx];
+        const receivedKg   = sumWeight(iForm.packings);
+        const goodQty      = Math.max(0, receivedKg - iForm.damagedQty);
+        const shortQty     = Math.max(0, item.quantity - receivedKg - iForm.damagedQty);
+        const directQty    = iForm.deliveryMode === "DirectToClient" ? goodQty : iForm.directQty;
+
+        // Build the packings array — every row (sheet or reel) ships as one entry.
+        const packings: GrnPackingDto[] = iForm.packings.map((r) => iForm.isReel
+          ? {
+              packingFormat: "Reel" as const,
+              batchNo:       r.batchNo || undefined,
+              weightKg:      r.weightKg || 0,
+            }
+          : {
+              packingFormat:    "Sheet" as const,
+              sheetsPerPacket:  r.format !== "Sheets" ? r.sheetsPerPacket : undefined,
+              packetsPerBundle: r.format === "Bundle"  ? r.packetsPerBundle : undefined,
+              noOfPackets:      r.format === "Packets" ? r.noOfPackets : undefined,
+              noOfBundles:      r.format === "Bundle"  ? r.noOfBundles : undefined,
+              weightKg:         r.weightKg || 0,
+            }
+        );
+
+        // Pick the first sheet row as "primary" for legacy flat fields
+        const primary = iForm.packings[0];
         return {
           millTrackerId:         item.trackerId!,
           sourceLoadPlanId:      tlp.id,
           grnDate:               today,
-          purchaseInvoiceNumber: form.purchaseInvoiceNumber || undefined,
           millChallanNumber:     form.millChallanNumber || undefined,
           dispatchDate:          form.dispatchDate || undefined,
           itemInvoiceNo:         iForm.itemInvoiceNo || undefined,
           billingRate:           iForm.billingRate > 0 ? iForm.billingRate : undefined,
-          receivedQty:           iForm.receivedQty,
+          receivedQty:           receivedKg,
           damagedQty:            iForm.damagedQty,
           shortQty,
-          packingType:           iForm.packingType,
-          sheetsPerPacket:       iForm.packingType !== "Sheets" ? iForm.sheetsPerPacket : undefined,
-          packetsPerBundle:      iForm.packingType === "Bundle"  ? iForm.packetsPerBundle : undefined,
-          noOfPackets:           iForm.packingType === "Packets" ? iForm.noOfPackets : (iForm.packingType === "Bundle" ? undefined : undefined),
-          noOfBundles:           iForm.packingType === "Bundle"  ? iForm.noOfBundles : undefined,
+          packingType:           iForm.isReel ? "Reel" : (primary?.format ?? "Sheets"),
+          sheetsPerPacket:       !iForm.isReel && primary?.format !== "Sheets" ? primary?.sheetsPerPacket : undefined,
+          packetsPerBundle:      !iForm.isReel && primary?.format === "Bundle"  ? primary?.packetsPerBundle : undefined,
+          noOfPackets:           !iForm.isReel && primary?.format === "Packets" ? primary?.noOfPackets : undefined,
+          noOfBundles:           !iForm.isReel && primary?.format === "Bundle"  ? primary?.noOfBundles : undefined,
+          packings,
           grnDeliveryMode:       iForm.deliveryMode,
           directQty,
           warehouseId:           iForm.deliveryMode !== "DirectToClient" ? form.warehouseId : undefined,
@@ -434,8 +588,9 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
                 <tbody className="divide-y divide-gray-100">
                   {tlp.items.map((item, idx) => {
                     const iForm = itemForms[idx];
-                    const goodQty = Math.max(0, iForm.receivedQty - iForm.damagedQty);
-                    const short = Math.max(0, item.quantity - iForm.receivedQty - iForm.damagedQty);
+                    const receivedKg = sumWeight(iForm.packings);
+                    const goodQty = Math.max(0, receivedKg - iForm.damagedQty);
+                    const short = Math.max(0, item.quantity - receivedKg - iForm.damagedQty);
                     const stockQty = iForm.deliveryMode === "StockIn" ? goodQty :
                                      iForm.deliveryMode === "DirectToClient" ? 0 :
                                      Math.max(0, goodQty - iForm.directQty);
@@ -445,7 +600,7 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
                       <tr key={item.id}>
                         <td className="px-3 py-2 font-medium text-gray-900">{item.paper} {item.gsm}g · {item.size}</td>
                         <td className="px-3 py-2 text-right text-gray-600">{qtyToKg(item, item.quantity).toLocaleString()}</td>
-                        <td className="px-3 py-2 text-right font-bold text-green-700">{qtyToKg(item, iForm.receivedQty).toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right font-bold text-green-700">{qtyToKg(item, receivedKg).toLocaleString()}</td>
                         <td className="px-3 py-2 text-right text-red-600">{iForm.damagedQty > 0 ? qtyToKg(item, iForm.damagedQty).toLocaleString() : "—"}</td>
                         <td className="px-3 py-2 text-right text-orange-600">{short > 0 ? qtyToKg(item, short).toLocaleString() : "—"}</td>
                         <td className="px-3 py-2">
@@ -515,15 +670,17 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
               </div>
             )}
 
-            {/* Section 3: Receipt Details */}
+            {/* Section 3: Receipt Details — pre-filled from dispatch (editable) */}
             <div className="px-6 pt-4">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Receipt Details</p>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Purchase Invoice #</label>
-                  <input type="text" value={form.purchaseInvoiceNumber} onChange={(e) => set("purchaseInvoiceNumber", e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none" placeholder="INV-2024-001" />
-                </div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">
+                Receipt Details
+                {dispatch && (
+                  <span className="ml-2 text-[10px] normal-case font-normal text-blue-500">
+                    · Pre-filled from {dispatch.dispatchNumber}
+                  </span>
+                )}
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Mill Challan #</label>
                   <input type="text" value={form.millChallanNumber} onChange={(e) => set("millChallanNumber", e.target.value)}
@@ -555,14 +712,31 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
                   const iForm = itemForms[idx];
                   const tracker = item.trackerId ? trackerMap[item.trackerId] : undefined;
                   const orderedQty = tracker?.orderedQty ?? item.quantity;
+                  // PO Rate = the LIST (master) rate the user typed when
+                  // creating the PO — what they want to see for compare
+                  // against the mill's invoice. Backend stores `rate` as
+                  // the POST-discount finalPrice + `discount` as the flat
+                  // ₹/KG knock-off, so reconstruct master = rate + disc.
+                  // Billing Rate input below is what the user types per
+                  // mill's actual invoice — diff between the two flags
+                  // whether the mill honoured the agreed discount.
                   const poRate = tracker
-                    ? (tracker.discount && tracker.discount > 0
-                        ? tracker.rate / (1 - tracker.discount / 100)
-                        : tracker.rate)
+                    ? +(tracker.rate + (tracker.discount ?? 0)).toFixed(2)
                     : undefined;
-                  const goodQty = Math.max(0, iForm.receivedQty - iForm.damagedQty);
-                  const shortQty = Math.max(0, item.quantity - iForm.receivedQty - iForm.damagedQty);
-                  const rateDiff = iForm.billingRate > 0 && poRate ? iForm.billingRate - poRate : null;
+                  const receivedKg = sumWeight(iForm.packings);
+                  const goodQty    = Math.max(0, receivedKg - iForm.damagedQty);
+                  const shortQty   = Math.max(0, item.quantity - receivedKg - iForm.damagedQty);
+                  const rateDiff   = iForm.billingRate > 0 && poRate ? iForm.billingRate - poRate : null;
+                  // Inline weight-mismatch hint vs Plan
+                  const planWt   = item.weightKg ?? item.quantity ?? 0;
+                  const baseWt   = planWt > 0 ? planWt : orderedQty;
+                  const diffKg   = receivedKg - baseWt;
+                  const pct      = baseWt > 0 ? (diffKg / baseWt) * 100 : 0;
+                  const diffCls  = receivedKg === 0
+                    ? "text-amber-700"
+                    : Math.abs(pct) <= 1 ? "text-green-700"
+                    : Math.abs(pct) <= 4 ? "text-amber-700"
+                    : "text-red-700";
                   return (
                     <div key={item.id} className="rounded-xl border border-gray-200 overflow-hidden">
                       {/* Card header — clickable to collapse */}
@@ -584,7 +758,14 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
                         <div className="ml-auto flex items-center gap-4 text-xs text-gray-500">
                           <span>Ordered: <strong className="text-gray-800">{qtyToKg(item, orderedQty).toLocaleString()} kg</strong></span>
                           <span>Dispatched: <strong className="text-gray-800">{qtyToKg(item, item.quantity).toLocaleString()} kg</strong></span>
-                          <span className="text-amber-700 font-semibold">Received: {qtyToKg(item, iForm.receivedQty).toLocaleString()} kg</span>
+                          <span className={`font-semibold ${diffCls}`}>
+                            Received: {receivedKg.toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg
+                            {receivedKg > 0 && baseWt > 0 && (
+                              <span className="ml-1 font-normal opacity-80">
+                                ({diffKg >= 0 ? "+" : ""}{diffKg.toFixed(1)} kg · {pct >= 0 ? "+" : ""}{pct.toFixed(1)}%)
+                              </span>
+                            )}
+                          </span>
                           <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform flex-shrink-0 ${expandedItems.has(idx) ? "rotate-0" : "-rotate-90"}`} />
                         </div>
                       </button>
@@ -592,139 +773,143 @@ function CreateGRNModal({ tlp, warehouses, onSave, onClose }: CreateGRNModalProp
                       {/* Card body — collapsible */}
                       {expandedItems.has(idx) && <div className="p-4 space-y-4">
 
-                        {/* Packing format */}
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-2">Packing Format</label>
-                          <div className="flex flex-wrap gap-3 items-center">
-                            <div className="flex gap-1.5">
-                              {(["Sheets", "Packets", "Bundle"] as PackingType[]).map((pt) => (
-                                <button key={pt} type="button"
-                                  onClick={() => setItem(idx, "packingType", pt)}
-                                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold border transition-colors ${
-                                    iForm.packingType === pt
-                                      ? "bg-blue-600 text-white border-blue-600"
-                                      : "bg-white text-gray-600 border-gray-300 hover:border-blue-400"
-                                  }`}>
-                                  {pt}
-                                </button>
-                              ))}
-                            </div>
-                            {iForm.packingType === "Sheets" && (
-                              <div className="flex items-center gap-2">
-                                <input type="number" value={iForm.receivedQty}
-                                  onChange={(e) => setItem(idx, "receivedQty", Math.max(0, +e.target.value || 0))}
-                                  className="w-28 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-right text-xs font-semibold text-gray-900 focus:border-amber-500 focus:outline-none"
-                                  min={0} max={item.quantity} />
-                                <span className="text-xs text-gray-500">sheets</span>
-                              </div>
-                            )}
-                            {iForm.packingType === "Packets" && (
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <input type="number" value={iForm.sheetsPerPacket || ""}
-                                  onChange={(e) => setItem(idx, "sheetsPerPacket", Math.max(0, +e.target.value || 0))}
-                                  className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-xs focus:border-blue-500 focus:outline-none"
-                                  placeholder="sht/pkt" />
-                                <span className="text-xs text-gray-400">sht/pkt ×</span>
-                                <input type="number" value={iForm.noOfPackets || ""}
-                                  onChange={(e) => setItem(idx, "noOfPackets", Math.max(0, +e.target.value || 0))}
-                                  className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-xs focus:border-blue-500 focus:outline-none"
-                                  placeholder="pkts" />
-                                <span className="text-xs text-gray-400">pkts</span>
-                                {iForm.sheetsPerPacket > 0 && iForm.noOfPackets > 0 && (
-                                  <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
-                                    = {(iForm.sheetsPerPacket * iForm.noOfPackets).toLocaleString()} sheets
-                                  </span>
+                        {/* Reel item badge */}
+                        {iForm.isReel && (
+                          <div className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs text-purple-800 flex items-center gap-2">
+                            <Truck className="h-3.5 w-3.5" />
+                            Reel item — enter batch no. + weight per arriving reel.
+                          </div>
+                        )}
+
+                        {/* Unified Packings table — one card, all rows */}
+                        <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                              {iForm.isReel ? "Reel Batches" : "Packings"}
+                              <span className="ml-1.5 font-normal text-gray-400 normal-case">
+                                {iForm.isReel
+                                  ? "(each batch enters stock as a separate lot)"
+                                  : iForm.weightPerSheet > 0
+                                    ? `(weight auto-calc · ${(iForm.weightPerSheet * 1000).toFixed(0)} g/sheet — type to override with actual kg)`
+                                    : "(enter weight manually — sheet weight unknown)"}
+                              </span>
+                            </p>
+                            <button type="button" onClick={() => addPacking(idx)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-white px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50">
+                              <Plus className="h-3 w-3" /> Add {iForm.isReel ? "Batch" : "Row"}
+                            </button>
+                          </div>
+                          <div className="space-y-2">
+                            {iForm.packings.map((row, rowIdx) => (
+                              <div key={rowIdx} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5">
+                                <span className="text-[10px] font-semibold text-gray-400 w-6">#{rowIdx + 1}</span>
+                                {iForm.isReel ? (
+                                  <input type="text" value={row.batchNo ?? ""}
+                                    onChange={(e) => setPacking(idx, rowIdx, "batchNo", e.target.value)}
+                                    className="w-32 rounded-lg border border-gray-300 px-2 py-1 text-xs font-mono focus:border-blue-500 focus:outline-none"
+                                    placeholder="Batch No" />
+                                ) : (
+                                  <>
+                                    <select value={row.format}
+                                      onChange={(e) => setPacking(idx, rowIdx, "format", e.target.value as PackingType)}
+                                      className="rounded-lg border border-gray-300 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none">
+                                      {(["Sheets", "Packets", "Bundle"] as PackingType[]).map((pt) => (
+                                        <option key={pt} value={pt}>{pt}</option>
+                                      ))}
+                                    </select>
+                                    {row.format === "Sheets" && (
+                                      <>
+                                        <input type="number" value={row.sheetsCount || ""}
+                                          onChange={(e) => setPacking(idx, rowIdx, "sheetsCount", Math.max(0, +e.target.value || 0))}
+                                          className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-right text-xs focus:border-blue-500 focus:outline-none"
+                                          placeholder="sheets" />
+                                        <span className="text-[10px] text-gray-400">sheets</span>
+                                      </>
+                                    )}
+                                    {row.format === "Packets" && (
+                                      <>
+                                        <input type="number" value={row.sheetsPerPacket || ""}
+                                          onChange={(e) => setPacking(idx, rowIdx, "sheetsPerPacket", Math.max(0, +e.target.value || 0))}
+                                          className="w-16 rounded-lg border border-gray-300 px-2 py-1 text-right text-xs focus:border-blue-500 focus:outline-none"
+                                          placeholder="sht/pkt" />
+                                        <span className="text-[10px] text-gray-400">×</span>
+                                        <input type="number" value={row.noOfPackets || ""}
+                                          onChange={(e) => setPacking(idx, rowIdx, "noOfPackets", Math.max(0, +e.target.value || 0))}
+                                          className="w-16 rounded-lg border border-gray-300 px-2 py-1 text-right text-xs focus:border-blue-500 focus:outline-none"
+                                          placeholder="pkts" />
+                                        <span className="text-[10px] text-gray-400">pkts</span>
+                                      </>
+                                    )}
+                                    {row.format === "Bundle" && (
+                                      <>
+                                        <input type="number" value={row.sheetsPerPacket || ""}
+                                          onChange={(e) => setPacking(idx, rowIdx, "sheetsPerPacket", Math.max(0, +e.target.value || 0))}
+                                          className="w-16 rounded-lg border border-gray-300 px-2 py-1 text-right text-xs focus:border-blue-500 focus:outline-none"
+                                          placeholder="sht/pkt" />
+                                        <span className="text-[10px] text-gray-400">×</span>
+                                        <input type="number" value={row.packetsPerBundle || ""}
+                                          onChange={(e) => setPacking(idx, rowIdx, "packetsPerBundle", Math.max(0, +e.target.value || 0))}
+                                          className="w-16 rounded-lg border border-gray-300 px-2 py-1 text-right text-xs focus:border-blue-500 focus:outline-none"
+                                          placeholder="pkt/bnd" />
+                                        <span className="text-[10px] text-gray-400">×</span>
+                                        <input type="number" value={row.noOfBundles || ""}
+                                          onChange={(e) => setPacking(idx, rowIdx, "noOfBundles", Math.max(0, +e.target.value || 0))}
+                                          className="w-16 rounded-lg border border-gray-300 px-2 py-1 text-right text-xs focus:border-blue-500 focus:outline-none"
+                                          placeholder="bndls" />
+                                        <span className="text-[10px] text-gray-400">bndls</span>
+                                      </>
+                                    )}
+                                  </>
                                 )}
+                                {/* Weight column — sheet rows now editable
+                                    too (client UAT: theoretical sheet-count
+                                    × g/sheet differs from the mill's
+                                    weighbridge by 5-10 kg due to paper
+                                    tolerance; user records the real kg).
+                                    Typing in the field marks the row as
+                                    overridden so further sheet-count edits
+                                    don't silently overwrite the real value. */}
+                                <div className="ml-auto flex items-center gap-1.5">
+                                  <input type="number" step="0.01" value={row.weightKg || ""}
+                                    onChange={(e) => {
+                                      const kg = Math.max(0, +e.target.value || 0);
+                                      setItemForms((forms) => forms.map((f, i) => {
+                                        if (i !== idx) return f;
+                                        return {
+                                          ...f,
+                                          packings: f.packings.map((r, ri) => ri !== rowIdx ? r : { ...r, weightKg: kg, weightOverridden: true }),
+                                        };
+                                      }));
+                                    }}
+                                    className={iForm.isReel
+                                      ? "w-24 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-right text-xs font-semibold text-gray-900 focus:border-amber-500 focus:outline-none"
+                                      : `w-24 rounded-lg border px-2 py-1 text-right text-xs font-semibold focus:outline-none ${row.weightOverridden ? "border-amber-300 bg-amber-50 text-amber-900 focus:border-amber-500" : row.weightKg > 0 ? "border-emerald-200 bg-emerald-50 text-emerald-800 focus:border-emerald-500" : "border-gray-200 bg-gray-50 text-gray-400 focus:border-gray-400"}`
+                                    }
+                                    placeholder="0" />
+                                  <span className="text-[10px] text-gray-400">kg</span>
+                                  <button type="button" onClick={() => removePacking(idx, rowIdx)}
+                                    disabled={iForm.packings.length <= 1}
+                                    className="rounded-lg p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed">
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                </div>
                               </div>
-                            )}
-                            {iForm.packingType === "Bundle" && (
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <input type="number" value={iForm.sheetsPerPacket || ""}
-                                  onChange={(e) => setItem(idx, "sheetsPerPacket", Math.max(0, +e.target.value || 0))}
-                                  className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-xs focus:border-blue-500 focus:outline-none"
-                                  placeholder="sht/pkt" />
-                                <span className="text-xs text-gray-400">sht/pkt ×</span>
-                                <input type="number" value={iForm.packetsPerBundle || ""}
-                                  onChange={(e) => setItem(idx, "packetsPerBundle", Math.max(0, +e.target.value || 0))}
-                                  className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-xs focus:border-blue-500 focus:outline-none"
-                                  placeholder="pkt/bnd" />
-                                <span className="text-xs text-gray-400">pkt/bnd ×</span>
-                                <input type="number" value={iForm.noOfBundles || ""}
-                                  onChange={(e) => setItem(idx, "noOfBundles", Math.max(0, +e.target.value || 0))}
-                                  className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-right text-xs focus:border-blue-500 focus:outline-none"
-                                  placeholder="bndls" />
-                                <span className="text-xs text-gray-400">bndls</span>
-                                {iForm.sheetsPerPacket > 0 && iForm.packetsPerBundle > 0 && iForm.noOfBundles > 0 && (
-                                  <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
-                                    = {(iForm.sheetsPerPacket * iForm.packetsPerBundle * iForm.noOfBundles).toLocaleString()} sheets
-                                  </span>
-                                )}
-                              </div>
-                            )}
+                            ))}
+                            <p className="text-[10px] text-gray-500 pl-7">
+                              Total weight: <strong className="text-gray-800">
+                                {receivedKg.toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg
+                              </strong>
+                              {baseWt > 0 && (
+                                <span className={`ml-2 ${diffCls}`}>
+                                  · vs {planWt > 0 ? "Plan" : "PO"} {baseWt.toLocaleString("en-IN", { maximumFractionDigits: 0 })} kg
+                                  {receivedKg > 0 && (
+                                    <> ({diffKg >= 0 ? "+" : ""}{diffKg.toFixed(1)} kg · {pct >= 0 ? "+" : ""}{pct.toFixed(1)}%)</>
+                                  )}
+                                </span>
+                              )}
+                            </p>
                           </div>
                         </div>
-
-                        {/* Weight Verification — 3-way: PO / Plan / GRN (all kg) */}
-                        {(() => {
-                          const poWt   = tracker?.orderedQty ?? item.quantity;
-                          const planWt = item.weightKg ?? item.quantity ?? 0;
-                          const grnWt  = iForm.receivedQty;
-                          const baseWt = planWt > 0 ? planWt : poWt;
-                          const diff   = grnWt - baseWt;
-                          const pct    = baseWt > 0 ? (diff / baseWt) * 100 : 0;
-                          const fmt    = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
-                          const diffCls = Math.abs(pct) <= 1
-                            ? "border-green-200 bg-green-50 text-green-700"
-                            : Math.abs(pct) <= 4
-                            ? "border-amber-200 bg-amber-50 text-amber-700"
-                            : "border-red-200 bg-red-50 text-red-700";
-                          return (
-                            <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-3">
-                              <p className="text-[10px] font-semibold uppercase tracking-wider text-sky-500 mb-2.5 flex items-center gap-1.5">
-                                <Scale className="h-3 w-3" /> Weight Verification
-                              </p>
-                              <div className="grid grid-cols-3 gap-2">
-                                {/* PO ordered */}
-                                <div className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-center">
-                                  <p className="text-[9px] uppercase tracking-wide text-gray-400 mb-0.5">PO Ordered</p>
-                                  <p className="text-sm font-bold text-gray-800">{fmt(poWt)} <span className="text-[10px] font-medium text-gray-400">kg</span></p>
-                                </div>
-                                {/* Plan dispatched */}
-                                <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-center">
-                                  <p className="text-[9px] uppercase tracking-wide text-indigo-400 mb-0.5">Plan Dispatched</p>
-                                  <p className="text-sm font-bold text-indigo-800">
-                                    {planWt > 0 ? <>{fmt(planWt)} <span className="text-[10px] font-medium text-indigo-400">kg</span></> : <span className="text-gray-400">—</span>}
-                                  </p>
-                                </div>
-                                {/* GRN received */}
-                                <div className={`rounded-lg border px-2.5 py-2 text-center ${iForm.receivedQty > 0 ? "border-emerald-200 bg-emerald-50" : "border-gray-200 bg-white"}`}>
-                                  <p className={`text-[9px] uppercase tracking-wide mb-0.5 ${iForm.receivedQty > 0 ? "text-emerald-500" : "text-gray-400"}`}>GRN Received</p>
-                                  <p className={`text-sm font-bold ${iForm.receivedQty > 0 ? "text-emerald-800" : "text-gray-400"}`}>
-                                    {iForm.receivedQty > 0 ? <>{fmt(grnWt)} <span className="text-[10px] font-medium text-emerald-500">kg</span></> : "—"}
-                                  </p>
-                                  {iForm.receivedQty === 0 && <p className="text-[9px] mt-0.5 text-gray-400">enter qty above</p>}
-                                </div>
-                              </div>
-                              {/* Difference bar */}
-                              {iForm.receivedQty > 0 && baseWt > 0 && (
-                                <div className={`mt-2 rounded-lg border px-3 py-1.5 text-xs font-semibold flex items-center justify-between ${diffCls}`}>
-                                  <span>
-                                    vs {planWt > 0 ? "Plan" : "PO"}:{" "}
-                                    {diff >= 0 ? "+" : ""}{fmt(diff)} kg
-                                    {diff !== 0 && (
-                                      <span className="ml-2 font-normal opacity-75">
-                                        ({diff > 0 ? "surplus" : "short"})
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className="tabular-nums">
-                                    {pct >= 0 ? "+" : ""}{pct.toFixed(1)}%
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
 
                         {/* Invoice & billing rate */}
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1289,8 +1474,23 @@ function RowActions({ onView, onEdit, onDelete }: {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 function GRNPage() {
+  const { success, error: toastError, warning } = useToast();
+
+  // Show server-side validation errors as warning toasts (ApiError with a clear
+  // message); fall back to a red error toast for anything unexpected.
+  const surfaceApiError = useCallback((err: unknown, fallback: string) => {
+    if (err instanceof ApiError && err.message) {
+      // 4xx with a server-provided message → user-actionable, show as warning
+      if (err.status >= 400 && err.status < 500) warning(err.message);
+      else toastError(err.message);
+    } else {
+      toastError(fallback);
+    }
+  }, [toastError, warning]);
+
   const [grns, setGrns] = useState<GrnRow[]>([]);
   const [pendingTlps, setPendingTlps] = useState<TruckLoadPlanApiDto[]>([]);
+  const [dispatchByTlpId, setDispatchByTlpId] = useState<Map<number, DispatchReceiptRow>>(new Map());
   const [warehouses, setWarehouses] = useState<WarehouseDropdown[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -1300,21 +1500,46 @@ function GRNPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedTlp, setSelectedTlp] = useState<TruckLoadPlanApiDto | null>(null);
-  const [showPending, setShowPending] = useState(false);
+  const [selectedInvoiceNo, setSelectedInvoiceNo] = useState<string | null>(null);
+
+  // Click handler for the "Create GRN" button on a pending invoice group —
+  // builds a TLP shallow-clone with only the items belonging to that invoice,
+  // so the GRN modal only shows the items the user is actually invoicing here.
+  const openCreateGRNForGroup = useCallback((g: PendingInvoiceGroup) => {
+    const filteredTlp: TruckLoadPlanApiDto = { ...g.tlp, items: g.tlpItems };
+    setSelectedTlp(filteredTlp);
+    setSelectedInvoiceNo(g.invoiceNo);
+    setShowCreateModal(true);
+  }, []);
+  // Default landing view = Pending (per client UAT, same pattern as Truck
+  // Load Plan / Dispatch) — operators open this page primarily to create
+  // GRNs for freshly-dispatched invoices, not to review history.
+  const [showPending, setShowPending] = useState(true);
+  const [activeStatusFilter, setActiveStatusFilter] = useState<string | null>(null);
   const [pendingSearch, setPendingSearch] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [grnRes, tlpRes, whRes] = await Promise.all([
+      // Pending GRN list now flows from DispatchReceipts (status="Pending GRN")
+      // — the warehouse only sees trucks the dispatch user has already entered
+      // invoice info for. For each, fetch the underlying TLP to drive the
+      // existing CreateGRNModal which expects a TruckLoadPlanApiDto.
+      const [grnRes, drRes, whRes] = await Promise.all([
         grnApi.list({ pageSize: 200 }),
-        truckLoadPlanApi.list({ status: "Dispatched", pageSize: 200 }),
+        dispatchReceiptApi.list({ status: "Pending GRN", pageSize: 200 }),
         warehouseApi.dropdown(),
       ]);
       setGrns(grnRes.items);
-      const grnTlpIds = new Set(grnRes.items.map((g) => g.sourceLoadPlanId).filter(Boolean));
-      setPendingTlps(tlpRes.items.filter((t) => !grnTlpIds.has(t.id)));
       setWarehouses(whRes);
+
+      const tlps = (await Promise.all(
+        drRes.items.map((d) => truckLoadPlanApi.getById(d.sourceLoadPlanId).catch(() => null))
+      )).filter((t): t is TruckLoadPlanApiDto => t !== null);
+      const drMap = new Map<number, DispatchReceiptRow>();
+      drRes.items.forEach((d) => drMap.set(d.sourceLoadPlanId, d));
+      setDispatchByTlpId(drMap);
+      setPendingTlps(tlps);
     } catch {
       // silently fail — page shows empty state
     } finally {
@@ -1335,17 +1560,100 @@ function GRNPage() {
     totalDirect:   grns.reduce((s, g) => s + qtyToKg(g, g.directQty), 0),
   }), [grns]);
 
+  const filteredGrns = useMemo(
+    () => activeStatusFilter ? grns.filter((g) => g.status === activeStatusFilter) : grns,
+    [grns, activeStatusFilter],
+  );
+
+  // ── Pending GRN groups by INVOICE NO (not by TLP plan) ───────────────────
+  // Dispatch entry captures one invoice no per item; from here onwards the
+  // unit of work is one invoice = one GRN. Items sharing an invoice cluster
+  // together; items on different invoices form separate groups even if they
+  // came on the same truck plan.
+  const pendingInvoiceGroups = useMemo<PendingInvoiceGroup[]>(() => {
+    const groups: PendingInvoiceGroup[] = [];
+
+    // Pre-index existing GRNs by (tlpId + invoiceNo + trackerId). MillTrackerId
+    // is the most reliable per-item link: TLP items always carry trackerId
+    // (they were built from mill trackers) and every GRN records the source
+    // millTrackerId when saved. Earlier we tried keying on materialId, but
+    // some DispatchReceiptItem rows in production carry MaterialId = NULL,
+    // which broke the filter and let already-GRNed items reappear in the
+    // Pending list — the client's 93x65 + 46.5x65 case hit exactly that.
+    const grnedItemKeys = new Set<string>();
+    for (const g of grns) {
+      const inv = (g.itemInvoiceNo || "").trim();
+      if (g.sourceLoadPlanId && inv && g.millTrackerId != null)
+        grnedItemKeys.add(`${g.sourceLoadPlanId}::${inv}::${g.millTrackerId}`);
+    }
+
+    for (const tlp of pendingTlps) {
+      const dispatchRow = dispatchByTlpId.get(tlp.id);
+      if (!dispatchRow) continue;
+
+      // Index dispatch items by their source TLP item id so we can resolve
+      // each TLP item's invoice no via the matching dispatch line.
+      const drItemByTlpItem = new Map<number, typeof dispatchRow.items[number]>();
+      for (const dri of dispatchRow.items) {
+        if (dri.sourceTlpItemId != null) drItemByTlpItem.set(dri.sourceTlpItemId, dri);
+      }
+
+      // Group TLP items by their invoice (per-item itemInvoiceNo; falls back
+      // to the dispatch header InvoiceNumber when an item has no specific one).
+      const byInvoice = new Map<string, TruckLoadPlanItemApiDto[]>();
+      for (const ti of tlp.items) {
+        const dri = drItemByTlpItem.get(ti.id);
+        const inv = ((dri?.itemInvoiceNo || dispatchRow.invoiceNumber || "—") as string).trim();
+        const list = byInvoice.get(inv) ?? [];
+        list.push(ti);
+        byInvoice.set(inv, list);
+      }
+
+      for (const [invoiceNo, items] of byInvoice) {
+        // Filter out items whose GRN is already created — match on the
+        // TLP item's trackerId (backend writes the same trackerId onto
+        // GrnRow.millTrackerId when the GRN is saved). Robust even when
+        // DispatchReceiptItem.MaterialId is NULL in production data.
+        const remaining = items.filter((ti) => {
+          const trackerId = ti.trackerId ?? null;
+          if (trackerId == null) return true;   // unknown source — keep showing
+          return !grnedItemKeys.has(`${tlp.id}::${invoiceNo}::${trackerId}`);
+        });
+        if (remaining.length === 0) continue;
+
+        groups.push({
+          invoiceNo,
+          dispatchRow,
+          tlp,
+          tlpItems:    remaining,
+          totalWeight: remaining.reduce((s, i) => s + qtyToKg(i, i.weightKg ?? i.quantity ?? 0), 0),
+        });
+      }
+    }
+    return groups;
+  }, [pendingTlps, dispatchByTlpId, grns]);
+
   const filteredPending = useMemo(() => {
-    if (!pendingSearch.trim()) return pendingTlps;
+    if (!pendingSearch.trim()) return pendingInvoiceGroups;
     const q = pendingSearch.toLowerCase();
-    return pendingTlps.filter((tlp) =>
-      tlp.planNumber.toLowerCase().includes(q) ||
-      (tlp.origin || "").toLowerCase().includes(q) ||
-      (tlp.transporterName || "").toLowerCase().includes(q) ||
-      (tlp.truckNumber || "").toLowerCase().includes(q) ||
-      tlp.items.some((i) => (i.poNumber || "").toLowerCase().includes(q))
+    return pendingInvoiceGroups.filter((g) =>
+      g.invoiceNo.toLowerCase().includes(q) ||
+      g.tlp.planNumber.toLowerCase().includes(q) ||
+      (g.tlp.origin || "").toLowerCase().includes(q) ||
+      (g.tlp.transporterName || "").toLowerCase().includes(q) ||
+      (g.tlp.truckNumber || "").toLowerCase().includes(q) ||
+      g.tlpItems.some((i) => (i.poNumber || "").toLowerCase().includes(q))
     );
-  }, [pendingTlps, pendingSearch]);
+  }, [pendingInvoiceGroups, pendingSearch]);
+
+  // Pagination for the "Pending" table is by INVOICE GROUP, not raw item
+  // rows — a group's rowSpan'd items must never split across a page.
+  const [pendingPage, setPendingPage] = useState(0);
+  const pendingPageSize = 15;
+  const pendingPageCount = Math.max(1, Math.ceil(filteredPending.length / pendingPageSize));
+  const pendingSafePage = Math.min(pendingPage, pendingPageCount - 1);
+  const pagedPending = filteredPending.slice(pendingSafePage * pendingPageSize, pendingSafePage * pendingPageSize + pendingPageSize);
+  useEffect(() => { setPendingPage(0); }, [pendingSearch]);
 
   const openView = async (grn: GrnRow) => {
     setSelectedGrn(grn);
@@ -1364,25 +1672,46 @@ function GRNPage() {
   };
 
   const handleSaveGRN = async (dtos: CreateGrnDto[], tlpId: number) => {
-    await Promise.all(dtos.map((dto) => grnApi.create(dto)));
-    await truckLoadPlanApi.updateStatus(tlpId, { status: "Received" }).catch(() => {});
-    await load();
-    setShowCreateModal(false);
-    setSelectedTlp(null);
+    // Stamp each GRN with the parent DispatchReceiptId so the backend can
+    // auto-move the dispatch to 'GRN Done' once any GRN is created from it.
+    const dispatchId = dispatchByTlpId.get(tlpId)?.id;
+    const stamped = dtos.map((d) => ({ ...d, dispatchReceiptId: dispatchId ?? d.dispatchReceiptId }));
+    try {
+      await Promise.all(stamped.map((dto) => grnApi.create(dto)));
+      await truckLoadPlanApi.updateStatus(tlpId, { status: "Received" }).catch(() => {});
+      await load();
+      success(`${stamped.length} GRN${stamped.length === 1 ? "" : "s"} created successfully.`);
+      setShowCreateModal(false);
+      setSelectedTlp(null);
+      setSelectedInvoiceNo(null);
+    } catch (err) {
+      // Surface as warning/error toast and keep the modal open so user can fix.
+      surfaceApiError(err, "Could not create GRN. Please review the entries and try again.");
+    }
   };
 
   const handleUpdateGRN = async (id: number, dto: UpdateGrnDto) => {
-    await grnApi.update(id, dto);
-    await load();
-    setShowEditModal(false);
-    setSelectedGrn(null);
+    try {
+      await grnApi.update(id, dto);
+      await load();
+      success("GRN updated.");
+      setShowEditModal(false);
+      setSelectedGrn(null);
+    } catch (err) {
+      surfaceApiError(err, "Could not update GRN.");
+    }
   };
 
   const handleDeleteGRN = async (id: number) => {
-    await grnApi.remove(id);
-    await load();
-    setShowViewModal(false);
-    setSelectedGrn(null);
+    try {
+      await grnApi.remove(id);
+      await load();
+      success("GRN deleted.");
+      setShowViewModal(false);
+      setSelectedGrn(null);
+    } catch (err) {
+      surfaceApiError(err, "Could not delete GRN.");
+    }
   };
 
   const statusOptions = [
@@ -1394,6 +1723,20 @@ function GRNPage() {
   ];
 
   const columns: ColumnConfig<GrnRow>[] = useMemo(() => [
+    {
+      id: "actions", accessorKey: "id", header: "",
+      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48, sticky: "left",
+      cell: (info) => {
+        const grn = info.row.original;
+        return (
+          <RowActions
+            onView={() => openView(grn)}
+            onEdit={() => openEdit(grn)}
+            onDelete={() => handleDeleteGRN(grn.id)}
+          />
+        );
+      },
+    },
     {
       id: "grnNumber", accessorKey: "grnNumber", header: "GRN #",
       filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 130,
@@ -1409,8 +1752,33 @@ function GRNPage() {
       cell: (info) => <span className="text-blue-600 font-medium">{info.getValue() as string}</span>,
     },
     {
-      id: "millName", accessorKey: "millName", header: "Mill",
-      filterType: "text", enableSorting: true, defaultVisible: true, size: 130,
+      // Unit-aware Mill column — matches MOT / PO grids. Unit name primary
+      // when the source PO picked a unit; mill name as fallback otherwise.
+      // Filter + sort use a composite "Unit (Mill)" string so typing either
+      // side finds the row.
+      id: "millName",
+      accessorKey: "millName",
+      header: "Mill",
+      filterType: "text",
+      enableSorting: true,
+      defaultVisible: true,
+      size: 170,
+      accessorFn: (g: GrnRow) => {
+        const u = g.millUnitName?.trim();
+        return u ? `${u} (${g.millName})` : (g.millName ?? "");
+      },
+      cell: (info) => {
+        const g = info.row.original;
+        const unit = g.millUnitName?.trim();
+        return unit
+          ? (
+            <div className="leading-tight">
+              <div className="text-xs font-semibold text-blue-700">{unit}</div>
+              <div className="text-[10px] text-gray-400">{g.millName}</div>
+            </div>
+          )
+          : <span className="text-sm text-gray-800">{g.millName || "—"}</span>;
+      },
     },
     {
       id: "paper", accessorKey: "paper", header: "Paper",
@@ -1500,20 +1868,6 @@ function GRNPage() {
       enableSorting: true, defaultVisible: true, size: 150,
       cell: (info) => <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(info.getValue() as string)}`}>{info.getValue() as string}</span>,
     },
-    {
-      id: "actions", accessorKey: "id", header: "",
-      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48,
-      cell: (info) => {
-        const grn = info.row.original;
-        return (
-          <RowActions
-            onView={() => openView(grn)}
-            onEdit={() => openEdit(grn)}
-            onDelete={() => handleDeleteGRN(grn.id)}
-          />
-        );
-      },
-    },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
 
@@ -1526,38 +1880,49 @@ function GRNPage() {
   }
 
   return (
-    <div className="space-y-6 pb-24">
+    <div className="flex h-[calc(100vh-112px)] flex-col gap-4 overflow-hidden">
 
       {/* KPI Row */}
-      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-3">
+      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-3 flex-shrink-0">
         <KpiCard
           title="Pending GRN"
-          value={pendingTlps.length}
-          subtitle={showPending ? "Click to hide" : "Shipments waiting"}
+          value={pendingInvoiceGroups.length}
+          subtitle={showPending ? "Click to hide" : "Invoices waiting"}
           subtitleColor="amber"
           icon={Truck}
-          iconBg={showPending ? "bg-amber-500" : pendingTlps.length > 0 ? "bg-amber-50" : "bg-gray-50"}
+          iconBg={showPending ? "bg-amber-500" : pendingInvoiceGroups.length > 0 ? "bg-amber-50" : "bg-gray-50"}
           iconColor={showPending ? "text-white" : "text-amber-600"}
           onClick={() => { setShowPending((v) => !v); setPendingSearch(""); }}
           className={showPending ? "ring-2 ring-amber-400" : ""}
         />
-        <KpiCard title="Stock Updated" value={kpis.stockUpdated}  subtitle="In inventory"      subtitleColor="green" icon={PackageCheck} iconBg="bg-green-50"  iconColor="text-green-500"  />
-        <KpiCard title="Discrepancy"   value={kpis.discrepancy}   subtitle="Issues found"      subtitleColor="red"   icon={AlertTriangle} iconBg="bg-red-50"    iconColor="text-red-500"    />
-        <KpiCard title="Draft"         value={kpis.draft}         subtitle="New arrivals"                            icon={FileText}      iconBg="bg-gray-50"   iconColor="text-gray-400"   />
-        <KpiCard title="QC Pending"    value={kpis.qcPending}     subtitle="On hold"           subtitleColor="amber" icon={Clock}         iconBg="bg-yellow-50" iconColor="text-yellow-500" />
-        <KpiCard title="Approved"      value={kpis.approved}      subtitle="QC passed"         subtitleColor="blue"  icon={CheckCircle}   iconBg="bg-blue-50"   iconColor="text-blue-500"   />
+        <KpiCard title="Stock Updated" value={kpis.stockUpdated}  subtitle="In inventory"      subtitleColor="green" icon={PackageCheck} iconBg="bg-green-50"  iconColor="text-green-500"
+          onClick={() => { setShowPending(false); setActiveStatusFilter((f) => f === "Stock Updated" ? null : "Stock Updated"); }}
+          className={activeStatusFilter === "Stock Updated" ? "ring-2 ring-green-400" : ""} />
+        <KpiCard title="Discrepancy"   value={kpis.discrepancy}   subtitle="Issues found"      subtitleColor="red"   icon={AlertTriangle} iconBg="bg-red-50"    iconColor="text-red-500"
+          onClick={() => { setShowPending(false); setActiveStatusFilter((f) => f === "Discrepancy Raised" ? null : "Discrepancy Raised"); }}
+          className={activeStatusFilter === "Discrepancy Raised" ? "ring-2 ring-red-400" : ""} />
+        <KpiCard title="Draft"         value={kpis.draft}         subtitle="New arrivals"                            icon={FileText}      iconBg="bg-gray-50"   iconColor="text-gray-400"
+          onClick={() => { setShowPending(false); setActiveStatusFilter((f) => f === "Draft" ? null : "Draft"); }}
+          className={activeStatusFilter === "Draft" ? "ring-2 ring-gray-400" : ""} />
+        <KpiCard title="QC Pending"    value={kpis.qcPending}     subtitle="On hold"           subtitleColor="amber" icon={Clock}         iconBg="bg-yellow-50" iconColor="text-yellow-500"
+          onClick={() => { setShowPending(false); setActiveStatusFilter((f) => f === "QC Pending" ? null : "QC Pending"); }}
+          className={activeStatusFilter === "QC Pending" ? "ring-2 ring-yellow-400" : ""} />
+        <KpiCard title="Approved"      value={kpis.approved}      subtitle="QC passed"         subtitleColor="blue"  icon={CheckCircle}   iconBg="bg-blue-50"   iconColor="text-blue-500"
+          onClick={() => { setShowPending(false); setActiveStatusFilter((f) => f === "Approved" ? null : "Approved"); }}
+          className={activeStatusFilter === "Approved" ? "ring-2 ring-blue-400" : ""} />
         <KpiCard title="→ Stock"       value={`${(kpis.totalStock / 1000).toFixed(1)}K`}  subtitle="kg to inventory"   icon={PackageCheck} iconBg="bg-teal-50"   iconColor="text-teal-500"   />
         <KpiCard title="→ Client Direct" value={`${(kpis.totalDirect / 1000).toFixed(1)}K`} subtitle="kg bypassed stock" icon={ArrowRight}  iconBg="bg-purple-50" iconColor="text-purple-500" />
       </div>
 
+      <div className="flex flex-1 min-h-0 flex-col overflow-y-auto">
       {/* Pending TLP Grid */}
       {showPending && (
-        <div className="rounded-xl border border-amber-200 bg-white shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-amber-100 bg-amber-50">
+        <div className="flex flex-1 min-h-0 flex-col rounded-xl border border-amber-200 bg-white shadow-sm overflow-hidden">
+          <div className="flex-shrink-0 flex items-center justify-between px-5 py-3.5 border-b border-amber-100 bg-amber-50">
             <div className="flex items-center gap-2">
               <Truck className="h-4 w-4 text-amber-600" />
-              <h2 className="text-sm font-bold text-amber-900">Shipments Awaiting GRN</h2>
-              <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white">{pendingTlps.length}</span>
+              <h2 className="text-sm font-bold text-amber-900">Invoices Awaiting GRN</h2>
+              <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white">{pendingInvoiceGroups.length}</span>
             </div>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -1569,42 +1934,81 @@ function GRNPage() {
           {filteredPending.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-gray-400">No pending shipments match.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="flex-1 min-h-0 overflow-auto">
               <table className="w-full text-sm">
-                <thead><tr className="bg-gray-50 border-b border-gray-100">
-                  {["Plan #", "Origin", "Truck", "Transporter", "Items / POs", "Total Weight", "Planned Delivery", ""].map((h) => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                <thead><tr className="sticky top-0 z-20 bg-gray-50 border-b border-gray-100">
+                  {["Invoice #", "#", "Plan #", "Truck", "Transporter", "Mill / Origin", "Item", "Weight (kg)", ""].map((h) => (
+                    <th key={h} className="bg-gray-50 px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr></thead>
-                <tbody className="divide-y divide-gray-100">
-                  {filteredPending.map((tlp) => {
-                    const totalWt = tlp.items.reduce((s, i) => s + qtyToKg(i, i.quantity), 0);
-                    const uniquePOs = new Set(tlp.items.map((i) => i.poNumber)).size;
-                    return (
-                      <tr key={tlp.id} className="hover:bg-amber-50/30 transition-colors">
-                        <td className="px-4 py-3"><span className="font-semibold text-blue-700">{tlp.planNumber}</span></td>
-                        <td className="px-4 py-3 text-gray-700">{tlp.origin || "—"}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-gray-700">{tlp.truckNumber || "—"}</td>
-                        <td className="px-4 py-3 text-gray-700">{tlp.transporterName || "—"}</td>
-                        <td className="px-4 py-3">
-                          <p className="text-sm text-gray-900">{tlp.items.length} item{tlp.items.length !== 1 ? "s" : ""} · {uniquePOs} PO{uniquePOs !== 1 ? "s" : ""}</p>
-                          {tlp.items[0] && <p className="text-xs text-gray-500 mt-0.5">{tlp.items[0].paper} {tlp.items[0].gsm}g{tlp.items.length > 1 ? ` +${tlp.items.length - 1}` : ""}</p>}
+                <tbody>
+                  {pagedPending.flatMap((g, groupIdx) => {
+                    const items = g.tlpItems;
+                    const total = items.length;
+                    // Alternating background per invoice group so adjacent
+                    // invoices are visually distinct.
+                    const groupBg = groupIdx % 2 === 0 ? "bg-white" : "bg-amber-50/40";
+                    const disabled = items.some((i) => !i.trackerId);
+                    return items.map((it, idx) => (
+                      <tr key={`${g.tlp.id}-${g.invoiceNo}-${it.id}`}
+                        className={`${groupBg} hover:bg-amber-50/60 transition-colors ${idx === 0 ? "border-t-2 border-amber-300" : ""}`}>
+                        <td className="px-4 py-3 font-mono font-semibold text-xs text-blue-700">
+                          {idx === 0 ? g.invoiceNo : <span className="text-gray-300">↳</span>}
                         </td>
-                        <td className="px-4 py-3 text-right font-semibold text-gray-900">{totalWt.toLocaleString()}<span className="ml-1 text-xs font-normal text-gray-400">kg</span></td>
-                        <td className="px-4 py-3 text-gray-600 text-sm">{tlp.plannedDeliveryDate || "—"}</td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            disabled={tlp.items.some((i) => !i.trackerId)}
-                            onClick={() => { setSelectedTlp(tlp); setShowCreateModal(true); }}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                            <Plus className="h-3 w-3" /> Create GRN
-                          </button>
+                        <td className="px-4 py-3 text-xs text-amber-700 font-semibold tabular-nums">#{idx + 1}</td>
+                        <td className="px-4 py-3 text-xs font-mono text-blue-600">{idx === 0 ? g.tlp.planNumber : ""}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-gray-700">{idx === 0 ? (g.tlp.truckNumber ?? "—") : ""}</td>
+                        <td className="px-4 py-3 text-xs text-gray-700">{idx === 0 ? (g.tlp.transporterName ?? "—") : ""}</td>
+                        <td className="px-4 py-3 text-xs text-gray-700">{idx === 0 ? (g.tlp.origin ?? "—") : ""}</td>
+                        <td className="px-4 py-3 text-xs">
+                          <p className="font-medium text-gray-900">{it.paper ?? "—"}</p>
+                          {(it.gsm || it.size) && <p className="text-[11px] text-gray-400">{it.gsm}g · {it.size}</p>}
+                          {it.poNumber && <p className="text-[10px] text-blue-500 mt-0.5">{it.poNumber}</p>}
                         </td>
+                        <td className="px-4 py-3 text-xs font-semibold text-gray-900 tabular-nums">
+                          {qtyToKg(it, it.weightKg ?? it.quantity ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                        </td>
+                        {idx === 0 && (
+                          <td className="px-4 py-3 text-right align-middle" rowSpan={total}>
+                            <button
+                              disabled={disabled}
+                              onClick={() => openCreateGRNForGroup(g)}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                              <Plus className="h-3 w-3" /> Create GRN
+                            </button>
+                          </td>
+                        )}
                       </tr>
-                    );
+                    ));
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+          {filteredPending.length > 0 && (
+            <div className="flex-shrink-0 flex items-center justify-between border-t px-4 py-2">
+              <p className="text-xs text-gray-600">
+                Showing {pendingSafePage * pendingPageSize + 1} to {Math.min((pendingSafePage + 1) * pendingPageSize, filteredPending.length)} of {filteredPending.length} invoices
+              </p>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setPendingPage((p) => Math.max(0, p - 1))}
+                  disabled={pendingSafePage === 0}
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${pendingSafePage === 0 ? "border-gray-200 text-gray-400 cursor-not-allowed" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <span className="px-1 text-xs text-gray-500">{pendingSafePage + 1} / {pendingPageCount}</span>
+                <button
+                  onClick={() => setPendingPage((p) => Math.min(pendingPageCount - 1, p + 1))}
+                  disabled={pendingSafePage >= pendingPageCount - 1}
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${pendingSafePage >= pendingPageCount - 1 ? "border-gray-200 text-gray-400 cursor-not-allowed" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1612,21 +2016,36 @@ function GRNPage() {
 
       {/* GRN DataGrid */}
       {!showPending && (
-        <div className="overflow-x-auto">
+        <div className="flex flex-1 min-h-0 flex-col">
+          {activeStatusFilter && (
+            <div className="flex items-center gap-2 mb-3 flex-shrink-0">
+              <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold border ${getStatusColor(activeStatusFilter)}`}>
+                {activeStatusFilter}
+              </span>
+              <button onClick={() => setActiveStatusFilter(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-3.5 w-3.5" />
+              </button>
+              <span className="text-xs text-gray-400">{filteredGrns.length} GRN{filteredGrns.length !== 1 ? "s" : ""}</span>
+            </div>
+          )}
+        <div className="flex flex-1 min-h-0 flex-col">
           <DataGrid
-            data={grns}
+            data={filteredGrns}
             columns={columns}
             tableName="grns"
             enableFilters={true}
             enablePagination={true}
             enableColumnReordering={true}
             enableColumnVisibility={true}
+            scrollMaxHeight="100%"
             initialPageSize={10}
             onRowClick={(grn) => openView(grn)}
             emptyMessage="No GRNs yet. Create GRNs from dispatched shipments above."
           />
         </div>
+        </div>
       )}
+      </div>
 
       {showViewModal && selectedGrn && (
         <ViewGRNModal
@@ -1652,8 +2071,9 @@ function GRNPage() {
         <CreateGRNModal
           tlp={selectedTlp}
           warehouses={warehouses}
+          dispatch={dispatchByTlpId.get(selectedTlp.id) ?? null}
           onSave={(dtos) => handleSaveGRN(dtos, selectedTlp.id)}
-          onClose={() => { setShowCreateModal(false); setSelectedTlp(null); }}
+          onClose={() => { setShowCreateModal(false); setSelectedTlp(null); setSelectedInvoiceNo(null); }}
         />
       )}
     </div>

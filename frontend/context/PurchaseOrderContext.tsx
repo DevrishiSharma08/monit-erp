@@ -22,6 +22,7 @@ interface PurchaseOrderContextValue {
   purchaseOrders: PurchaseOrder[];
   addPurchaseOrder: (po: PurchaseOrder) => void;
   updatePurchaseOrder: (id: string, patch: Partial<PurchaseOrder>) => void;
+  cancelPurchaseOrder: (id: string, reason: string) => Promise<void>;
 
   millTrackers: MillOrderTracker[];
   addMillTracker: (tracker: MillOrderTracker) => void;
@@ -50,6 +51,8 @@ function toPurchaseOrder(r: PORow): PurchaseOrder {
     poNumber:             r.poNumber,
     mill:                 r.millName,
     millId:               String(r.millId),
+    millUnitId:           r.millUnitId,
+    millUnitName:         r.millUnitName,
     orderDate:            r.orderDate,
     expectedDeliveryDate: r.expectedDeliveryDate,
     status:               r.status as PurchaseOrder["status"],
@@ -71,6 +74,9 @@ function toPurchaseOrder(r: PORow): PurchaseOrder {
     specialInstructions:  r.specialInstructions,
     linkedSOId:           r.linkedSOId != null ? String(r.linkedSOId) : undefined,
     linkedSONumber:       r.linkedSONumber,
+    cancelReason:         r.cancelReason,
+    cancelledAt:          r.cancelledAt,
+    cancelledBy:          r.cancelledBy,
     items: r.items.map(i => ({
       id:              String(i.id),
       itemNumber:      i.lineNumber,
@@ -217,6 +223,11 @@ export function PurchaseOrderProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const cancelPurchaseOrder = useCallback(async (id: string, reason: string) => {
+    const updated = await poApi.cancel(Number(id), reason);
+    setPurchaseOrders(prev => prev.map(po => po.id === id ? toPurchaseOrder(updated) : po));
+  }, []);
+
   // ── Mill Tracker mutations ─────────────────────────────────────────────────
 
   const addMillTracker = useCallback(
@@ -264,7 +275,7 @@ export function PurchaseOrderProvider({ children }: { children: ReactNode }) {
   return (
     <PurchaseOrderContext.Provider
       value={{
-        purchaseOrders, addPurchaseOrder, updatePurchaseOrder,
+        purchaseOrders, addPurchaseOrder, updatePurchaseOrder, cancelPurchaseOrder,
         millTrackers, addMillTracker, updateMillTracker,
         truckLoadPlans, addTruckLoadPlan, updateTruckLoadPlan, deleteTruckLoadPlan,
         reload,

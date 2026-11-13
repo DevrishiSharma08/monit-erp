@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Monit.API.Common.Helpers;
+using Monit.API.Common.Middleware;
 using Monit.API.Common.Response;
 using Monit.API.Models.DTOs.Inventory;
 using Monit.API.Services.Interfaces;
@@ -73,7 +74,7 @@ public class StockLotsController(IStockLotService svc) : ControllerBase
 
     // DELETE api/v1/stock-lots/{id}
     [HttpDelete("{id:int}")]
-    [Authorize(Roles = "Admin,Manager")]
+    [RequirePerm("stock.delete")]
     public async Task<IActionResult> Delete(int id)
     {
         try

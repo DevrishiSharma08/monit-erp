@@ -363,3 +363,17 @@ html:not(.dark) select:focus,
 html:not(.dark) textarea:focus {
   outline: none;
 }
+
+/* Hides the native up/down stepper on number inputs (SO/PO line-item
+   fields — GSM/Qty/Weight/Rate/Discount) so a scroll-wheel pass over the
+   page can't be mistaken for a spin-button click. Paired with an onWheel
+   blur handler in the form itself, which is the part that actually stops
+   scrolling from changing the value while the field is focused. */
+input.no-spinner::-webkit-outer-spin-button,
+input.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input.no-spinner[type="number"] {
+  -moz-appearance: textfield;
+}

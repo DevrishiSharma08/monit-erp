@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Monit.API.Common.Helpers;
+using Monit.API.Common.Middleware;
 using Monit.API.Common.Response;
 using Monit.API.Models.DTOs.Procurement;
 using Monit.API.Services.Interfaces;
@@ -16,7 +17,7 @@ public class TruckLoadPlanController(ITruckLoadPlanService svc) : ControllerBase
                                ?? User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value
                                ?? "system";
 
-    /// <summary>GET /api/v1/truck-load-plans — paginated list with optional filters</summary>
+    /// <summary>GET /api/v1/truck-load-plans â€” paginated list with optional filters</summary>
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] TruckLoadPlanFilterRequest filter)
     {
@@ -27,7 +28,7 @@ public class TruckLoadPlanController(ITruckLoadPlanService svc) : ControllerBase
         return Ok(ApiResponse<PagedResult<TruckLoadPlanDto>>.Ok(result));
     }
 
-    /// <summary>GET /api/v1/truck-load-plans/{id} — single plan with all items</summary>
+    /// <summary>GET /api/v1/truck-load-plans/{id} â€” single plan with all items</summary>
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetById(int id)
     {
@@ -37,7 +38,7 @@ public class TruckLoadPlanController(ITruckLoadPlanService svc) : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/v1/truck-load-plans — create a new truck load plan.
+    /// POST /api/v1/truck-load-plans â€” create a new truck load plan.
     /// Items must reference mill tracker IDs (TrackerId) that are Partial Ready or Ready.
     /// </summary>
     [HttpPost]
@@ -49,7 +50,7 @@ public class TruckLoadPlanController(ITruckLoadPlanService svc) : ControllerBase
     }
 
     /// <summary>
-    /// PATCH /api/v1/truck-load-plans/{id}/status — advance plan status.
+    /// PATCH /api/v1/truck-load-plans/{id}/status â€” advance plan status.
     /// Moving to "Dispatched" automatically updates DispatchedQty on all linked mill trackers.
     /// </summary>
     [HttpPatch("{id:int}/status")]
@@ -59,9 +60,9 @@ public class TruckLoadPlanController(ITruckLoadPlanService svc) : ControllerBase
         return Ok(ApiResponse<TruckLoadPlanDto>.Ok(plan, $"Plan status updated to '{dto.Status}'."));
     }
 
-    /// <summary>DELETE /api/v1/truck-load-plans/{id} — soft delete (Admin/Manager only)</summary>
+    /// <summary>DELETE /api/v1/truck-load-plans/{id} â€” soft delete (Admin/Manager only)</summary>
     [HttpDelete("{id:int}")]
-    [Authorize(Roles = "Admin,Manager")]
+    [RequirePerm("logistics.delete")]
     public async Task<IActionResult> Delete(int id)
     {
         await svc.DeleteAsync(id, CurrentUser);

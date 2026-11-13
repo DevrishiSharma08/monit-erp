@@ -1,19 +1,19 @@
 # Monit Paper Agency ERP — Backend Architecture Reference
 
-**Created:** 2026-04-28 | **Updated:** 2026-05-19
-**Stack:** .NET 8 Web API + Dapper + SQL Server (MSSQL)
+**Created:** 2026-04-28 | **Updated:** 2026-05-19 | **Superseded-in-part:** 2026-07-14 — see the "Recent Additions" section near the end and [HANDOFF.md](HANDOFF.md) for what's changed since this doc was last written. The DB Schema section (§5) predates roughly 30 later migrations — treat it as historical design rationale, not the current schema; check `Database/*.sql` or `sys.columns` for ground truth.
+**Stack:** .NET 10 Web API + Dapper + SQL Server (MSSQL)
 **Pattern:** Single-project layered architecture (Controllers → Services → Repositories → DB)
-**Purpose:** Single source of truth for all backend design decisions. Read before touching any backend code.
+**Purpose:** Single source of truth for backend design *rationale*. Read for the "why"; read `Database/*.sql` and the actual controllers for the current "what."
 
 ---
 
 ## 1. Context & Constraints
 
-- **Phase 1 (current):** Procurement flow — Inquiry → SO → Coverage → PO → Mill Tracker → GRN → Stock → Pick Plan → TLP → Challan → In-Transit + all Masters + Auth. **Backend API integration is in progress** — Auth, Masters, Sales Orders, Purchase Orders, Mill Tracker, TLP, GRN, Stock Lots, Company Config, and Dashboard are complete.
-- **Phase 2 (future):** Invoicing (Sales + Purchase), Payments, Tally export, Customer portal
-- **Phase 3 (future):** Full reporting dashboards, advanced analytics
-- **Non-negotiable:** SO / PO / GRN data must survive all future phases without corruption — no destructive ALTER TABLE on core tables ever
-- **Client:** Single company (Monit Paper Agency, Indore) — single-tenant
+- **Phase 1 (current, live in client UAT):** Sales Order → Purchase Order → Mill Tracker → Truck Load Plan → Dispatch → GRN → Stock Lots → Delivery Challan, + all Masters + Auth + permission-based authorization. All complete and integrated.
+- **Phase 2 (future, built but hidden):** Inquiry, Coverage, Pick Plan, In-Transit, Invoicing (Sales + Purchase), Payments, Tally export, Customer portal.
+- **Phase 3 (future, hidden):** Full reporting dashboards, advanced analytics, CRM.
+- **Non-negotiable:** SO / PO / GRN data must survive all future phases without corruption — no destructive ALTER TABLE on core tables ever.
+- **Client:** **Multi-tenant since mid-2026** — two companies (Monit Paper Sales Agency / Monit Paper Associates), two databases (`MonitPaperDB` / `MonitAssociatesDB`), one shared codebase, tenant resolved from the JWT `company_id` claim. This superseded the original single-tenant assumption below this doc was written under — do not assume single-tenant when touching auth/connection code.
 
 ---
 
@@ -910,31 +910,38 @@ Every response uses `ApiResponse<T>` — `{ success, data, message, errors, meta
 
 ---
 
-## 10. Phase 1 Execution Plan
+## 10. Phase 1 Execution Plan — status as of 2026-07-14
 
-### ✅ Complete
+### ✅ Complete (and live in client UAT — treat as production)
 - Solution setup (single `Monit.API` project), `DbConnectionFactory`, `ExceptionMiddleware`
-- SQL scripts `00` → `09` — full Phase 1 schema created
-- **Auth:** Login (BCrypt + backward-compat plaintext upgrade), Refresh, Logout, Me, ChangePassword, User CRUD, Role CRUD
-- **Masters:** All 16 master types — Mills (+ contacts, units, quality-GSM), Materials, Customers (+ delivery locations), Salesmen, Warehouses (+ bins, racks), Transporters (+ vehicles), Rates, PaperSizes, StockGroups, StockCategories, ItemTypes, Units, HSN Codes, Localities, MQG, Instructions
-- **Sales Orders:** Full CRUD + line management + status transitions + export (Excel/PDF/Word)
-- **Purchase Orders:** Full CRUD + status transitions + export
-- **Mill Tracker:** Full CRUD + production status updates + history
-- **Truck Load Plans:** Full CRUD
-- **GRN:** Full CRUD + lot number auto-generation + concurrency-safe prevQty check
-- **Stock Lots:** FIFO list + bin assignment + status management
-- **Company Config:** Get/Update company settings
+- Multi-tenant DB routing (`MonitPaperDB` / `MonitAssociatesDB`, resolved from JWT `company_id`)
+- Permission-based authorization (`RequirePermAttribute`, replacing role-name gating) across nearly all write/delete endpoints
+- **Auth:** Login (BCrypt + backward-compat plaintext upgrade), Refresh, Logout, Me, ChangePassword, User CRUD, Role/Permission CRUD
+- **Masters:** all master types (Mills + contacts/units, Materials, Customers, Salesmen, Warehouses + bins, Transporters, Rates, PaperSizes, StockGroups, StockCategories, ItemTypes, Units, HSN Codes, Localities, MQG, Instructions)
+- **Sales Orders:** full CRUD + lines + approval flow + Cancel (distinct from Delete) + export (PDF/email/print)
+- **Purchase Orders:** full CRUD + approval + Cancel + export, "Against SO" or "For Stock"
+- **Mill Tracker:** full CRUD + production status + partial-delivery history + Close Tracker (short-delivery finalization)
+- **Truck Load Plans:** full CRUD, load types, weight(kg) standardized flow
+- **Dispatch Receipts:** full CRUD, syncs Mill Tracker's `DispatchedQty` on creation
+- **GRN:** full CRUD, grouped by invoice number, immutable after creation, per-item packing (bundle/packet/sheet)
+- **Stock Lots:** FIFO list + bin assignment
+- **Delivery Challan:** manual single-flow (see §"Recent Additions" below) — Draft → Dispatched → Delivered, auto-closes the SO
+- **Company Config:** multi-tenant singleton, MERGE-pattern partial updates
 - **Dashboard:** KPI aggregates endpoint
+- Email (MailKit) + PDF (QuestPDF) generation for SO/PO, with cross-page "Mail Sent ✓" state
 
-### 🔲 Remaining (Phase 1)
-- Inquiries API (+ check-coverage, convert-to-SO)
-- Coverage engine query
-- Pick Plans (FIFO auto-generation)
-- Challans
-- In-Transit tracking
-- Notifications API
-- Connect remaining frontend pages (Inquiry, Coverage, Pick Plan, Challan, In-Transit, Reports)
-- Deploy to IIS / staging server
+### 🔲 Not built / intentionally hidden (Phase 2/3 — not current scope, don't build without being asked)
+- Inquiries API, Coverage engine, Pick Plans (FIFO auto-generation), In-Transit tracking, Sales/Purchase Invoicing, Notifications API, Reports, non-root Dashboards, Customer portal, Tally export
+
+---
+
+## Recent Additions (since this doc's 2026-05-19 "Updated" date — see [HANDOFF.md](HANDOFF.md) for full detail)
+
+- **Permission system**: `Common/Middleware/RequirePermAttribute.cs`, permission catalog in `Services/Auth/RoleService.cs`. See HANDOFF.md §6.
+- **Weight-vs-sheet-count bug class**: found and fixed twice (SO PDF, Delivery Challan repository). Shared fix helper: `Common/Helpers/WeightCalculator.cs`. See HANDOFF.md §5 — read this before touching any SO/PO line quantity code.
+- **Mill Tracker Close Tracker** feature (migration `37_mill_tracker_close.sql`) — short-delivery finalization, replaced the old "Add Batch" manual-entry flow.
+- **SO/PO Cancel** feature (migration `38_so_po_cancel.sql`) — distinct from Delete, keeps row/number/history, greys out in the grid.
+- Migrations now go up to `38_so_po_cancel.sql` — see root `README.md` and HANDOFF.md §2 for the full, messily-numbered list.
 
 ---
 
@@ -942,12 +949,15 @@ Every response uses `ApiResponse<T>` — `{ success, data, message, errors, meta
 
 | File | Purpose |
 |---|---|
-| `BACKEND_ARCHITECTURE.md` | This file — architecture, DB schema, patterns, plan |
-| `BACKEND_REQUIREMENTS.md` | Screen-by-screen API contracts (request/response JSON shapes) |
-| `CLAUDE.md` | Full codebase guidance (frontend + backend conventions) |
-| `Database/README.md` | DB setup run-order and seed credentials |
-| `frontend/data/mockData.ts` | TypeScript interfaces + mock arrays for non-integrated pages |
+| `HANDOFF.md` | **Start here** — deepest, most current "state of the world" briefing (business flow, recent changes, parked items, gotchas) |
+| `CLAUDE.md` | Auto-loaded codebase guidance for Claude Code (frontend + backend conventions) |
+| `BACKEND_ARCHITECTURE.md` | This file — architecture rationale, DB schema (historical, §5 predates ~30 later migrations), patterns |
+| `BACKEND_REQUIREMENTS.md` | Original pre-build screen-by-screen requirements doc — endpoint paths/table designs there have drifted from what was actually built; useful for business-rule rationale only |
+| `README.md` (root) | DB setup run-order and seed credentials |
+| `frontend/README.md` | Frontend overview, routes (cross-check against `Sidebar.tsx`) |
+| `frontend/data/mockData.ts` | TypeScript interfaces + mock arrays for non-integrated (Phase 2/3, hidden) pages |
 | `frontend/types/paper-domain.ts` | Shared TypeScript types for API-integrated modules |
 | `frontend/lib/api.ts` | `apiFetch` — JWT auth, 401 refresh retry, envelope unwrap |
 | `frontend/lib/api-services.ts` | Per-resource API helpers (soApi, poApi, grnApi, etc.) |
+| `frontend/lib/weight.ts` | Frontend twin of `Common/Helpers/WeightCalculator.cs` — see HANDOFF.md §5 |
 | `database/*.sql` | Run in order to create the complete Phase 1 DB schema |

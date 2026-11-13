@@ -12,6 +12,7 @@ export interface SOLine {
   lineNumber: number;
   materialId: string;
   materialCode: string;
+  brandName?: string;
   gsm?: number;
   size?: string;
   unit?: string;
@@ -41,20 +42,27 @@ export interface SalesOrder {
   salesmanId?: string;
   deliveryPartyId?: string;
   customer: string;
+  customerGstNo?: string;
+  customerAddress?: string;
   contactPerson?: string;
   customerPhone?: string;
   customerEmail?: string;
   salesman: string;
   deliveryParty?: string;
+  deliveryPartyGstNo?: string;
   deliveryPartyAddress?: string;
   orderDate: string;
   requiredDeliveryDate?: string;
   status: string;
   deliveryMode?: string;
-  deliveryTerms?: string;
   paymentTerms: string;
   remarks?: string;
   insurancePolicyNo?: string;
+  showBrandInItemCode?: boolean;
+  isBackfilled?: boolean;
+  cancelReason?: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
   totalValue: number;
   linkedPoCount: number;
   lines: SOLine[];
@@ -70,20 +78,27 @@ function toSO(r: SalesOrderRow): SalesOrder {
     salesmanId:       r.salesmanId != null ? String(r.salesmanId) : undefined,
     deliveryPartyId:  r.deliveryPartyId != null ? String(r.deliveryPartyId) : undefined,
     customer:         r.customer,
+    customerGstNo:    r.customerGstNo,
+    customerAddress:  r.customerAddress,
     contactPerson:    r.contactPerson,
     customerPhone:    r.customerPhone,
     customerEmail:    r.customerEmail,
     salesman:         r.salesman ?? "",
     deliveryParty:    r.deliveryParty,
+    deliveryPartyGstNo: r.deliveryPartyGstNo,
     deliveryPartyAddress: r.deliveryPartyAddress,
     orderDate:        r.orderDate,
     requiredDeliveryDate: r.requiredDeliveryDate,
     status:           r.status,
     deliveryMode:     r.deliveryMode,
-    deliveryTerms:    r.deliveryTerms,
     paymentTerms:     r.paymentTerms ?? "",
     remarks:          r.remarks,
     insurancePolicyNo: r.insurancePolicyNo,
+    showBrandInItemCode: r.showBrandInItemCode,
+    isBackfilled:        r.isBackfilled,
+    cancelReason:        r.cancelReason,
+    cancelledAt:         r.cancelledAt,
+    cancelledBy:         r.cancelledBy,
     totalValue:       r.totalValue,
     linkedPoCount:    r.linkedPoCount ?? 0,
     lines: r.lines.map(l => ({
@@ -91,6 +106,7 @@ function toSO(r: SalesOrderRow): SalesOrder {
       lineNumber:       l.lineNumber,
       materialId:       String(l.materialId),
       materialCode:     l.materialCode,
+      brandName:        l.brandName,
       gsm:              l.gsm,
       size:             l.size,
       unit:             l.unit,
@@ -118,6 +134,7 @@ interface SalesOrderContextValue {
   addSalesOrder:    (so: SalesOrder) => void;
   updateSalesOrder: (id: string, patch: Partial<SalesOrder>) => void;
   deleteSalesOrder: (id: string) => Promise<void>;
+  cancelSalesOrder: (id: string, reason: string) => Promise<void>;
   linkPO:           (soId: string, poNumber: string) => void;
   pendingPoSOs:     SalesOrder[];
 }
@@ -152,6 +169,11 @@ export function SalesOrderProvider({ children }: { children: ReactNode }) {
     setSalesOrders(prev => prev.filter(so => so.id !== id));
   }, []);
 
+  const cancelSalesOrder = useCallback(async (id: string, reason: string) => {
+    const updated = await salesOrderApi.cancel(Number(id), reason);
+    setSalesOrders(prev => prev.map(so => so.id === id ? toSO(updated) : so));
+  }, []);
+
   const linkPO = useCallback((soId: string, poNumber: string) =>
     setSalesOrders(prev =>
       prev.map(so =>
@@ -178,7 +200,7 @@ export function SalesOrderProvider({ children }: { children: ReactNode }) {
 
   return (
     <SalesOrderContext.Provider
-      value={{ salesOrders, loading, reload, addSalesOrder, updateSalesOrder, deleteSalesOrder, linkPO, pendingPoSOs }}
+      value={{ salesOrders, loading, reload, addSalesOrder, updateSalesOrder, deleteSalesOrder, cancelSalesOrder, linkPO, pendingPoSOs }}
     >
       {children}
     </SalesOrderContext.Provider>

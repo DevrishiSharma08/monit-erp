@@ -15,6 +15,7 @@ import {
   hsnCodeApi, HsnCodeDropdown,
 } from "@/lib/api-services";
 import { ApiError } from "@/lib/api";
+import { Combobox } from "@/components/ui/Combobox";
 
 const inputCls  = "w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100";
 const labelCls  = "block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1";
@@ -26,11 +27,14 @@ function sheetWeightKg(gsm: number, len: number, wid: number): number {
   return (gsm * len * wid) / 1e7;
 }
 
-function formatCode(millCode: string, quality: string, brand: string, gsm: string, len: string, wid: string): string {
+// Mirrors backend MaterialService.ComposeCode — brand is intentionally
+// dropped from the stored code (codes were getting too long); the SO has a
+// per-order "Show brand in code" toggle for ad-hoc display when needed.
+// brand parameter kept in signature so existing callers still type-check.
+function formatCode(millCode: string, quality: string, _brand: string, gsm: string, len: string, wid: string): string {
   if (!millCode || !quality || !gsm || !len) return "";
-  const size     = wid ? `${len}x${wid}` : len;
-  const qualPart = brand ? `${quality}/${brand}` : quality;
-  return `${millCode}/${qualPart}/${gsm}/${size}`.toUpperCase();
+  const size = wid ? `${len}x${wid}` : len;
+  return `${millCode}/${quality}/${gsm}/${size}`.toUpperCase();
 }
 
 export default function ItemMasterPage() {
@@ -47,9 +51,23 @@ export default function ItemMasterPage() {
   const [deleteId,   setDeleteId]   = useState<number | null>(null);
   const [viewItem,   setViewItem]   = useState<MaterialRow | null>(null);
 
+  // Client UAT: carry the last-used Mill/Quality/Item Type/GSM into the next
+  // "Add" so clerks entering several size variants of the same item back-to-
+  // back don't have to re-pick the same 4 dropdowns every time. Size/HSN/
+  // Description are NOT carried over — those genuinely differ per variant.
+  const [lastUsed, setLastUsed] = useState<{ millId: number; qualityId: number; itemTypeId: number; gsm: string } | null>(null);
+
   // Form fields
   const [fMillId,      setFMillId]      = useState<number | "">("");
   const [fQualityId,   setFQualityId]   = useState<number | "">("");
+  // Combobox is a fully-controlled text input — its displayed value must
+  // come from the parent every render. While the user is actively typing
+  // (no confirmed option picked yet), show what they typed here instead of
+  // re-deriving from fMillId/fQualityId, which would collapse back to the
+  // last confirmed label (or blank) on every keystroke and make typing look
+  // broken. Null = "show the confirmed selection's label" (default).
+  const [millQuery,    setMillQuery]    = useState<string | null>(null);
+  const [qualityQuery, setQualityQuery] = useState<string | null>(null);
   const [fItemTypeId,  setFItemTypeId]  = useState<number | "">("");
   const [fGsm,         setFGsm]         = useState("");
   const [fSizeLen,     setFSizeLen]     = useState("");
@@ -115,9 +133,20 @@ export default function ItemMasterPage() {
     setFMillId(""); setFQualityId(""); setFItemTypeId("");
     setFGsm(""); setFSizeLen(""); setFSizeWid("");
     setFHsnCodeId(""); setFDescription(""); setFActive(true);
+    setMillQuery(null); setQualityQuery(null);
   }
 
-  function openAdd() { setEditItem(null); resetForm(); setShowModal(true); }
+  function openAdd() {
+    setEditItem(null);
+    resetForm();
+    if (lastUsed) {
+      setFMillId(lastUsed.millId);
+      setFQualityId(lastUsed.qualityId);
+      setFItemTypeId(lastUsed.itemTypeId);
+      setFGsm(lastUsed.gsm);
+    }
+    setShowModal(true);
+  }
 
   function openEdit(row: MaterialRow) {
     setEditItem(row);
@@ -130,6 +159,7 @@ export default function ItemMasterPage() {
     setFHsnCodeId(row.hsnCodeId ?? "");
     setFDescription(row.description ?? "");
     setFActive(row.isActive);
+    setMillQuery(null); setQualityQuery(null);
     setShowModal(true);
   }
 
@@ -151,6 +181,7 @@ export default function ItemMasterPage() {
       } else {
         const c = await materialApi.create(dto);
         setData((prev) => [c, ...prev]);
+        setLastUsed({ millId: Number(fMillId), qualityId: Number(fQualityId), itemTypeId: Number(fItemTypeId), gsm: fGsm });
       }
       setShowModal(false);
     } catch (e) {
@@ -178,6 +209,20 @@ export default function ItemMasterPage() {
 
   // ── Columns ─────────────────────────────────────────────────────────────────
   const columns: ColumnConfig<MaterialRow>[] = useMemo(() => [
+    {
+      id: "_actions", accessorKey: "id", header: "",
+      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50, sticky: "left",
+      cell: (info) => {
+        const row = info.row.original as MaterialRow;
+        return (
+          <ActionMenu items={[
+            { label: "View",   icon: Eye,    onClick: () => setViewItem(row) },
+            { label: "Edit",   icon: Pencil, onClick: () => openEdit(row) },
+            { label: "Delete", icon: Trash2, onClick: () => setDeleteId(row.id), variant: "danger" },
+          ]} />
+        );
+      },
+    },
     {
       id: "code", accessorKey: "code", header: "Item Code",
       filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 220,
@@ -264,37 +309,25 @@ export default function ItemMasterPage() {
         );
       },
     },
-    {
-      id: "_actions", accessorKey: "id", header: "",
-      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50,
-      cell: (info) => {
-        const row = info.row.original as MaterialRow;
-        return (
-          <ActionMenu items={[
-            { label: "View",   icon: Eye,    onClick: () => setViewItem(row) },
-            { label: "Edit",   icon: Pencil, onClick: () => openEdit(row) },
-            { label: "Delete", icon: Trash2, onClick: () => setDeleteId(row.id), variant: "danger" },
-          ]} />
-        );
-      },
-    },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-5 pb-24">
+    <div className="flex h-[calc(100vh-112px)] flex-col gap-4 overflow-hidden">
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2 flex-shrink-0">
           <AlertTriangle className="h-4 w-4 flex-shrink-0" /> {error}
           <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">✕</button>
         </div>
       )}
 
+      <div className="flex flex-1 min-h-0 flex-col">
       <DataGrid
         data={data} columns={columns} tableName="items"
         enableFilters enablePagination enableColumnReordering enableColumnVisibility
         initialPageSize={15}
+        scrollMaxHeight="100%"
         toolbarActions={
           <button onClick={openAdd} disabled={loading}
             className="flex items-center gap-2 rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 shadow-sm disabled:opacity-60">
@@ -303,6 +336,7 @@ export default function ItemMasterPage() {
           </button>
         }
       />
+      </div>
 
       {/* ── Add / Edit Modal ───────────────────────────────────────────────── */}
       <Modal
@@ -331,19 +365,29 @@ export default function ItemMasterPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>Mill *</label>
-                <select value={fMillId} onChange={(e) => setFMillId(Number(e.target.value))} className={selectCls}>
-                  <option value="">— select mill —</option>
-                  {mills.map((m) => <option key={m.id} value={m.id}>{m.code} — {m.name}</option>)}
-                </select>
+                <Combobox
+                  options={mills.map((m) => ({ value: String(m.id), label: `${m.code} — ${m.name}` }))}
+                  inputValue={millQuery !== null ? millQuery : (selectedMill ? `${selectedMill.code} — ${selectedMill.name}` : "")}
+                  onChange={(text, opt) => {
+                    if (opt) { setFMillId(Number(opt.value)); setMillQuery(null); }
+                    else      { setFMillId(""); setMillQuery(text); }
+                  }}
+                  placeholder="Search mill…"
+                  allowCustom={false}
+                />
               </div>
               <div>
                 <label className={labelCls}>Quality *</label>
-                <select value={fQualityId} onChange={(e) => setFQualityId(Number(e.target.value))} className={selectCls}>
-                  <option value="">— select quality —</option>
-                  {qualities.map((q) => (
-                    <option key={q.id} value={q.id}>{q.name}</option>
-                  ))}
-                </select>
+                <Combobox
+                  options={qualities.map((q) => ({ value: String(q.id), label: q.alias ? `${q.name} (${q.alias})` : q.name }))}
+                  inputValue={qualityQuery !== null ? qualityQuery : (selectedQuality ? (selectedQuality.alias ? `${selectedQuality.name} (${selectedQuality.alias})` : selectedQuality.name) : "")}
+                  onChange={(text, opt) => {
+                    if (opt) { setFQualityId(Number(opt.value)); setQualityQuery(null); }
+                    else      { setFQualityId(""); setQualityQuery(text); }
+                  }}
+                  placeholder="Search quality…"
+                  allowCustom={false}
+                />
               </div>
               <div>
                 <label className={labelCls}>Brand Name</label>

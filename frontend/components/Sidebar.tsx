@@ -8,7 +8,7 @@ import {
   Box, Factory, MapPin, PanelLeftClose, PanelLeftOpen,
   X, MessageSquare, ClipboardCheck, Shield, Star, ChevronRight,
   ChevronDown, Tag, IndianRupee, Settings, Package,
-  Layers, LayoutGrid, ThumbsUp, Building2,
+  Layers, LayoutGrid, ThumbsUp, Building2, FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
@@ -53,7 +53,9 @@ const NAV_ADMIN: TopItem[] = [
   { type: "leaf", name: "Purchase Order",     href: "/purchase-orders", icon: ShoppingBag,     perm: "po.read"        },
   { type: "leaf", name: "Mill Order Tracker", href: "/mill-tracker",    icon: Factory,         perm: "mill.read"      },
   { type: "leaf", name: "Truck Load Planner", href: "/truck-load-plan", icon: Truck,           perm: "logistics.read" },
+  { type: "leaf", name: "Dispatch",           href: "/dispatch",        icon: FileText,        perm: "grn.read"       },
   { type: "leaf", name: "GRN",                href: "/grn",             icon: ClipboardCheck,  perm: "grn.read"       },
+  { type: "leaf", name: "Delivery Challan",   href: "/challan",         icon: FileText,        perm: "grn.read"       },
   { type: "leaf", name: "Stock Location",     href: "/stock-lots",      icon: Package,         perm: "stock.read"     },
   {
     type: "section",

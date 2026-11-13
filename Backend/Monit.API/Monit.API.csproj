@@ -1,10 +1,24 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Monit.API</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Debug-only: skip generating the native apphost launcher (Monit.API.exe).
+       Windows Smart App Control blocks it as an unsigned/unrecognized binary
+       every time it's rebuilt ("An Application Control policy has blocked
+       this file" — caught locally 2026-09-16), and once Smart App Control is
+       fully On it can't be turned off short of reinstalling Windows. Without
+       an apphost, `dotnet run`/`dotnet build` launch the managed DLL through
+       the already-trusted dotnet.exe instead, sidestepping the block
+       entirely. Release/publish (what actually ships to the Linux server)
+       is untouched by this — that output already runs via `dotnet
+       Monit.API.dll` under systemd, never through a native exe. -->
+  <PropertyGroup Condition="'$(Configuration)'=='Debug'">
+    <UseAppHost>false</UseAppHost>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,10 +39,24 @@
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
 
-    <!-- Export -->
-    <PackageReference Include="ClosedXML" Version="0.102.3" />
+    <!-- Export — ClosedXML 0.104+ targets DocumentFormat.OpenXml v3, so the
+         two have to move together. Pinning 0.102.3 with OpenXml v3 caused a
+         runtime "IdPartPair value type mismatch" error on every workbook
+         save. -->
+    <PackageReference Include="ClosedXML" Version="0.104.2" />
     <PackageReference Include="QuestPDF" Version="2024.12.0" />
-    <PackageReference Include="DocumentFormat.OpenXml" Version="3.1.0" />
+    <!-- Stitches QuestPDF's per-page images into one combined JPG for the
+         SO/PO "Export as Image" feature (client-requested: share on
+         WhatsApp without a PDF viewer). SkiaSharp is already a transitive
+         QuestPDF dependency; pinned directly here so it doesn't drift. -->
+    <PackageReference Include="SkiaSharp" Version="2.88.8" />
+    <!-- The base SkiaSharp package only auto-includes native binaries for
+         Windows/macOS — Linux's libSkiaSharp.so ships in this separate
+         package and has to be referenced explicitly, or GenerateImages()
+         throws DllNotFoundException at runtime on Linux (prod server is
+         Linux/systemd; caught live 2026-09-09 on the SO/PO image export). -->
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.8" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.1.1" />
 
     <!-- Swagger -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />

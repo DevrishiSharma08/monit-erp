@@ -3,9 +3,13 @@
 **Last Updated:** 2026-05-19
 **Purpose:** Screen-wise documentation of frontend implementation and backend API contracts
 
-> **Integration status as of 2026-05-19:**
+> ⚠️ **This is the original PRE-BUILD planning document (2026-05-19), kept for business-rule rationale.** Endpoint paths shown below (e.g. `/api/sales-orders`) predate the `/api/v1/` prefix actually used, and some designed tables (e.g. a standalone `Challans`/`ChallanItems` schema) don't match what was actually implemented (`inventory.DeliveryChallans`). **Do not treat this doc as the current API contract** — read the actual controllers under `Backend/Monit.API/Controllers/` and `Database/*.sql` instead. See [HANDOFF.md](HANDOFF.md) for the current state and §10 there for a full doc-trust breakdown.
+>
+> **Integration status as of 2026-05-19 (stale — see [HANDOFF.md](HANDOFF.md) for current):**
 > ✅ Implemented: Auth, All Masters, Sales Orders, Purchase Orders, Mill Tracker, Truck Load Plans, GRN, Stock Lots, Company Config, Dashboard
 > 🔲 Pending: Customer Inquiry, Coverage Engine, Pick Plan, Challan, In-Transit, Notifications, Reports
+>
+> As of 2026-07-14: Delivery Challan, Dispatch Receipts, permission-based auth, and Cancel (SO/PO) are ALSO now fully implemented and live — this list was never updated after 2026-05-19. Inquiry/Coverage/Pick Plan/In-Transit/Reports remain genuinely not built (or hidden), per client-approved phasing — see HANDOFF.md.
 
 ---
 

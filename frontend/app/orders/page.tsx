@@ -4,19 +4,21 @@ import { useMemo, useState } from "react";
 import { SalesOrder, SOLine as SalesOrderLine } from "@/context/SalesOrderContext";
 import {
   ShoppingCart, AlertCircle, CheckCircle2, Package, Plus, MoreVertical,
-  Eye, Pencil, Trash2, X, Clock, Mail, Share2, IndianRupee,
+  Eye, Pencil, Trash2, X, Clock, Mail, Share2, IndianRupee, Ban, Printer, ImageIcon,
 } from "lucide-react";
 import { DataGrid } from "@/components/data-grid/DataGrid";
 import { ColumnConfig } from "@/components/data-grid/types/grid.types";
 import { SalesOrderForm } from "@/components/forms/SalesOrderForm";
 import { Modal } from "@/components/Modal";
 import { EmailModal, EmailContact, EmailFormData } from "@/components/EmailModal";
-import { salesOrderApi, customerApi } from "@/lib/api-services";
+import { salesOrderApi, customerApi, soLineDisplayCode } from "@/lib/api-services";
 import { emailSentCache } from "@/lib/emailSentCache";
 import { useSalesOrder } from "@/context/SalesOrderContext";
+import { useCompanySettings } from "@/context/CompanySettingsContext";
 import { useToast } from "@/context/ToastContext";
 import { cn } from "@/lib/utils";
 import { lineWeightKg, lineSheetCount } from "@/lib/weight";
+import { printPdfBlob } from "@/lib/printPdf";
 import { createPortal } from "react-dom";
 import { PortalModal, ModalCloseButton } from "@/components/PortalModal";
 import { SharePanel, ShareData } from "@/components/ShareMenu";
@@ -41,19 +43,27 @@ const SO_STATUS_OPTIONS = Object.keys(SO_STATUS_COLORS).map((v) => ({ label: v, 
 // ─── Row Actions ──────────────────────────────────────────────────────────────
 
 function RowActions({
-  onView, onEdit, onDelete, onSend, status, emailSent, shareData,
+  onView, onEdit, onDelete, onCancel, onSend, onPrint, onExportImage, status, emailSent, shareData,
 }: {
   onView: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onCancel: () => void;
   onSend?: () => void;
+  onPrint: () => void;
+  onExportImage?: () => void;
   status?: string;
   emailSent?: boolean;
   shareData?: ShareData;
 }) {
   const [open, setOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [pos, setPos] = useState({ top: 0, right: 0 });
+  // Estimated menu height (Send Email + View + Edit + Print + Export Image +
+  // Cancel + Delete + Share divider/button) — used to flip the menu upward
+  // when a row is near the bottom of the viewport, so the last row's menu
+  // never clips off-screen.
+  const MENU_H = 332;
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number }>({ top: 0, right: 0 });
   const [shareAnchor, setShareAnchor] = useState<{ top: number; right: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -62,7 +72,11 @@ function RowActions({
     e.stopPropagation();
     if (!open && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+      const spaceBelow = window.innerHeight - r.bottom;
+      const openUp = spaceBelow < MENU_H && r.top > MENU_H;
+      setPos(openUp
+        ? { bottom: window.innerHeight - r.top + 4, right: window.innerWidth - r.right }
+        : { top: r.bottom + 4, right: window.innerWidth - r.right });
     }
     setOpen((v) => !v);
   };
@@ -95,7 +109,10 @@ function RowActions({
         <MoreVertical className="h-4 w-4" />
       </button>
       {open && createPortal(
-        <div ref={menuRef} style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 9999 }}
+        <div ref={menuRef}
+          style={pos.bottom != null
+            ? { position: "fixed", bottom: pos.bottom, right: pos.right, zIndex: 9999 }
+            : { position: "fixed", top: pos.top, right: pos.right, zIndex: 9999 }}
           className="w-44 rounded-xl border border-gray-200 bg-white shadow-xl py-1">
           {status !== "Approval Pending" && onSend && (
             <button
@@ -113,10 +130,13 @@ function RowActions({
           {[
             { label: "View Details", icon: Eye, fn: onView },
             { label: "Edit SO", icon: Pencil, fn: onEdit },
+            { label: "Print", icon: Printer, fn: onPrint },
+            ...(onExportImage ? [{ label: "Export as Image", icon: ImageIcon, fn: onExportImage }] : []),
+            ...(status !== "Cancelled" ? [{ label: "Cancel Order", icon: Ban, fn: onCancel, red: false, amber: true }] : []),
             { label: "Delete", icon: Trash2, fn: onDelete, red: true },
-          ].map(({ label, icon: Icon, fn, red }) => (
+          ].map(({ label, icon: Icon, fn, red, amber }: { label: string; icon: typeof Eye; fn: () => void; red?: boolean; amber?: boolean }) => (
             <button key={label} onClick={act(fn)}
-              className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-sm transition-colors hover:bg-gray-50 ${red ? "text-red-600 hover:bg-red-50" : "text-gray-700"}`}>
+              className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-sm transition-colors hover:bg-gray-50 ${red ? "text-red-600 hover:bg-red-50" : amber ? "text-amber-600 hover:bg-amber-50" : "text-gray-700"}`}>
               <Icon className="h-3.5 w-3.5" /> {label}
             </button>
           ))}
@@ -164,6 +184,28 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
     ? "bg-blue-50 text-blue-600"
     : "bg-purple-50 text-purple-600";
 
+  // Parties block matches the SO PDF layout exactly: Supplier (Monit) on
+  // the left, Billed To (SO customer) middle, Shipped To (delivery party,
+  // falling back to SO customer) on the right. PDF fallback rules are
+  // mirrored here so on-screen view and printed PDF stay 1:1.
+  const { config } = useCompanySettings();
+  const shipName = (so.deliveryParty ?? "").trim() || so.customer;
+  const shipAddr = (so.deliveryPartyAddress ?? "").trim() || (so.customerAddress ?? "");
+  const shipGst  = (so.deliveryPartyGstNo ?? "").trim() || (so.customerGstNo ?? "");
+
+  // Print the actual generated PDF (same bytes as Download/email attachment)
+  // rather than the browser's print of this on-screen view, so the printed
+  // page always matches the downloaded PDF exactly (client-reported).
+  const { error: showPrintError } = useToast();
+  const handlePrint = async () => {
+    try {
+      const { blob } = await salesOrderApi.downloadPdf(Number(so.id));
+      printPdfBlob(blob);
+    } catch (e) {
+      showPrintError(e instanceof Error ? e.message : "Print failed.");
+    }
+  };
+
   return (
     <PortalModal onClose={onClose}>
         {/* Status-tinted header */}
@@ -185,6 +227,16 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
 
         <div className="max-h-[calc(100vh-160px)] overflow-y-auto p-5 space-y-4">
 
+          {/* Cancelled banner */}
+          {so.status === "Cancelled" && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5">
+              <p className="text-xs font-bold text-rose-700">
+                Cancelled{so.cancelledAt ? ` on ${so.cancelledAt}` : ""}{so.cancelledBy ? ` by ${so.cancelledBy}` : ""}
+              </p>
+              {so.cancelReason && <p className="mt-0.5 text-xs text-rose-600">Reason: {so.cancelReason}</p>}
+            </div>
+          )}
+
           {/* Colored summary metrics */}
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2.5">
@@ -201,6 +253,32 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
             </div>
           </div>
 
+          {/* Parties — mirrors the SO PDF (Supplier / Billed To / Shipped To)
+              so what the user sees on screen matches what's printed/emailed. */}
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Parties</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="rounded-xl border border-blue-100 bg-blue-50/40 px-3 py-2.5">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-blue-500">Supplier Name</p>
+                <p className="text-sm font-semibold text-gray-900 mt-1">{config?.companyName || "—"}</p>
+                {config?.address && <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">{config.address}</p>}
+                <p className="text-[10px] text-gray-500 mt-1">GST: <span className="font-medium text-gray-700">{config?.gstNumber || "—"}</span></p>
+              </div>
+              <div className="rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2.5">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-violet-500">Billed To</p>
+                <p className="text-sm font-semibold text-gray-900 mt-1">{so.customer}</p>
+                {so.customerAddress && <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">{so.customerAddress}</p>}
+                <p className="text-[10px] text-gray-500 mt-1">GST: <span className="font-medium text-gray-700">{so.customerGstNo || "—"}</span></p>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 px-3 py-2.5">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-500">Shipped To</p>
+                <p className="text-sm font-semibold text-gray-900 mt-1">{shipName}</p>
+                {shipAddr && <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">{shipAddr}</p>}
+                <p className="text-[10px] text-gray-500 mt-1">GST: <span className="font-medium text-gray-700">{shipGst || "—"}</span></p>
+              </div>
+            </div>
+          </div>
+
           {/* Detail fields */}
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2">Order Details</p>
@@ -210,7 +288,6 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
                 { label: "Salesman",       value: so.salesman,                        accent: "" },
                 { label: "Contact",        value: so.contactPerson || "—",            accent: "" },
                 { label: "Payment Terms",  value: so.paymentTerms || "—",            accent: "" },
-                { label: "Delivery Terms", value: so.deliveryTerms || "—",           accent: "" },
                 { label: "Delivery Party", value: (so as any).deliveryParty || so.customer, accent: "" },
                 { label: "Delivery Address", value: so.lines[0]?.deliveryAddress || "—", accent: "" },
               ] as { label: string; value: string; accent: string }[]).map(({ label, value }) => (
@@ -251,7 +328,9 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
                     <tr key={line.id} className={idx % 2 === 0 ? "bg-white border-t border-gray-100" : "bg-slate-50/60 border-t border-gray-100"}>
                       <td className="px-3 py-2.5 text-gray-400">{line.lineNumber}</td>
                       <td className="px-3 py-2.5">
-                        <p className="font-semibold text-gray-900">{line.materialCode || line.materialId}</p>
+                        <p className="font-semibold text-gray-900">
+                          {soLineDisplayCode(line, so.showBrandInItemCode) || line.materialId}
+                        </p>
                         {line.gsm && <p className="text-[10px] text-gray-400 mt-0.5">{line.gsm}g · {line.size}</p>}
                         {line.remarks && <p className="text-[10px] text-amber-600 italic mt-0.5">{line.remarks}</p>}
                       </td>
@@ -318,6 +397,9 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
               <Mail className="h-3.5 w-3.5" /> {emailSent ? "Mail Sent ✓" : "Send Mail"}
             </button>
           )}
+          <button onClick={handlePrint} className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+            <Printer className="h-3.5 w-3.5" /> Print
+          </button>
           <button onClick={onEdit} className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors">
             <Pencil className="h-3.5 w-3.5" /> Edit
           </button>
@@ -329,8 +411,13 @@ function ViewSOModal({ so, onEdit, onSend, onClose, emailSent }: { so: SalesOrde
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OrdersPage() {
-  const { success } = useToast();
-  const { salesOrders, reload, deleteSalesOrder } = useSalesOrder();
+  const { success, error: showError } = useToast();
+  const { salesOrders, reload, deleteSalesOrder, cancelSalesOrder } = useSalesOrder();
+  // Company name from CompanySettings drives the email sign-off so the
+  // right tenant brand goes out (Monit Paper Agency vs Monit Paper
+  // Associates) — no hardcoded string in the body.
+  const { config: orderCompanyCfg } = useCompanySettings();
+  const monitName = orderCompanyCfg.companyName?.trim() ?? "";
 
   const [showForm, setShowForm]         = useState(false);
   const [editingOrder, setEditingOrder] = useState<SalesOrder | undefined>();
@@ -338,6 +425,9 @@ export default function OrdersPage() {
   const [emailOrder, setEmailOrder]     = useState<SalesOrder | null>(null);
   const [emailContacts, setEmailContacts] = useState<EmailContact[]>([]);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<SalesOrder | null>(null);
+  const [cancelReasonInput, setCancelReasonInput] = useState("");
+  const [cancelBusy, setCancelBusy] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [emailSentIds, setEmailSentIds] = useState<Set<string>>(() => emailSentCache.getSoIds());
 
@@ -391,8 +481,9 @@ export default function OrdersPage() {
 
   const buildEmailData = (so: SalesOrder): EmailFormData => {
     const lines = so.lines.map((l, i) => {
-      const qty = `${lineWeightKg(l).toLocaleString("en-IN")} KG`;
-      return `  ${i + 1}. ${l.materialCode || l.materialId} — ${qty} — ₹${l.rate.toLocaleString("en-IN")}/- — Amt: ₹${l.amount.toLocaleString("en-IN")}`;
+      const qty  = `${lineWeightKg(l).toLocaleString("en-IN")} KG`;
+      const code = soLineDisplayCode(l, so.showBrandInItemCode) || String(l.materialId);
+      return `  ${i + 1}. ${code} — ${qty} — ₹${l.rate.toLocaleString("en-IN")}/- — Amt: ₹${l.amount.toLocaleString("en-IN")}`;
     }).join("\n");
     // Pre-select the default contact email as the initial TO
     const defaultEmail = so.customerEmail ?? "";
@@ -400,7 +491,7 @@ export default function OrdersPage() {
       to:      defaultEmail ? [defaultEmail] : [],
       cc:      [],
       subject: `Sales Order Confirmed — ${so.soNumber}`,
-      body:    `Dear ${so.customer},\n\nThank you for your order. Please find the details below:\n\nOrder No : ${so.soNumber}\nDate     : ${so.orderDate}\nSalesman : ${so.salesman}\nPayment  : ${so.paymentTerms}\n\nItems:\n${lines}\n\nTotal Value: ₹${so.totalValue.toLocaleString("en-IN")}\n\nFor any queries, please contact us.\n\nRegards,\nMonit Paper Agency`,
+      body:    `Dear ${so.customer},\n\nThank you for your order. Please find the details below:\n\nOrder No : ${so.soNumber}\nDate     : ${so.orderDate}\nSalesman : ${so.salesman}\nPayment  : ${so.paymentTerms}\n\nItems:\n${lines}\n\nTotal Value: ₹${so.totalValue.toLocaleString("en-IN")}\n\nFor any queries, please contact us.\n\nRegards,\n${monitName}`,
     };
   };
 
@@ -426,9 +517,82 @@ export default function OrdersPage() {
   // ── Columns ──────────────────────────────────────────────────────────────────
   const columns: ColumnConfig<SalesOrder>[] = useMemo(() => [
     {
+      id: "actions", accessorKey: "id", header: "",
+      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48, sticky: "left",
+      noTruncate: true,   // suppress the CSS text-ellipsis that was painting an extra "…" next to the menu icon
+      cell: (info) => {
+        const so = info.row.original;
+        return (
+          <RowActions
+            status={so.status}
+            onView={() => setViewOrder(so)}
+            onEdit={() => handleEdit(so)}
+            onDelete={() => setDeleteConfirmId(so.id)}
+            onCancel={() => { setCancelTarget(so); setCancelReasonInput(""); }}
+            onSend={() => openEmailModal(so)}
+            onPrint={async () => {
+              try {
+                const { blob } = await salesOrderApi.downloadPdf(Number(so.id));
+                printPdfBlob(blob);
+              } catch (e) {
+                showError(e instanceof Error ? e.message : "Print failed.");
+              }
+            }}
+            onExportImage={async () => {
+              try {
+                const { blob, filename } = await salesOrderApi.downloadImage(Number(so.id));
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename || `SO_${so.soNumber.replace(/\//g, "-")}.jpg`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              } catch (e) {
+                showError(e instanceof Error ? e.message : "Image export failed.");
+              }
+            }}
+            emailSent={emailSentIds.has(so.id)}
+            shareData={(() => {
+              const itemLines = so.lines.map((l, i) => {
+                const qty  = `${lineWeightKg(l).toLocaleString("en-IN")} KG`;
+                const code = soLineDisplayCode(l, so.showBrandInItemCode) || String(l.materialId);
+                return `  ${i + 1}. ${code} — ${qty} @ ₹${l.rate.toLocaleString("en-IN")}`;
+              }).join("\n");
+              return {
+                title: so.soNumber,
+                subject: `Sales Order ${so.soNumber} — ${so.customer}`,
+                text: `Sales Order: ${so.soNumber}\nCustomer: ${so.customer}\nDate: ${so.orderDate}\nItems:\n${itemLines}\nTotal: ₹${so.totalValue?.toLocaleString("en-IN") ?? "—"}`,
+                // PDF attaches to the share when the platform supports
+                // Web Share API w/ files (mobile / macOS Safari). On
+                // desktop the PDF is downloaded so user can attach it.
+                getPdf: () => salesOrderApi.downloadPdf(Number(so.id)),
+              };
+            })()}
+          />
+        );
+      },
+    },
+    {
       id: "soNumber", accessorKey: "soNumber", header: "SO #",
-      filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 130, align: "left" as const,
-      cell: (info) => <span className="font-semibold text-blue-700">{info.getValue() as string}</span>,
+      filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 160, align: "left" as const,
+      cell: (info) => {
+        const so = info.row.original;
+        return (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="font-semibold text-blue-700">{info.getValue() as string}</span>
+            {so.isBackfilled && (
+              <span
+                title="Backfilled / historical SO entered from the manual register"
+                className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 uppercase border border-amber-200"
+              >
+                Backfill
+              </span>
+            )}
+          </span>
+        );
+      },
     },
     {
       id: "orderDate", accessorKey: "orderDate", header: "Date",
@@ -447,11 +611,13 @@ export default function OrdersPage() {
       id: "lines", accessorKey: "lines", header: "Items",
       filterType: "none", enableSorting: false, defaultVisible: true, size: 260, align: "left" as const, noTruncate: true,
       cell: (info) => {
-        const lines = info.getValue() as SalesOrderLine[];
-        const first = lines[0];
+        const so    = info.row.original;
+        const first = so.lines[0];
         if (!first) return <span className="text-gray-400 text-xs">—</span>;
-        const code = first.materialCode || first.materialId || "—";
-        const qty = `${lineWeightKg(first).toLocaleString("en-IN")} kg`;
+        // Respect the per-SO "Show brand in code" flag so the grid stays in
+        // sync with the popup / view modal / PDF rendering.
+        const code = soLineDisplayCode(first, so.showBrandInItemCode) || first.materialId || "—";
+        const qty  = `${lineWeightKg(first).toLocaleString("en-IN")} kg`;
         return (
           <div className="text-xs leading-snug">
             <div className="font-medium text-gray-900">{code}</div>
@@ -519,42 +685,14 @@ export default function OrdersPage() {
         );
       },
     },
-    {
-      id: "actions", accessorKey: "id", header: "",
-      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 48,
-      cell: (info) => {
-        const so = info.row.original;
-        return (
-          <RowActions
-            status={so.status}
-            onView={() => setViewOrder(so)}
-            onEdit={() => handleEdit(so)}
-            onDelete={() => setDeleteConfirmId(so.id)}
-            onSend={() => openEmailModal(so)}
-            emailSent={emailSentIds.has(so.id)}
-            shareData={(() => {
-              const itemLines = so.lines.map((l, i) => {
-                const qty = `${lineWeightKg(l).toLocaleString("en-IN")} KG`;
-                return `  ${i + 1}. ${l.materialCode || l.materialId} — ${qty} @ ₹${l.rate.toLocaleString("en-IN")}`;
-              }).join("\n");
-              return {
-                title: so.soNumber,
-                subject: `Sales Order ${so.soNumber} — ${so.customer}`,
-                text: `Sales Order: ${so.soNumber}\nCustomer: ${so.customer}\nDate: ${so.orderDate}\nItems:\n${itemLines}\nTotal: ₹${so.totalValue?.toLocaleString("en-IN") ?? "—"}\nStatus: ${so.status}`,
-              };
-            })()}
-          />
-        );
-      },
-    },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [emailSentIds]);
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="flex h-[calc(100vh-112px)] flex-col gap-4 overflow-hidden">
 
       {/* KPI Cards */}
-      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
+      <div className="kpi-grid grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 flex-shrink-0">
         {[
           { label: "Total Orders",      value: kpis.total,            sub: `${kpis.totalKg.toLocaleString("en-IN")} KG`,        icon: ShoppingCart, iconBg: "bg-blue-50",   iconColor: "text-blue-500"   },
           { label: "Awaiting Approval", value: kpis.approvalPending,  sub: `${kpis.approvalKg.toLocaleString("en-IN")} KG`,     icon: Clock,        iconBg: "bg-orange-50", iconColor: "text-orange-500" },
@@ -567,18 +705,18 @@ export default function OrdersPage() {
             key={card.label}
             onClick={card.clickable ? () => setStatusFilter(prev => prev === "Pending Allocation" ? null : "Pending Allocation") : undefined}
             className={cn(
-              "group relative overflow-hidden rounded-2xl border border-white/80 p-3 sm:p-5 shadow-sm",
+              "group relative overflow-hidden rounded-2xl border border-white/80 p-2.5 sm:p-3.5 shadow-sm",
               "transition-all duration-200 hover:-translate-y-1 hover:shadow-lg",
               card.iconBg,
               card.clickable && "cursor-pointer active:scale-[0.98]",
               card.clickable && statusFilter === "Pending Allocation" && "ring-2 ring-amber-400"
             )}
           >
-            <p className={cn("text-[9px] sm:text-[11px] font-semibold uppercase tracking-wider truncate", card.iconColor)}>{card.label}</p>
-            <p className="mt-1.5 text-2xl sm:text-4xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{card.value}</p>
-            <p className="mt-1 text-[10px] sm:text-xs text-gray-500 truncate">{card.sub}</p>
+            <p className={cn("text-[9px] sm:text-[10px] font-semibold uppercase tracking-wider truncate", card.iconColor)}>{card.label}</p>
+            <p className="mt-1 text-xl sm:text-3xl font-black text-gray-900 leading-none tabular-nums animate-kpi-value">{card.value}</p>
+            <p className="mt-0.5 text-[9px] sm:text-[11px] text-gray-500 truncate">{card.sub}</p>
             <div className={cn("pointer-events-none absolute -right-3 -bottom-3 opacity-[0.12] transition-transform duration-300 group-hover:scale-110 group-hover:opacity-[0.18]", card.iconColor)}>
-              <card.icon className="h-20 w-20 sm:h-24 sm:w-24" strokeWidth={1} />
+              <card.icon className="h-14 w-14 sm:h-16 sm:w-16" strokeWidth={1} />
             </div>
           </div>
         ))}
@@ -586,7 +724,7 @@ export default function OrdersPage() {
 
       {/* Delete confirm */}
       {deleteConfirmId && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 flex-shrink-0">
           <p className="text-sm font-bold text-red-800 mb-1">Delete this sales order?</p>
           <p className="text-xs text-red-600 mb-3">
             SO <span className="font-mono font-semibold">{salesOrders.find((o) => o.id === deleteConfirmId)?.soNumber}</span> will be permanently removed.
@@ -598,9 +736,66 @@ export default function OrdersPage() {
         </div>
       )}
 
+      {/* Cancel confirm */}
+      {cancelTarget && (
+        <Modal
+          isOpen={!!cancelTarget}
+          title={`Cancel SO ${cancelTarget.soNumber}?`}
+          onClose={() => { if (!cancelBusy) setCancelTarget(null); }}
+          size="sm"
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">
+              The SO number, its history, and all its data stay intact for tracking — the row will just show as
+              <span className="mx-1 inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-600">Cancelled</span>
+              and greyed out in the grid. This is different from Delete, which removes it entirely.
+            </p>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-500">Cancellation reason (required)</label>
+              <textarea
+                value={cancelReasonInput}
+                onChange={(e) => setCancelReasonInput(e.target.value)}
+                rows={3}
+                autoFocus
+                placeholder="e.g. Customer changed requirement, entered by mistake…"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={() => setCancelTarget(null)}
+                disabled={cancelBusy}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Back
+              </button>
+              <button
+                onClick={async () => {
+                  if (!cancelReasonInput.trim()) { showError("Please enter a cancellation reason."); return; }
+                  setCancelBusy(true);
+                  try {
+                    await cancelSalesOrder(cancelTarget.id, cancelReasonInput.trim());
+                    success(`SO ${cancelTarget.soNumber} cancelled.`);
+                    setCancelTarget(null);
+                  } catch {
+                    showError("Failed to cancel the sales order.");
+                  } finally {
+                    setCancelBusy(false);
+                  }
+                }}
+                disabled={cancelBusy}
+                className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+              >
+                {cancelBusy ? "Cancelling…" : "Cancel Order"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* Active filter banner */}
       {statusFilter && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 flex-shrink-0">
           <span className="text-xs font-medium text-amber-700">
             Filtered: <strong>{statusFilter}</strong> — {displayOrders.length} order{displayOrders.length !== 1 ? "s" : ""}
           </span>
@@ -614,6 +809,7 @@ export default function OrdersPage() {
       )}
 
       {/* Data Grid */}
+      <div className="flex flex-1 min-h-0 flex-col">
       <DataGrid
         data={displayOrders}
         columns={columns}
@@ -622,9 +818,66 @@ export default function OrdersPage() {
         enablePagination={true}
         enableColumnReordering={true}
         enableColumnVisibility={true}
+        scrollMaxHeight="100%"
         initialPageSize={15}
+        // Custom "Export → PDF" — call the bulk-PDF endpoint so the exported
+        // file uses the SAME rich one-SO-per-page document layout as the
+        // Preview / Print view (instead of a flat grid dump).
+        onPdfExport={async (rows) => {
+          const ids = rows.map((s) => parseInt(s.id, 10)).filter((n) => Number.isFinite(n));
+          if (ids.length === 0) return;
+          const { blob, filename } = await salesOrderApi.downloadBulkPdf(ids);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename || `SalesOrders_${new Date().toISOString().slice(0, 10)}_${ids.length}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }}
+        // ZIP variant — one PDF per SO inside a single archive.
+        onPdfZipExport={async (rows) => {
+          const ids = rows.map((s) => parseInt(s.id, 10)).filter((n) => Number.isFinite(n));
+          if (ids.length === 0) return;
+          const { blob, filename } = await salesOrderApi.downloadBulkPdfZip(ids);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename || `SalesOrders_${new Date().toISOString().slice(0, 10)}_${ids.length}.zip`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }}
+        // JPG variant — downloads one image file per selected SO directly
+        // (no ZIP), same as the row-level "Export as Image" action, so the
+        // user can forward each file immediately (e.g. on WhatsApp) without
+        // extracting an archive first. Staggered slightly so the browser
+        // doesn't treat the burst as a single blocked pop-up.
+        onImageExport={async (rows) => {
+          for (const so of rows) {
+            const id = parseInt(so.id, 10);
+            if (!Number.isFinite(id)) continue;
+            try {
+              const { blob, filename } = await salesOrderApi.downloadImage(id);
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = filename || `SO_${so.soNumber.replace(/\//g, "-")}.jpg`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            } catch {
+              // skip a failed row so one bad SO doesn't stop the rest downloading
+            }
+            await new Promise((r) => setTimeout(r, 300));
+          }
+        }}
         onRowClick={(so) => setViewOrder(so)}
         highlightRow={(so) => so.id === viewOrder?.id}
+        dimRow={(so) => so.status === "Cancelled"}
         emptyMessage="No sales orders yet. Create the first one."
         toolbarActions={
           <button
@@ -637,6 +890,7 @@ export default function OrdersPage() {
           </button>
         }
       />
+      </div>
 
       {/* Create / Edit Form Modal */}
       {showForm && (

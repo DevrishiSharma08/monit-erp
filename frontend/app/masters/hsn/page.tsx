@@ -90,6 +90,20 @@ export default function HsnMasterPage() {
 
   const columns: ColumnConfig<HsnCodeRow>[] = useMemo(() => [
     {
+      id: "_actions", accessorKey: "id", header: "",
+      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50, sticky: "left",
+      cell: (info) => {
+        const row = info.row.original;
+        return (
+          <ActionMenu items={[
+            { label: "View",   icon: Eye,    onClick: () => setViewItem(row)       },
+            { label: "Edit",   icon: Pencil, onClick: () => openEdit(row)          },
+            { label: "Delete", icon: Trash2, onClick: () => setDeleteId(row.id), variant: "danger" },
+          ]} />
+        );
+      },
+    },
+    {
       id: "code", accessorKey: "code", header: "HSN Code",
       filterType: "text", enableSorting: true, enableHiding: false, defaultVisible: true, size: 140,
       cell: (info) => <span className="font-mono font-semibold text-gray-900">{info.getValue() as string}</span>,
@@ -148,34 +162,22 @@ export default function HsnMasterPage() {
           v ? "bg-green-50 text-green-700 border-green-200" : "bg-gray-100 text-gray-500 border-gray-200")}>{v ? "Active" : "Inactive"}</span>;
       },
     },
-    {
-      id: "_actions", accessorKey: "id", header: "",
-      filterType: "none", enableSorting: false, enableHiding: false, defaultVisible: true, size: 50,
-      cell: (info) => {
-        const row = info.row.original;
-        return (
-          <ActionMenu items={[
-            { label: "View",   icon: Eye,    onClick: () => setViewItem(row)       },
-            { label: "Edit",   icon: Pencil, onClick: () => openEdit(row)          },
-            { label: "Delete", icon: Trash2, onClick: () => setDeleteId(row.id), variant: "danger" },
-          ]} />
-        );
-      },
-    },
   ], []);
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className="flex h-[calc(100vh-112px)] flex-col gap-4 overflow-hidden">
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2">
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 flex items-center gap-2 flex-shrink-0">
           <AlertTriangle className="h-4 w-4 flex-shrink-0" /> {error}
           <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">✕</button>
         </div>
       )}
+      <div className="flex flex-1 min-h-0 flex-col">
       <DataGrid
         data={data} columns={columns} tableName="hsn-codes"
         enableFilters enablePagination enableColumnReordering enableColumnVisibility
         initialPageSize={15}
+        scrollMaxHeight="100%"
         toolbarActions={
           <button onClick={openAdd} disabled={loading}
             className="flex items-center gap-2 rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-600 shadow-sm disabled:opacity-60">
@@ -184,6 +186,7 @@ export default function HsnMasterPage() {
           </button>
         }
       />
+      </div>
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)}
         title={editItem ? "Edit HSN Code" : "Add HSN Code"} size="sm"

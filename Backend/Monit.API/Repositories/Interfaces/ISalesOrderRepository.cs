@@ -11,5 +11,6 @@ public interface ISalesOrderRepository
     Task                                 UpdateAsync(int id, UpdateSalesOrderDto dto, string updatedBy);
     Task                                 UpdateStatusAsync(int id, string status, string updatedBy);
     Task                                 SoftDeleteAsync(int id, string deletedBy);
+    Task                                 CancelAsync(int id, string reason, string cancelledBy);
     Task                                 MarkEmailSentAsync(int id);
 }
